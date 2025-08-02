@@ -8,7 +8,7 @@ import os
 DEFAULT_AUTO_RESPOND = os.environ.get('AUTO_RESPOND', 'false').lower() == 'true'
 MAX_HISTORY = int(os.environ.get('MAX_HISTORY', 10))
 INITIAL_HISTORY_LOAD = int(os.environ.get('INITIAL_HISTORY_LOAD', 50))
-MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 500))
+MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 400))
 BOT_PREFIX = os.environ.get('BOT_PREFIX', 'Bot, ')
 CHANNEL_LOCK_TIMEOUT = 30  # Timeout for acquiring a channel lock (in seconds)
 
