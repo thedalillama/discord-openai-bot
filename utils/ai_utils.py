@@ -1,17 +1,12 @@
 """
 AI-related utility functions for the Discord bot.
 """
-from openai import OpenAI
-import os
-from config import MAX_RESPONSE_TOKENS, OPENAI_API_KEY, AI_MODEL, DEFAULT_TEMPERATURE
-
-# Set up the OpenAI API client
-client = OpenAI(api_key=OPENAI_API_KEY)
+from ai_providers import get_provider
 
 async def generate_ai_response(messages, max_tokens=None, temperature=None):
     """
     Generate an AI response using the current provider.
-    This function can be modified to use different AI providers in the future.
+    This function maintains the same interface as before but now uses the provider system.
     
     Args:
         messages: List of message objects with role and content
@@ -22,30 +17,12 @@ async def generate_ai_response(messages, max_tokens=None, temperature=None):
         str: The generated response text
     """
     try:
-        # Use default values if not specified
-        if max_tokens is None:
-            max_tokens = MAX_RESPONSE_TOKENS
-        if temperature is None:
-            temperature = DEFAULT_TEMPERATURE
-            
-        # Using the model specified in config
-        response = client.chat.completions.create(
-            model=AI_MODEL,
-            messages=messages,
-            max_tokens=max_tokens,
-            n=1,
-            temperature=temperature
-        )
+        # Get the configured provider
+        provider = get_provider()
         
-        raw_response = response.choices[0].message.content.strip()
-        finish_reason = response.choices[0].finish_reason
+        # Generate response using the provider
+        return await provider.generate_ai_response(messages, max_tokens, temperature)
         
-        # Check if the response was cut off due to length
-        if finish_reason == "length":
-            print(f"Response was truncated due to token limit")
-            return raw_response + "\n\n[Note: Response was truncated due to length. Feel free to ask for more details.]"
-        
-        return raw_response
     except Exception as e:
         print(f"Error generating AI response: {e}")
         raise e  # Re-raise the exception to be handled by the caller
