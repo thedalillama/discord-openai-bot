@@ -15,6 +15,7 @@ CHANNEL_LOCK_TIMEOUT = 30  # Timeout for acquiring a channel lock (in seconds)
 # OpenAI configuration
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 AI_MODEL = os.environ.get('AI_MODEL', 'gpt-4o-mini')
+AI_PROVIDER = os.environ.get('AI_PROVIDER', 'openai')
 DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 
 # Debug configuration
