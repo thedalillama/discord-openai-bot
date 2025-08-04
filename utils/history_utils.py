@@ -20,6 +20,10 @@ channel_locks = {}
 # Format: {channel_id: custom_prompt}
 channel_system_prompts = {}
 
+# Dictionary to store AI providers for each channel
+# Format: {channel_id: provider_name}
+channel_ai_providers = {}
+
 def is_bot_command(message_text):
     """
     Check if a message is a bot command
@@ -65,10 +69,28 @@ def is_history_output(message_text):
         "Auto-response is now " in message_text or     # autorespond responses
         "Auto-response is currently " in message_text or  # autostatus response
         "Current system prompt for" in message_text or  # getprompt response
-        "System prompt for" in message_text and "reset to default" in message_text  # resetprompt response
+        "System prompt for" in message_text and "reset to default" in message_text or  # resetprompt response
+        "AI provider for" in message_text or           # setai responses
+        "Current AI provider for" in message_text      # getai responses
     )
     
     return is_output
+
+def get_system_prompt(channel_id):
+    """
+    Get the system prompt for a channel, falling back to default if none is set
+    
+    Args:
+        channel_id: The Discord channel ID
+        
+    Returns:
+        str: The system prompt to use for this channel
+    """
+    # Return channel-specific prompt if it exists, otherwise return default
+    prompt = channel_system_prompts.get(channel_id, DEFAULT_SYSTEM_PROMPT)
+    if DEBUG_MODE:
+        print(f"[DEBUG] get_system_prompt for channel {channel_id}: {'custom prompt' if channel_id in channel_system_prompts else 'default prompt'}")
+    return prompt
 
 def get_system_prompt(channel_id):
     """
@@ -129,6 +151,51 @@ def set_system_prompt(channel_id, new_prompt):
     else:
         if DEBUG_MODE:
             print(f"[DEBUG] Channel {channel_id} not in channel_history, skipping history update")
+    
+    return True
+
+def get_ai_provider(channel_id):
+    """
+    Get the AI provider for a channel, returning None if no channel-specific setting
+    
+    Args:
+        channel_id: The Discord channel ID
+        
+    Returns:
+        str or None: The provider name for this channel, or None to use default
+    """
+    provider = channel_ai_providers.get(channel_id, None)
+    if DEBUG_MODE:
+        print(f"[DEBUG] get_ai_provider for channel {channel_id}: {'custom provider: ' + provider if provider else 'using default'}")
+    return provider
+
+def set_ai_provider(channel_id, provider_name):
+    """
+    Set a custom AI provider for a channel
+    
+    Args:
+        channel_id: The Discord channel ID
+        provider_name: The provider name (e.g., 'openai', 'anthropic')
+        
+    Returns:
+        bool: True if this is a change, False if same as before
+    """
+    if DEBUG_MODE:
+        print(f"[DEBUG] set_ai_provider called for channel {channel_id}")
+        print(f"[DEBUG] new provider: {provider_name}")
+    
+    current_provider = get_ai_provider(channel_id)
+    if current_provider == provider_name:
+        if DEBUG_MODE:
+            print(f"[DEBUG] Provider unchanged (same as current)")
+        return False
+        
+    # Store the provider in the dictionary
+    channel_ai_providers[channel_id] = provider_name
+    
+    if DEBUG_MODE:
+        print(f"[DEBUG] Updated provider in channel_ai_providers dictionary")
+        print(f"[DEBUG] channel_ai_providers now has {len(channel_ai_providers)} entries")
     
     return True
 

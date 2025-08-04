@@ -272,6 +272,104 @@ def register_history_commands(bot):
             await ctx.send(f"System prompt for #{channel_name} reset to default.")
         else:
             await ctx.send(f"System prompt for #{channel_name} is already set to default.")
+
+    @bot.command(name='setai')
+    @commands.has_permissions(administrator=True)
+    async def set_ai_cmd(ctx, provider_name):
+        """
+        Set the AI provider for the current channel.
+        Usage: !setai [provider]
+        Example: !setai anthropic
+        
+        Args:
+            provider_name: The AI provider to use (openai, anthropic)
+        """
+        channel_id = ctx.channel.id
+        channel_name = ctx.channel.name
+        
+        # Validate provider name
+        valid_providers = ['openai', 'anthropic']
+        provider_name = provider_name.lower()
+        
+        if provider_name not in valid_providers:
+            await ctx.send(f"Invalid AI provider: **{provider_name}**. Valid options: {', '.join(valid_providers)}")
+            return
+        
+        # Check if this is actually a change
+        from utils.history_utils import get_ai_provider, set_ai_provider
+        current_provider = get_ai_provider(channel_id)
+        
+        # If no current provider set, show what the default would be
+        if current_provider is None:
+            from config import AI_PROVIDER
+            current_provider = AI_PROVIDER
+            provider_source = "default"
+        else:
+            provider_source = "channel setting"
+        
+        if current_provider == provider_name:
+            await ctx.send(f"AI provider for #{channel_name} is already set to **{provider_name}** (from {provider_source}).")
+            return
+        
+        # Set the new provider
+        set_ai_provider(channel_id, provider_name)
+        
+        # Send confirmation
+        await ctx.send(f"AI provider for #{channel_name} changed from **{current_provider}** to **{provider_name}**.")
+        
+        if DEBUG_MODE:
+            print(f"[DEBUG] AI provider for channel #{channel_name} ({channel_id}) set to: {provider_name}")
+
+    @bot.command(name='getai')
+    async def get_ai_cmd(ctx):
+        """
+        Show the current AI provider for this channel.
+        Usage: !getai
+        """
+        channel_id = ctx.channel.id
+        channel_name = ctx.channel.name
+        
+        from utils.history_utils import get_ai_provider
+        from config import AI_PROVIDER
+        
+        # Get channel-specific provider
+        channel_provider = get_ai_provider(channel_id)
+        
+        if channel_provider is None:
+            # Using default from config
+            await ctx.send(f"AI provider for #{channel_name}: **{AI_PROVIDER}** (default setting)")
+        else:
+            # Using channel-specific setting
+            await ctx.send(f"AI provider for #{channel_name}: **{channel_provider}** (channel setting)")
+
+    @bot.command(name='resetai')
+    @commands.has_permissions(administrator=True)
+    async def reset_ai_cmd(ctx):
+        """
+        Reset the AI provider for this channel to use the default.
+        Usage: !resetai
+        """
+        channel_id = ctx.channel.id
+        channel_name = ctx.channel.name
+        
+        from utils.history_utils import get_ai_provider, channel_ai_providers
+        from config import AI_PROVIDER
+        
+        # Check if there's a channel-specific setting
+        if channel_id not in channel_ai_providers:
+            await ctx.send(f"AI provider for #{channel_name} is already using the default (**{AI_PROVIDER}**).")
+            return
+        
+        # Get current setting before removing
+        current_provider = get_ai_provider(channel_id)
+        
+        # Remove the channel-specific setting
+        del channel_ai_providers[channel_id]
+        
+        await ctx.send(f"AI provider for #{channel_name} reset from **{current_provider}** to default (**{AI_PROVIDER}**).")
+        
+        if DEBUG_MODE:
+            print(f"[DEBUG] AI provider for channel #{channel_name} ({channel_id}) reset to default: {AI_PROVIDER}")
             
     # Return the commands if needed for further registration
     return {
@@ -280,5 +378,8 @@ def register_history_commands(bot):
         "history": show_history,
         "setprompt": set_prompt_cmd,
         "getprompt": get_prompt_cmd,
-        "resetprompt": reset_prompt_cmd
+        "resetprompt": reset_prompt_cmd,
+        "setai": set_ai_cmd,
+        "getai": get_ai_cmd,
+        "resetai": reset_ai_cmd
     }

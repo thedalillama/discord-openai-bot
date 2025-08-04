@@ -153,8 +153,8 @@ def create_bot():
                     # Use our function to prepare messages for API
                     messages = prepare_messages_for_api(channel_id)
             
-                    # Generate a response
-                    bot_response = await generate_ai_response(messages)
+                    # Generate a response - NOW PASSING CHANNEL_ID
+                    bot_response = await generate_ai_response(messages, channel_id=channel_id)
             
                     # Send the response
                     await message.channel.send(bot_response)
@@ -185,7 +185,9 @@ def create_bot():
                 lowered.startswith('!autosetup') or
                 lowered.startswith('!getprompt') or
                 lowered.startswith('!resetprompt') or
-                lowered.startswith('!setprompt')):  # Add !setprompt to this list
+                lowered.startswith('!setprompt') or
+                lowered.startswith('!setai') or
+                lowered.startswith('!getai')):  # Add !setai and !getai to this list
                 
                 if DEBUG_MODE:
                     print(f"[DEBUG] Detected bot command: {message.content}")
@@ -246,8 +248,8 @@ def create_bot():
                         print(f"[DEBUG] Prepared {len(messages)} messages for API")
                         print(f"[DEBUG] System prompt: {messages[0]['content'][:50]}...")
                     
-                    # Generate a response using our abstracted function
-                    bot_response = await generate_ai_response(messages)
+                    # Generate a response using our abstracted function - NOW PASSING CHANNEL_ID
+                    bot_response = await generate_ai_response(messages, channel_id=channel_id)
                     
                     # Send the generated response back to the user
                     await message.channel.send(bot_response)
