@@ -3,7 +3,7 @@ Anthropic (Claude) provider implementation.
 """
 import anthropic
 from .base import AIProvider
-from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE
+from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE, DEBUG_MODE
 
 class AnthropicProvider(AIProvider):
     """Anthropic Claude provider using messages API"""
@@ -21,6 +21,10 @@ class AnthropicProvider(AIProvider):
         """
         Generate an AI response using Anthropic's messages API.
         """
+
+        if DEBUG_MODE:
+            print(f"[DEBUG] Using Anthropic provider (model: {self.model}) for API call")
+
         try:
             # Use default values if not specified
             if max_tokens is None:
