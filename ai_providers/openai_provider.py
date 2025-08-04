@@ -3,7 +3,8 @@ OpenAI provider implementation.
 """
 from openai import OpenAI
 from .base import AIProvider
-from config import OPENAI_API_KEY, AI_MODEL, DEFAULT_TEMPERATURE
+from config import OPENAI_API_KEY, AI_MODEL, DEFAULT_TEMPERATURE, DEBUG_MODE
+
 
 class OpenAIProvider(AIProvider):
     """OpenAI provider using chat completions API"""
@@ -22,6 +23,10 @@ class OpenAIProvider(AIProvider):
         Generate an AI response using OpenAI's chat completions API.
         This is the same logic that was in ai_utils.py
         """
+
+        if DEBUG_MODE:
+            print(f"[DEBUG] Using OpenAI provider (model: {self.model}) for API call")
+
         try:
             # Use default values if not specified
             if max_tokens is None:

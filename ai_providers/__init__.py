@@ -3,6 +3,7 @@ AI Providers package - factory for creating AI provider instances.
 """
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
+from config import DEBUG_MODE
 
 def get_provider(provider_name=None, channel_id=None):
     """
@@ -27,6 +28,9 @@ def get_provider(provider_name=None, channel_id=None):
     
     provider_name = provider_name.lower()
     
+    if DEBUG_MODE:
+        print(f"[DEBUG] Provider factory selecting: {provider_name} (channel_id: {channel_id})")
+
     if provider_name == 'openai':
         return OpenAIProvider()
     elif provider_name == 'anthropic':

@@ -25,7 +25,8 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
 
 # Debug configuration
-DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+# DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+DEBUG_MODE = True
 
 # History display configuration
 HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')  # Default prefix that's unlikely to appear in normal messages
