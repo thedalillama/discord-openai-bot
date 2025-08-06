@@ -4,6 +4,7 @@ Anthropic (Claude) provider implementation.
 import anthropic
 from .base import AIProvider
 from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE, DEBUG_MODE
+from utils.logging_utils import get_logger
 
 class AnthropicProvider(AIProvider):
     """Anthropic Claude provider using messages API"""
@@ -16,6 +17,7 @@ class AnthropicProvider(AIProvider):
         self.max_context_length = 200000  # Claude has 200k context window
         self.max_response_tokens = 300    # Keep same limit as OpenAI for consistency
         self.supports_images = True       # Claude supports vision
+        self.logger = get_logger('anthropic')
     
     async def generate_ai_response(self, messages, max_tokens=None, temperature=None):
         """
@@ -23,7 +25,7 @@ class AnthropicProvider(AIProvider):
         """
 
         if DEBUG_MODE:
-            print(f"[DEBUG] Using Anthropic provider (model: {self.model}) for API call")
+            self.logger.debug(f"Using Anthropic provider (model: {self.model}) for API call")
 
         try:
             # Use default values if not specified
@@ -51,7 +53,11 @@ class AnthropicProvider(AIProvider):
                         "role": msg["role"],
                         "content": content
                     })
-       
+
+            # Log the final system prompt being sent to API
+            self.logger.debug(f"Sending system prompt to Anthropic API: '{system_prompt}'")
+            self.logger.debug(f"Number of messages: {len(claude_messages)}")
+
             # Create the completion
             response = self.client.messages.create(
                 model=self.model,
@@ -65,11 +71,11 @@ class AnthropicProvider(AIProvider):
         
             # Check if the response was cut off due to length
             if response.stop_reason == "max_tokens":
-                print(f"Response was truncated due to token limit")
+                self.logger.warning(f"Response was truncated due to token limit")
                 return raw_response + "\n\n[Note: Response was truncated due to length. Feel free to ask for more details.]"
 
             return raw_response
         
         except Exception as e:
-            print(f"Error generating AI response from Anthropic: {e}")
+            self.logger.error(f"Error generating AI response from Anthropic: {e}")
             raise e
