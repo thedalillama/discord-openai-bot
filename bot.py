@@ -17,6 +17,7 @@ from utils.history_utils import (
     channel_history, loaded_history_channels, channel_locks,
     prepare_messages_for_api
 )
+from utils.logging_utils import get_logger
 
 # Import command modules
 from commands import register_commands
@@ -26,6 +27,8 @@ auto_respond_channels = set()
 
 def create_bot():
     """Create and configure the Discord bot"""
+    logger = get_logger('events')
+    
     # Set up the Discord bot with intents
     intents = discord.Intents.default()
     intents.messages = True
@@ -35,35 +38,34 @@ def create_bot():
     # Register event handlers
     @bot.event
     async def on_ready():
-        print(f'{bot.user} has connected to Discord!')
-        print(f'Default auto-respond mode: {DEFAULT_AUTO_RESPOND}')
-        print(f'Max history: {MAX_HISTORY} messages')
-        print(f'Initial history load: {INITIAL_HISTORY_LOAD} messages')
-        print(f'Max response tokens: {MAX_RESPONSE_TOKENS}')
-        print(f'Debug mode: {DEBUG_MODE}')
+        logger.info(f'{bot.user} has connected to Discord!')
+        logger.info(f'Default auto-respond mode: {DEFAULT_AUTO_RESPOND}')
+        logger.info(f'Max history: {MAX_HISTORY} messages')
+        logger.info(f'Initial history load: {INITIAL_HISTORY_LOAD} messages')
+        logger.info(f'Max response tokens: {MAX_RESPONSE_TOKENS}')
+        logger.info(f'Debug mode: {DEBUG_MODE}')
         
         # Clear the loaded history channels set on startup
         if loaded_history_channels:
-            if DEBUG_MODE:
-                print(f"Clearing loaded_history_channels dictionary. Had {len(loaded_history_channels)} entries.")
+            logger.debug(f"Clearing loaded_history_channels dictionary. Had {len(loaded_history_channels)} entries.")
         loaded_history_channels.clear()
         
         # Apply default auto-respond setting to all channels the bot can see
         if DEFAULT_AUTO_RESPOND:
-            print("Applying default auto-respond setting (enabled) to available channels")
+            logger.info("Applying default auto-respond setting (enabled) to available channels")
             for guild in bot.guilds:
                 for channel in guild.text_channels:
                     try:
                         # Check if the bot has permission to send messages in this channel
                         if channel.permissions_for(guild.me).send_messages:
                             auto_respond_channels.add(channel.id)
-                            print(f"  - Enabled auto-respond for #{channel.name} ({channel.id})")
+                            logger.info(f"  - Enabled auto-respond for #{channel.name} ({channel.id})")
                     except Exception as e:
-                        print(f"  - Error enabling auto-respond for #{channel.name}: {e}")
+                        logger.warning(f"  - Error enabling auto-respond for #{channel.name}: {e}")
         else:
             # Clear auto-respond channels if default is set to false
             auto_respond_channels.clear()
-            print("Default auto-respond setting is disabled")
+            logger.info("Default auto-respond setting is disabled")
 
     @bot.event
     async def on_message(message):
@@ -83,18 +85,16 @@ def create_bot():
         # Get channel ID
         channel_id = message.channel.id
         
-        # DEBUG: Print information about this message
-        if DEBUG_MODE:
-            print(f"\n[DEBUG] Received message in #{message.channel.name} ({channel_id})")
-            print(f"[DEBUG] Message content: {message.content[:50]}...")
-            print(f"[DEBUG] Is channel in loaded_history_channels? {channel_id in loaded_history_channels}")
-            print(f"[DEBUG] Current channel history length: {len(channel_history.get(channel_id, []))}")
+        # Log information about this message
+        logger.debug(f"Received message in #{message.channel.name} ({channel_id})")
+        logger.debug(f"Message content: {message.content[:50]}...")
+        logger.debug(f"Is channel in loaded_history_channels? {channel_id in loaded_history_channels}")
+        logger.debug(f"Current channel history length: {len(channel_history.get(channel_id, []))}")
         
         # IMPORTANT: Move the history loading check to happen before command filtering
         # Automatically load history for this channel if it's not loaded yet
         if channel_id not in loaded_history_channels:
-            if DEBUG_MODE:
-                print(f"[DEBUG] Channel #{message.channel.name} not in loaded_history_channels, loading history...")
+            logger.debug(f"Channel #{message.channel.name} not in loaded_history_channels, loading history...")
             
             try:
                 # Show typing indicator while loading history (visual feedback)
@@ -104,28 +104,25 @@ def create_bot():
                     await load_channel_history(message.channel, is_automatic=True)
             
                     # Log that history was loaded automatically
-                    if DEBUG_MODE or len(channel_history[channel_id]) > 0:
-                        print(f"Auto-loaded {len(channel_history[channel_id])} messages for channel #{message.channel.name}")
+                    if len(channel_history[channel_id]) > 0:
+                        logger.info(f"Auto-loaded {len(channel_history[channel_id])} messages for channel #{message.channel.name}")
                 
                 # Only mark the channel as loaded AFTER successfully loading history
                 import datetime
                 loaded_history_channels[channel_id] = datetime.datetime.now()
                 
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Added channel #{message.channel.name} to loaded_history_channels")
-                    print(f"[DEBUG] Current loaded_history_channels: {loaded_history_channels.keys()}")
+                logger.debug(f"Added channel #{message.channel.name} to loaded_history_channels")
+                logger.debug(f"Current loaded_history_channels: {list(loaded_history_channels.keys())}")
             
             except Exception as e:
-                print(f"[ERROR] Failed to load history for channel #{message.channel.name}: {str(e)}")
+                logger.error(f"Failed to load history for channel #{message.channel.name}: {str(e)}")
                 # Don't add to loaded_history_channels on failure
         else:
-            if DEBUG_MODE:
-                print(f"[DEBUG] Channel #{message.channel.name} already in loaded_history_channels, skipping history load")
+            logger.debug(f"Channel #{message.channel.name} already in loaded_history_channels, skipping history load")
         
         # Check if message starts with the bot prefix
         if message.content.lower().startswith(BOT_PREFIX.lower()):
-            if DEBUG_MODE:
-                print(f"[DEBUG] Detected prefix message: {message.content}")
+            logger.debug(f"Detected prefix message: {message.content}")
     
             # Extract the question (remove prefix)
             question = message.content[len(BOT_PREFIX):].strip()
@@ -167,34 +164,19 @@ def create_bot():
                 except Exception as e:
                     error_msg = f"An error occurred: {str(e)}"
                     await message.channel.send(error_msg)
-                    print(f"[ERROR] Error details: {e}")
+                    logger.error(f"Error processing prefix message: {e}")
     
             # Skip the auto-respond logic but still process other commands
             await bot.process_commands(message)
             return
 
-        # Enhanced command filtering - skip history-related commands
+        # Enhanced command filtering - skip ALL commands that start with !
         if message.content.startswith('!'):
-            # These commands should be processed but not added to history
-            lowered = message.content.lower()
-            if (lowered.startswith('!history') or 
-                lowered.startswith('!loadhistory') or 
-                lowered.startswith('!cleanhistory') or
-                lowered.startswith('!autorespond') or
-                lowered.startswith('!autostatus') or
-                lowered.startswith('!autosetup') or
-                lowered.startswith('!getprompt') or
-                lowered.startswith('!resetprompt') or
-                lowered.startswith('!setprompt') or
-                lowered.startswith('!setai') or
-                lowered.startswith('!getai')):  # Add !setai and !getai to this list
-                
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Detected bot command: {message.content}")
-                    print(f"[DEBUG] Processing command and skipping history addition")
-                
-                await bot.process_commands(message)
-                return  # Skip adding these to history entirely
+            logger.debug(f"Detected command: {message.content}")
+            logger.debug("Processing command and skipping history addition")
+            
+            await bot.process_commands(message)
+            return  # Skip adding ANY commands to history
         
         # Add the message to the channel's history
         user_name = message.author.display_name
@@ -219,15 +201,13 @@ def create_bot():
                 "content": f"{user_name}: {message.content}"
             })
         
-        if DEBUG_MODE:
-            print(f"[DEBUG] Added message to history. New length: {len(channel_history[channel_id])}")
+        logger.debug(f"Added message to history. New length: {len(channel_history[channel_id])}")
         
         # Trim history if it gets too long
         if len(channel_history[channel_id]) > MAX_HISTORY:
             old_length = len(channel_history[channel_id])
             channel_history[channel_id] = channel_history[channel_id][-MAX_HISTORY:]
-            if DEBUG_MODE:
-                print(f"[DEBUG] Trimmed history from {old_length} to {len(channel_history[channel_id])} messages")
+            logger.debug(f"Trimmed history from {old_length} to {len(channel_history[channel_id])} messages")
         
         # Check if we should auto-respond using is_bot_command
         should_auto_respond = (
@@ -236,17 +216,15 @@ def create_bot():
         )
 
         if should_auto_respond:
-            if DEBUG_MODE:
-                print(f"[DEBUG] Auto-responding to message: {message.content[:50]}...")
+            logger.debug(f"Auto-responding to message: {message.content[:50]}...")
             
             async with message.channel.typing():
                 try:
                     # Use our new function to prepare messages for API
                     messages = prepare_messages_for_api(channel_id)
                     
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] Prepared {len(messages)} messages for API")
-                        print(f"[DEBUG] System prompt: {messages[0]['content'][:50]}...")
+                    logger.debug(f"Prepared {len(messages)} messages for API")
+                    logger.debug(f"System prompt: {messages[0]['content'][:50]}...")
                     
                     # Generate a response using our abstracted function - NOW PASSING CHANNEL_ID
                     bot_response = await generate_ai_response(messages, channel_id=channel_id)
@@ -260,13 +238,12 @@ def create_bot():
                         "content": bot_response
                     })
                     
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] Added bot response to history. New length: {len(channel_history[channel_id])}")
+                    logger.debug(f"Added bot response to history. New length: {len(channel_history[channel_id])}")
                     
                 except Exception as e:
                     error_msg = f"An error occurred: {str(e)}"
                     await message.channel.send(error_msg)
-                    print(f"[ERROR] Error details: {e}")  # Log detailed error to console
+                    logger.error(f"Error in auto-response: {e}")
         
         # Process commands (this is needed for the bot to respond to commands)
         await bot.process_commands(message)

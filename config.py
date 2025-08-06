@@ -8,7 +8,7 @@ import os
 DEFAULT_AUTO_RESPOND = os.environ.get('AUTO_RESPOND', 'false').lower() == 'true'
 MAX_HISTORY = int(os.environ.get('MAX_HISTORY', 10))
 INITIAL_HISTORY_LOAD = int(os.environ.get('INITIAL_HISTORY_LOAD', 50))
-MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 300))
+MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 800))
 BOT_PREFIX = os.environ.get('BOT_PREFIX', 'Bot, ')
 CHANNEL_LOCK_TIMEOUT = 30  # Timeout for acquiring a channel lock (in seconds)
 
@@ -25,8 +25,12 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
 
 # Debug configuration
-# DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-DEBUG_MODE = True
+DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+
+# Logging configuration
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'DEBUG' if DEBUG_MODE else 'INFO').upper()
+LOG_FILE = os.environ.get('LOG_FILE', 'stdout')
+LOG_FORMAT = os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s')
 
 # History display configuration
 HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')  # Default prefix that's unlikely to appear in normal messages
