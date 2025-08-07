@@ -3,7 +3,10 @@ AI Providers package - factory for creating AI provider instances.
 """
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
-from config import DEBUG_MODE
+from utils.logging_utils import get_logger
+
+# Get logger for this module
+logger = get_logger('ai_providers')
 
 def get_provider(provider_name=None, channel_id=None):
     """
@@ -18,7 +21,7 @@ def get_provider(provider_name=None, channel_id=None):
     """
     # If no provider specified, check channel-specific setting first
     if provider_name is None and channel_id is not None:
-        from utils.history_utils import get_ai_provider
+        from utils.history import get_ai_provider  # Fixed import!
         provider_name = get_ai_provider(channel_id)
     
     # If still no provider, fall back to config default
@@ -28,15 +31,16 @@ def get_provider(provider_name=None, channel_id=None):
     
     provider_name = provider_name.lower()
     
-    if DEBUG_MODE:
-        print(f"[DEBUG] Provider factory selecting: {provider_name} (channel_id: {channel_id})")
+    logger.debug(f"Provider factory selecting: {provider_name} (channel_id: {channel_id})")
 
     if provider_name == 'openai':
         return OpenAIProvider()
     elif provider_name == 'anthropic':
         return AnthropicProvider()
     else:
-        raise ValueError(f"Unsupported AI provider: {provider_name}. Supported providers: openai, anthropic")
+        error_msg = f"Unsupported AI provider: {provider_name}. Supported providers: openai, anthropic"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
 # For convenience, also export the base class
 from .base import AIProvider

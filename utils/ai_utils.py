@@ -2,6 +2,10 @@
 AI-related utility functions for the Discord bot.
 """
 from ai_providers import get_provider
+from utils.logging_utils import get_logger
+
+# Get logger for AI utilities
+logger = get_logger('ai')
 
 async def generate_ai_response(messages, max_tokens=None, temperature=None, channel_id=None):
     """
@@ -18,12 +22,19 @@ async def generate_ai_response(messages, max_tokens=None, temperature=None, chan
         str: The generated response text
     """
     try:
+        logger.debug(f"Generating AI response for channel {channel_id}")
+        
         # Get the configured provider (checks channel-specific setting if channel_id provided)
         provider = get_provider(channel_id=channel_id)
         
+        logger.debug(f"Using {provider.name} provider for response generation")
+        
         # Generate response using the provider
-        return await provider.generate_ai_response(messages, max_tokens, temperature)
+        response = await provider.generate_ai_response(messages, max_tokens, temperature)
+        
+        logger.debug(f"AI response generated successfully (length: {len(response)} chars)")
+        return response
         
     except Exception as e:
-        print(f"Error generating AI response: {e}")
+        logger.error(f"Error generating AI response: {e}")
         raise e  # Re-raise the exception to be handled by the caller
