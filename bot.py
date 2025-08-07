@@ -12,7 +12,7 @@ from config import (
     MAX_RESPONSE_TOKENS, DEFAULT_SYSTEM_PROMPT, DEBUG_MODE, BOT_PREFIX
 )
 from utils.ai_utils import generate_ai_response
-from utils.history_utils import (
+from utils.history import (
     load_channel_history, is_bot_command, 
     channel_history, loaded_history_channels, channel_locks,
     prepare_messages_for_api

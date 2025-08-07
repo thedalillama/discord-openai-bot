@@ -2,12 +2,17 @@
 History-related commands for the Discord bot.
 """
 from discord.ext import commands
-from utils.history_utils import (
+from utils.history import (
     load_channel_history, is_bot_command, is_history_output,
     channel_history, loaded_history_channels,
-    prepare_messages_for_api, channel_system_prompts, get_system_prompt, set_system_prompt
+    prepare_messages_for_api, channel_system_prompts, get_system_prompt, set_system_prompt,
+    get_ai_provider, set_ai_provider, channel_ai_providers
 )
 from config import DEBUG_MODE, HISTORY_LINE_PREFIX, DEFAULT_SYSTEM_PROMPT
+from utils.logging_utils import get_logger
+
+# Get logger for command execution
+logger = get_logger('commands.history')
 
 def register_history_commands(bot):
     """Register history-related commands with the bot"""
@@ -21,6 +26,8 @@ def register_history_commands(bot):
         """
         channel_id = ctx.channel.id
         
+        logger.info(f"Manual history load requested for #{ctx.channel.name} by {ctx.author.display_name}")
+        
         # Remove from loaded channels dictionary to force a reload
         if channel_id in loaded_history_channels:
             del loaded_history_channels[channel_id]
@@ -32,8 +39,7 @@ def register_history_commands(bot):
         current_prompt = None
         if channel_id in channel_system_prompts:
             current_prompt = channel_system_prompts[channel_id]
-            if DEBUG_MODE:
-                print(f"[DEBUG] Saved current system prompt before reloading: {current_prompt[:50]}...")
+            logger.debug(f"Saved current system prompt before reloading: {current_prompt[:50]}...")
         
         # Load the history (without timestamp filtering)
         await load_channel_history(ctx.channel, is_automatic=False)
@@ -51,12 +57,12 @@ def register_history_commands(bot):
         # If we had a custom prompt before reloading and didn't find one in history,
         # restore it to ensure continuity
         if current_prompt and channel_id not in channel_system_prompts:
-            if DEBUG_MODE:
-                print(f"[DEBUG] Restoring saved system prompt after reload: {current_prompt[:50]}...")
-            
+            logger.debug(f"Restoring saved system prompt after reload: {current_prompt[:50]}...")
             set_system_prompt(channel_id, current_prompt)
         
-        await ctx.send(f"Loaded {len(channel_history[channel_id])} messages from channel history.")
+        message_count = len(channel_history[channel_id])
+        await ctx.send(f"Loaded {message_count} messages from channel history.")
+        logger.info(f"Successfully loaded {message_count} messages for #{ctx.channel.name}")
 
     @bot.command(name='cleanhistory')
     @commands.has_permissions(administrator=True)
@@ -67,9 +73,10 @@ def register_history_commands(bot):
         """
         channel_id = ctx.channel.id
         
+        logger.info(f"History cleanup requested for #{ctx.channel.name} by {ctx.author.display_name}")
+        
         if channel_id not in channel_history or not channel_history[channel_id]:
-            # Just log to console instead of sending a message
-            print(f"No conversation history available for channel {channel_id}")
+            logger.debug(f"No conversation history available for channel {channel_id}")
             return
         
         before_count = len(channel_history[channel_id])
@@ -88,6 +95,7 @@ def register_history_commands(bot):
         removed = before_count - after_count
         
         await ctx.send(f"Cleaned history: removed {removed} command and history output messages, {after_count} messages remaining.")
+        logger.info(f"Cleaned {removed} messages from #{ctx.channel.name} history")
 
     @bot.command(name='history')
     @commands.has_permissions(administrator=True)
@@ -102,23 +110,19 @@ def register_history_commands(bot):
         """
         channel_id = ctx.channel.id
         
+        logger.info(f"History display requested for #{ctx.channel.name} by {ctx.author.display_name} (count: {count})")
+        
         if channel_id not in channel_history or not channel_history[channel_id]:
-            # Instead of sending a message, just log to console
-            print(f"No conversation history available for channel {channel_id}")
+            logger.debug(f"No conversation history available for channel {channel_id}")
             return
         
         # Debug: Only print debug info if DEBUG_MODE is enabled
         if DEBUG_MODE:
-            print("\n----- HISTORY DEBUG -----")
-            print(f"Total messages in history: {len(channel_history[channel_id])}")
+            logger.debug(f"Total messages in history: {len(channel_history[channel_id])}")
             for i, msg in enumerate(channel_history[channel_id]):
-                print(f"{i+1}. {msg['role']}: {msg['content'][:50]}...")
-            print("----- END DEBUG -----\n")
+                logger.debug(f"{i+1}. {msg['role']}: {msg['content'][:50]}...")
         
-        # Filter the history to remove:
-        # 1. Any history command outputs before showing
-        # 2. Empty bot messages or messages with no actual content
-        # 3. System messages except custom prompts
+        # Filter the history to remove unwanted messages
         filtered_history = []
         for msg in channel_history[channel_id]:
             # Skip command messages
@@ -146,7 +150,7 @@ def register_history_commands(bot):
         
         # If filtered history is empty, just return without a message
         if not filtered_history:
-            print(f"No conversation history available after filtering for channel {channel_id}")
+            logger.debug(f"No conversation history available after filtering for channel {channel_id}")
             return
         
         # If count is not specified, show all messages (up to a reasonable limit)
@@ -164,7 +168,7 @@ def register_history_commands(bot):
         # Create a header message
         await ctx.send(f"**Conversation History** - Showing {len(history)} of {total_messages} messages")
         
-        # Create a single formatted message for the history
+        # Create formatted messages for the history
         history_text = ""
         for i, msg in enumerate(history):
             role = msg["role"]
@@ -197,6 +201,8 @@ def register_history_commands(bot):
         # Send any remaining history text
         if history_text:
             await ctx.send(history_text)
+        
+        logger.info(f"Displayed {len(history)} history messages for #{ctx.channel.name}")
 
     @bot.command(name='setprompt')
     @commands.has_permissions(administrator=True)
@@ -212,6 +218,9 @@ def register_history_commands(bot):
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
         
+        logger.info(f"System prompt update requested for #{channel_name} by {ctx.author.display_name}")
+        logger.debug(f"New prompt: {new_prompt}")
+        
         # Set the new prompt
         was_updated = set_system_prompt(channel_id, new_prompt)
         
@@ -219,12 +228,10 @@ def register_history_commands(bot):
             # Send response with NO special prefix to make it more likely to be kept in history
             response = f"System prompt updated for #{channel_name}.\nNew prompt: **{new_prompt}**"
             await ctx.send(response)
-            
-            # Add a special log message for debugging
-            if DEBUG_MODE:
-                print(f"[DEBUG] System prompt updated to: {new_prompt}")
+            logger.info(f"System prompt updated for #{channel_name}")
         else:
             await ctx.send(f"System prompt unchanged (same as current setting).")
+            logger.debug(f"System prompt unchanged for #{channel_name}")
 
     @bot.command(name='getprompt')
     async def get_prompt_cmd(ctx):
@@ -235,6 +242,8 @@ def register_history_commands(bot):
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
         prompt = get_system_prompt(channel_id)
+        
+        logger.debug(f"System prompt requested for #{channel_name} by {ctx.author.display_name}")
         
         await ctx.send(f"Current system prompt for #{channel_name}:\n\n**{prompt}**")
 
@@ -247,6 +256,8 @@ def register_history_commands(bot):
         """
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
+        
+        logger.info(f"System prompt reset requested for #{channel_name} by {ctx.author.display_name}")
         
         # Record the current prompt for logging
         current_prompt = get_system_prompt(channel_id)
@@ -265,9 +276,8 @@ def register_history_commands(bot):
             # Now remove the custom prompt
             del channel_system_prompts[channel_id]
             
-            if DEBUG_MODE:
-                print(f"[DEBUG] Reset system prompt from: {current_prompt[:50]}...")
-                print(f"[DEBUG] To default: {DEFAULT_SYSTEM_PROMPT[:50]}...")
+            logger.debug(f"Reset system prompt from: {current_prompt[:50]}...")
+            logger.debug(f"To default: {DEFAULT_SYSTEM_PROMPT[:50]}...")
             
             await ctx.send(f"System prompt for #{channel_name} reset to default.")
         else:
@@ -287,16 +297,19 @@ def register_history_commands(bot):
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
         
+        logger.info(f"AI provider change requested for #{channel_name} by {ctx.author.display_name}")
+        logger.debug(f"Requested provider: {provider_name}")
+        
         # Validate provider name
         valid_providers = ['openai', 'anthropic']
         provider_name = provider_name.lower()
         
         if provider_name not in valid_providers:
             await ctx.send(f"Invalid AI provider: **{provider_name}**. Valid options: {', '.join(valid_providers)}")
+            logger.warning(f"Invalid AI provider requested: {provider_name}")
             return
         
         # Check if this is actually a change
-        from utils.history_utils import get_ai_provider, set_ai_provider
         current_provider = get_ai_provider(channel_id)
         
         # If no current provider set, show what the default would be
@@ -309,6 +322,7 @@ def register_history_commands(bot):
         
         if current_provider == provider_name:
             await ctx.send(f"AI provider for #{channel_name} is already set to **{provider_name}** (from {provider_source}).")
+            logger.debug(f"AI provider unchanged: {provider_name}")
             return
         
         # Set the new provider
@@ -316,9 +330,7 @@ def register_history_commands(bot):
         
         # Send confirmation
         await ctx.send(f"AI provider for #{channel_name} changed from **{current_provider}** to **{provider_name}**.")
-        
-        if DEBUG_MODE:
-            print(f"[DEBUG] AI provider for channel #{channel_name} ({channel_id}) set to: {provider_name}")
+        logger.info(f"AI provider for #{channel_name} changed from {current_provider} to {provider_name}")
 
     @bot.command(name='getai')
     async def get_ai_cmd(ctx):
@@ -329,11 +341,12 @@ def register_history_commands(bot):
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
         
-        from utils.history_utils import get_ai_provider
         from config import AI_PROVIDER
         
         # Get channel-specific provider
         channel_provider = get_ai_provider(channel_id)
+        
+        logger.debug(f"AI provider requested for #{channel_name} by {ctx.author.display_name}")
         
         if channel_provider is None:
             # Using default from config
@@ -352,12 +365,14 @@ def register_history_commands(bot):
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
         
-        from utils.history_utils import get_ai_provider, channel_ai_providers
         from config import AI_PROVIDER
+        
+        logger.info(f"AI provider reset requested for #{channel_name} by {ctx.author.display_name}")
         
         # Check if there's a channel-specific setting
         if channel_id not in channel_ai_providers:
             await ctx.send(f"AI provider for #{channel_name} is already using the default (**{AI_PROVIDER}**).")
+            logger.debug(f"AI provider already using default for #{channel_name}")
             return
         
         # Get current setting before removing
@@ -367,9 +382,7 @@ def register_history_commands(bot):
         del channel_ai_providers[channel_id]
         
         await ctx.send(f"AI provider for #{channel_name} reset from **{current_provider}** to default (**{AI_PROVIDER}**).")
-        
-        if DEBUG_MODE:
-            print(f"[DEBUG] AI provider for channel #{channel_name} ({channel_id}) reset to default: {AI_PROVIDER}")
+        logger.info(f"AI provider for #{channel_name} reset from {current_provider} to default")
             
     # Return the commands if needed for further registration
     return {
