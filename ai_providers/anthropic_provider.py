@@ -3,7 +3,7 @@ Anthropic (Claude) provider implementation.
 """
 import anthropic
 from .base import AIProvider
-from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE, DEBUG_MODE
+from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE
 from utils.logging_utils import get_logger
 
 class AnthropicProvider(AIProvider):
@@ -24,8 +24,7 @@ class AnthropicProvider(AIProvider):
         Generate an AI response using Anthropic's messages API.
         """
 
-        if DEBUG_MODE:
-            self.logger.debug(f"Using Anthropic provider (model: {self.model}) for API call")
+        self.logger.debug(f"Using Anthropic provider (model: {self.model}) for API call")
 
         try:
             # Use default values if not specified
@@ -42,6 +41,7 @@ class AnthropicProvider(AIProvider):
                 if msg["role"] == "system":
                     # Use the last system message as the system prompt
                     system_prompt = msg["content"]
+                    self.logger.debug(f"Extracted system prompt: '{system_prompt}'")
                 elif msg["role"] in ["user", "assistant"]:
                     # For user messages, include the name info in content if it exists
                     content = msg["content"]
@@ -53,11 +53,11 @@ class AnthropicProvider(AIProvider):
                         "role": msg["role"],
                         "content": content
                     })
-
+            
             # Log the final system prompt being sent to API
             self.logger.debug(f"Sending system prompt to Anthropic API: '{system_prompt}'")
             self.logger.debug(f"Number of messages: {len(claude_messages)}")
-
+       
             # Create the completion
             response = self.client.messages.create(
                 model=self.model,
@@ -74,6 +74,7 @@ class AnthropicProvider(AIProvider):
                 self.logger.warning(f"Response was truncated due to token limit")
                 return raw_response + "\n\n[Note: Response was truncated due to length. Feel free to ask for more details.]"
 
+            self.logger.debug(f"Anthropic API response received successfully")
             return raw_response
         
         except Exception as e:

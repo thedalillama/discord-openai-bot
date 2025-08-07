@@ -8,7 +8,7 @@ from utils.history import (
     prepare_messages_for_api, channel_system_prompts, get_system_prompt, set_system_prompt,
     get_ai_provider, set_ai_provider, channel_ai_providers
 )
-from config import DEBUG_MODE, HISTORY_LINE_PREFIX, DEFAULT_SYSTEM_PROMPT
+from config import HISTORY_LINE_PREFIX, DEFAULT_SYSTEM_PROMPT
 from utils.logging_utils import get_logger
 
 # Get logger for command execution
@@ -116,11 +116,10 @@ def register_history_commands(bot):
             logger.debug(f"No conversation history available for channel {channel_id}")
             return
         
-        # Debug: Only print debug info if DEBUG_MODE is enabled
-        if DEBUG_MODE:
-            logger.debug(f"Total messages in history: {len(channel_history[channel_id])}")
-            for i, msg in enumerate(channel_history[channel_id]):
-                logger.debug(f"{i+1}. {msg['role']}: {msg['content'][:50]}...")
+        # Log total messages for debugging
+        logger.debug(f"Total messages in history: {len(channel_history[channel_id])}")
+        for i, msg in enumerate(channel_history[channel_id][:5]):  # Log first 5 for debugging
+            logger.debug(f"{i+1}. {msg['role']}: {msg['content'][:50]}...")
         
         # Filter the history to remove unwanted messages
         filtered_history = []
