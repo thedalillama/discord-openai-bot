@@ -36,73 +36,89 @@ def create_bot():
     intents.message_content = True  # This is required for the bot to read message content
     bot = commands.Bot(command_prefix='!', intents=intents)
     
-    async def handle_ai_response(message, channel_id, messages):
+    async def handle_ai_response_task(message, channel_id, messages):
         """
-        Helper function to handle AI response (both text and images)
-        This is used in both prefix and auto-response scenarios
+        Background task to handle AI response (both text and images)
+        This runs in the background to avoid blocking Discord's heartbeat
         """
-        async with message.channel.typing():
-            try:
-                # Generate response using our abstracted function
-                bot_response = await generate_ai_response(messages, channel_id=channel_id)
+        try:
+            # Generate response using our abstracted function
+            bot_response = await generate_ai_response(messages, channel_id=channel_id)
+            
+            # Handle both old string format and new structured format
+            if isinstance(bot_response, str):
+                # Legacy format - just text
+                await message.channel.send(bot_response)
                 
-                # Handle both old string format and new structured format
-                if isinstance(bot_response, str):
-                    # Legacy format - just text
-                    await message.channel.send(bot_response)
-                    
-                    # Add bot's response to the history
+                # Add bot's response to the history
+                channel_history[channel_id].append({
+                    "role": "assistant",
+                    "content": bot_response
+                })
+                
+            elif isinstance(bot_response, dict):
+                # New structured format
+                text_content = bot_response.get("text", "")
+                images = bot_response.get("images", [])
+                
+                # Send text response if available
+                if text_content.strip():
+                    await message.channel.send(text_content)
+                
+                # Send images if any were generated
+                for i, image in enumerate(images):
+                    try:
+                        # Create Discord file from image data
+                        image_data = image["data"]
+                        filename = f"generated_image_{i+1}.png"
+                        
+                        # Create a BytesIO object from the image data
+                        image_buffer = io.BytesIO(image_data)
+                        
+                        # Create Discord file object
+                        discord_file = discord.File(image_buffer, filename=filename)
+                        
+                        # Send the image
+                        await message.channel.send(file=discord_file)
+                        
+                        logger.debug(f"Sent generated image: {filename}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error sending generated image: {e}")
+                        await message.channel.send("⚠️ I generated an image but couldn't send it.")
+                
+                # Add response to history (text only - don't store image data in history)
+                history_content = text_content
+                if images:
+                    history_content += f"\n[Generated {len(images)} image(s)]"
+                
+                if history_content.strip():
                     channel_history[channel_id].append({
-                        "role": "assistant",
-                        "content": bot_response
+                        "role": "assistant", 
+                        "content": history_content
                     })
                     
-                elif isinstance(bot_response, dict):
-                    # New structured format
-                    text_content = bot_response.get("text", "")
-                    images = bot_response.get("images", [])
-                    
-                    # Send text response if available
-                    if text_content.strip():
-                        await message.channel.send(text_content)
-                    
-                    # Send images if any were generated
-                    for i, image in enumerate(images):
-                        try:
-                            # Create Discord file from image data
-                            image_data = image["data"]
-                            filename = f"generated_image_{i+1}.png"
-                            
-                            # Create a BytesIO object from the image data
-                            image_buffer = io.BytesIO(image_data)
-                            
-                            # Create Discord file object
-                            discord_file = discord.File(image_buffer, filename=filename)
-                            
-                            # Send the image
-                            await message.channel.send(file=discord_file)
-                            
-                            logger.debug(f"Sent generated image: {filename}")
-                            
-                        except Exception as e:
-                            logger.error(f"Error sending generated image: {e}")
-                            await message.channel.send("⚠️ I generated an image but couldn't send it.")
-                    
-                    # Add response to history (text only - don't store image data in history)
-                    history_content = text_content
-                    if images:
-                        history_content += f"\n[Generated {len(images)} image(s)]"
-                    
-                    if history_content.strip():
-                        channel_history[channel_id].append({
-                            "role": "assistant", 
-                            "content": history_content
-                        })
-                        
+        except Exception as e:
+            error_msg = f"An error occurred: {str(e)}"
+            await message.channel.send(error_msg)
+            logger.error(f"Error processing AI response: {e}")
+
+    async def handle_ai_response(message, channel_id, messages):
+        """
+        Helper function to handle AI response using background tasks
+        This prevents blocking Discord's heartbeat during long API calls
+        """
+        # Show typing indicator immediately
+        async with message.channel.typing():
+            # Create a background task for the AI response
+            task = asyncio.create_task(handle_ai_response_task(message, channel_id, messages))
+            
+            # Wait for the task to complete, but don't block the event loop
+            try:
+                await task
             except Exception as e:
-                error_msg = f"An error occurred: {str(e)}"
-                await message.channel.send(error_msg)
-                logger.error(f"Error processing AI response: {e}")
+                logger.error(f"Error in AI response task: {e}")
+                await message.channel.send("Sorry, I encountered an error processing your request.")
     
     # Register event handlers
     @bot.event
@@ -215,7 +231,7 @@ def create_bot():
             # Use our function to prepare messages for API
             messages = prepare_messages_for_api(channel_id)
             
-            # Handle the AI response (text and/or images)
+            # Handle the AI response using background task (prevents heartbeat blocking)
             await handle_ai_response(message, channel_id, messages)
     
             # Skip the auto-respond logic but still process other commands
@@ -276,7 +292,7 @@ def create_bot():
             logger.debug(f"Prepared {len(messages)} messages for API")
             logger.debug(f"System prompt: {messages[0]['content'][:50]}...")
             
-            # Handle the AI response (text and/or images)
+            # Handle the AI response using background task (prevents heartbeat blocking)
             await handle_ai_response(message, channel_id, messages)
         
         # Process commands (this is needed for the bot to respond to commands)
