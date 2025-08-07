@@ -24,11 +24,8 @@ DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
 
-# Debug configuration
-DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-
 # Logging configuration
-LOG_LEVEL = os.environ.get('LOG_LEVEL', 'DEBUG' if DEBUG_MODE else 'INFO').upper()
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_FILE = os.environ.get('LOG_FILE', 'stdout')
 LOG_FORMAT = os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s')
 

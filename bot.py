@@ -9,7 +9,7 @@ import asyncio
 # Import config and utilities
 from config import (
     DEFAULT_AUTO_RESPOND, MAX_HISTORY, INITIAL_HISTORY_LOAD,
-    MAX_RESPONSE_TOKENS, DEFAULT_SYSTEM_PROMPT, DEBUG_MODE, BOT_PREFIX
+    MAX_RESPONSE_TOKENS, DEFAULT_SYSTEM_PROMPT, BOT_PREFIX
 )
 from utils.ai_utils import generate_ai_response
 from utils.history import (
@@ -43,7 +43,6 @@ def create_bot():
         logger.info(f'Max history: {MAX_HISTORY} messages')
         logger.info(f'Initial history load: {INITIAL_HISTORY_LOAD} messages')
         logger.info(f'Max response tokens: {MAX_RESPONSE_TOKENS}')
-        logger.info(f'Debug mode: {DEBUG_MODE}')
         
         # Clear the loaded history channels set on startup
         if loaded_history_channels:
