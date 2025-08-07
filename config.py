@@ -20,6 +20,9 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 AI_MODEL = os.environ.get('AI_MODEL', 'gpt-4o-mini')
 DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 
+# Image generation configuration
+ENABLE_IMAGE_GENERATION = os.environ.get('ENABLE_IMAGE_GENERATION', 'true').lower() == 'true'
+
 # Anthropic configuration
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
