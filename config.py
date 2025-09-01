@@ -27,6 +27,9 @@ ENABLE_IMAGE_GENERATION = os.environ.get('ENABLE_IMAGE_GENERATION', 'true').lowe
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
 
+# BaseTen DeepSeek configuration
+BASETEN_DEEPSEEK_KEY = os.environ.get('BASETEN_DEEPSEEK_KEY')
+
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_FILE = os.environ.get('LOG_FILE', 'stdout')
