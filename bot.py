@@ -36,6 +36,35 @@ def create_bot():
     intents.message_content = True  # This is required for the bot to read message content
     bot = commands.Bot(command_prefix='!', intents=intents)
     
+    def split_message(text, max_length=2000):
+        """Split a long message into chunks that fit Discord's character limit"""
+        if len(text) <= max_length:
+            return [text]
+        
+        chunks = []
+        while text:
+            if len(text) <= max_length:
+                chunks.append(text)
+                break
+            
+            # Find the best place to split (prefer sentences, then words)
+            split_pos = max_length
+            
+            # Try to split at sentence boundary
+            sentence_pos = text.rfind('. ', 0, max_length)
+            if sentence_pos > max_length * 0.5:  # Don't split too early
+                split_pos = sentence_pos + 2
+            else:
+                # Try to split at word boundary
+                word_pos = text.rfind(' ', 0, max_length)
+                if word_pos > max_length * 0.5:  # Don't split too early
+                    split_pos = word_pos + 1
+            
+            chunks.append(text[:split_pos])
+            text = text[split_pos:]
+        
+        return chunks
+    
     async def handle_ai_response_task(message, channel_id, messages):
         """
         Background task to handle AI response (both text and images)
@@ -48,7 +77,10 @@ def create_bot():
             # Handle both old string format and new structured format
             if isinstance(bot_response, str):
                 # Legacy format - just text
-                await message.channel.send(bot_response)
+                text_chunks = split_message(bot_response)
+                
+                for chunk in text_chunks:
+                    await message.channel.send(chunk)
                 
                 # Add bot's response to the history
                 channel_history[channel_id].append({
@@ -61,9 +93,12 @@ def create_bot():
                 text_content = bot_response.get("text", "")
                 images = bot_response.get("images", [])
                 
-                # Send text response if available
+                # Send text response if available (split if necessary)
                 if text_content.strip():
-                    await message.channel.send(text_content)
+                    text_chunks = split_message(text_content)
+                    
+                    for chunk in text_chunks:
+                        await message.channel.send(chunk)
                 
                 # Send images if any were generated
                 for i, image in enumerate(images):

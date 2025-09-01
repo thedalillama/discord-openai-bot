@@ -3,6 +3,7 @@ AI Providers package - factory for creating AI provider instances.
 """
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
+from .baseten_provider import DeepSeekProvider
 from utils.logging_utils import get_logger
 
 # Get logger for this module
@@ -37,8 +38,10 @@ def get_provider(provider_name=None, channel_id=None):
         return OpenAIProvider()
     elif provider_name == 'anthropic':
         return AnthropicProvider()
+    elif provider_name == 'deepseek':
+        return DeepSeekProvider()
     else:
-        error_msg = f"Unsupported AI provider: {provider_name}. Supported providers: openai, anthropic"
+        error_msg = f"Unsupported AI provider: {provider_name}. Supported providers: openai, anthropic, deepseek"
         logger.error(error_msg)
         raise ValueError(error_msg)
 

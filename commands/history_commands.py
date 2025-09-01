@@ -1,21 +1,20 @@
 """
-History-related commands for the Discord bot.
+History management commands for the Discord bot.
 """
 from discord.ext import commands
 from utils.history import (
     load_channel_history, is_bot_command, is_history_output,
     channel_history, loaded_history_channels,
-    prepare_messages_for_api, channel_system_prompts, get_system_prompt, set_system_prompt,
-    get_ai_provider, set_ai_provider, channel_ai_providers
+    channel_system_prompts, set_system_prompt
 )
-from config import HISTORY_LINE_PREFIX, DEFAULT_SYSTEM_PROMPT
+from config import HISTORY_LINE_PREFIX
 from utils.logging_utils import get_logger
 
 # Get logger for command execution
 logger = get_logger('commands.history')
 
 def register_history_commands(bot):
-    """Register history-related commands with the bot"""
+    """Register history management commands with the bot"""
     
     @bot.command(name='loadhistory')
     @commands.has_permissions(administrator=True)
@@ -202,196 +201,10 @@ def register_history_commands(bot):
             await ctx.send(history_text)
         
         logger.info(f"Displayed {len(history)} history messages for #{ctx.channel.name}")
-
-    @bot.command(name='setprompt')
-    @commands.has_permissions(administrator=True)
-    async def set_prompt_cmd(ctx, *, new_prompt):
-        """
-        Set a custom system prompt for the current channel.
-        Usage: !setprompt [new prompt text]
-        Example: !setprompt You are a helpful bot that speaks like a pirate.
-        
-        Args:
-            new_prompt: The new system prompt to use
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        logger.info(f"System prompt update requested for #{channel_name} by {ctx.author.display_name}")
-        logger.debug(f"New prompt: {new_prompt}")
-        
-        # Set the new prompt
-        was_updated = set_system_prompt(channel_id, new_prompt)
-        
-        if was_updated:
-            # Send response with NO special prefix to make it more likely to be kept in history
-            response = f"System prompt updated for #{channel_name}.\nNew prompt: **{new_prompt}**"
-            await ctx.send(response)
-            logger.info(f"System prompt updated for #{channel_name}")
-        else:
-            await ctx.send(f"System prompt unchanged (same as current setting).")
-            logger.debug(f"System prompt unchanged for #{channel_name}")
-
-    @bot.command(name='getprompt')
-    async def get_prompt_cmd(ctx):
-        """
-        Show the current system prompt for this channel.
-        Usage: !getprompt
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        prompt = get_system_prompt(channel_id)
-        
-        logger.debug(f"System prompt requested for #{channel_name} by {ctx.author.display_name}")
-        
-        await ctx.send(f"Current system prompt for #{channel_name}:\n\n**{prompt}**")
-
-    @bot.command(name='resetprompt')
-    @commands.has_permissions(administrator=True)
-    async def reset_prompt_cmd(ctx):
-        """
-        Reset the system prompt for this channel to the default.
-        Usage: !resetprompt
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        logger.info(f"System prompt reset requested for #{channel_name} by {ctx.author.display_name}")
-        
-        # Record the current prompt for logging
-        current_prompt = get_system_prompt(channel_id)
-        
-        # Remove the custom prompt if it exists
-        if channel_id in channel_system_prompts:
-            # Before removing, add an update entry to record this change
-            import datetime
-            timestamp = datetime.datetime.now().isoformat()
-            channel_history[channel_id].append({
-                "role": "system",
-                "content": f"SYSTEM_PROMPT_UPDATE: {DEFAULT_SYSTEM_PROMPT}",
-                "timestamp": timestamp
-            })
-            
-            # Now remove the custom prompt
-            del channel_system_prompts[channel_id]
-            
-            logger.debug(f"Reset system prompt from: {current_prompt[:50]}...")
-            logger.debug(f"To default: {DEFAULT_SYSTEM_PROMPT[:50]}...")
-            
-            await ctx.send(f"System prompt for #{channel_name} reset to default.")
-        else:
-            await ctx.send(f"System prompt for #{channel_name} is already set to default.")
-
-    @bot.command(name='setai')
-    @commands.has_permissions(administrator=True)
-    async def set_ai_cmd(ctx, provider_name):
-        """
-        Set the AI provider for the current channel.
-        Usage: !setai [provider]
-        Example: !setai anthropic
-        
-        Args:
-            provider_name: The AI provider to use (openai, anthropic)
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        logger.info(f"AI provider change requested for #{channel_name} by {ctx.author.display_name}")
-        logger.debug(f"Requested provider: {provider_name}")
-        
-        # Validate provider name
-        valid_providers = ['openai', 'anthropic']
-        provider_name = provider_name.lower()
-        
-        if provider_name not in valid_providers:
-            await ctx.send(f"Invalid AI provider: **{provider_name}**. Valid options: {', '.join(valid_providers)}")
-            logger.warning(f"Invalid AI provider requested: {provider_name}")
-            return
-        
-        # Check if this is actually a change
-        current_provider = get_ai_provider(channel_id)
-        
-        # If no current provider set, show what the default would be
-        if current_provider is None:
-            from config import AI_PROVIDER
-            current_provider = AI_PROVIDER
-            provider_source = "default"
-        else:
-            provider_source = "channel setting"
-        
-        if current_provider == provider_name:
-            await ctx.send(f"AI provider for #{channel_name} is already set to **{provider_name}** (from {provider_source}).")
-            logger.debug(f"AI provider unchanged: {provider_name}")
-            return
-        
-        # Set the new provider
-        set_ai_provider(channel_id, provider_name)
-        
-        # Send confirmation
-        await ctx.send(f"AI provider for #{channel_name} changed from **{current_provider}** to **{provider_name}**.")
-        logger.info(f"AI provider for #{channel_name} changed from {current_provider} to {provider_name}")
-
-    @bot.command(name='getai')
-    async def get_ai_cmd(ctx):
-        """
-        Show the current AI provider for this channel.
-        Usage: !getai
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        from config import AI_PROVIDER
-        
-        # Get channel-specific provider
-        channel_provider = get_ai_provider(channel_id)
-        
-        logger.debug(f"AI provider requested for #{channel_name} by {ctx.author.display_name}")
-        
-        if channel_provider is None:
-            # Using default from config
-            await ctx.send(f"AI provider for #{channel_name}: **{AI_PROVIDER}** (default setting)")
-        else:
-            # Using channel-specific setting
-            await ctx.send(f"AI provider for #{channel_name}: **{channel_provider}** (channel setting)")
-
-    @bot.command(name='resetai')
-    @commands.has_permissions(administrator=True)
-    async def reset_ai_cmd(ctx):
-        """
-        Reset the AI provider for this channel to use the default.
-        Usage: !resetai
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        from config import AI_PROVIDER
-        
-        logger.info(f"AI provider reset requested for #{channel_name} by {ctx.author.display_name}")
-        
-        # Check if there's a channel-specific setting
-        if channel_id not in channel_ai_providers:
-            await ctx.send(f"AI provider for #{channel_name} is already using the default (**{AI_PROVIDER}**).")
-            logger.debug(f"AI provider already using default for #{channel_name}")
-            return
-        
-        # Get current setting before removing
-        current_provider = get_ai_provider(channel_id)
-        
-        # Remove the channel-specific setting
-        del channel_ai_providers[channel_id]
-        
-        await ctx.send(f"AI provider for #{channel_name} reset from **{current_provider}** to default (**{AI_PROVIDER}**).")
-        logger.info(f"AI provider for #{channel_name} reset from {current_provider} to default")
-            
-    # Return the commands if needed for further registration
+    
+    # Return the commands for reference if needed
     return {
         "loadhistory": load_history_cmd,
         "cleanhistory": clean_history,
-        "history": show_history,
-        "setprompt": set_prompt_cmd,
-        "getprompt": get_prompt_cmd,
-        "resetprompt": reset_prompt_cmd,
-        "setai": set_ai_cmd,
-        "getai": get_ai_cmd,
-        "resetai": reset_ai_cmd
+        "history": show_history
     }
