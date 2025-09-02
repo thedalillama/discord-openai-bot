@@ -16,7 +16,7 @@ async def generate_ai_response(messages, max_tokens=None, temperature=None, chan
         messages: List of message objects with role and content
         max_tokens: Maximum number of tokens in the response
         temperature: Creativity of the response (0.0-1.0)
-        channel_id: Optional Discord channel ID for channel-specific provider selection
+        channel_id: Optional Discord channel ID for channel-specific provider selection and behavior
         
     Returns:
         str: The generated response text
@@ -29,10 +29,10 @@ async def generate_ai_response(messages, max_tokens=None, temperature=None, chan
         
         logger.debug(f"Using {provider.name} provider for response generation")
         
-        # Generate response using the provider
-        response = await provider.generate_ai_response(messages, max_tokens, temperature)
+        # Generate response using the provider (now passing channel_id through)
+        response = await provider.generate_ai_response(messages, max_tokens, temperature, channel_id)
         
-        logger.debug(f"AI response generated successfully (length: {len(response)} chars)")
+        logger.debug(f"AI response generated successfully (length: {len(str(response))} chars)")
         return response
         
     except Exception as e:

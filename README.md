@@ -46,6 +46,12 @@ A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and Ba
 - `!getai` - Show current AI provider
 - `!resetai` - Reset to default provider
 
+### DeepSeek Thinking Control
+- `!thinking on` - Show DeepSeek's reasoning process (including `<think>` tags)
+- `!thinking off` - Hide DeepSeek's reasoning process (default)
+- `!thinking` - Check current thinking display setting
+- `!thinkingstatus` - Alternative way to check current setting
+
 ### System Prompts
 - `!setprompt <prompt>` - Set custom AI personality
 - `!getprompt` - Show current system prompt
@@ -74,14 +80,16 @@ Bot, tell me about cats
 Bot, what's the weather like?
 ```
 
-**Provider switching:**
+**Provider switching with thinking control:**
 ```
 !setai deepseek
-Tell me a story
-!setai anthropic  
-Write a poem
-!setai openai
-Generate an image of a sunset
+!thinking on
+What's the square root of 2?
+[Shows detailed step-by-step reasoning]
+
+!thinking off  
+What's the square root of 3?
+[Shows only final answer]
 ```
 
 ## Configuration
@@ -132,6 +140,7 @@ discord-bot/
 │   ├── history_commands.py     # History management commands
 │   ├── prompt_commands.py      # System prompt commands
 │   ├── ai_provider_commands.py # AI provider switching commands
+│   ├── thinking_commands.py    # DeepSeek thinking display control
 │   └── auto_respond_commands.py # Auto-response commands
 ├── ai_providers/               # AI provider implementations
 │   ├── __init__.py
@@ -152,7 +161,14 @@ discord-bot/
 
 ## Recent Updates
 
-### Version 2.1.0 - Multi-Provider Enhancement
+### Version 2.2.0 - Enhanced AI Response Control
+- **Added DeepSeek thinking control** with `!thinking on/off` commands to show/hide reasoning process
+- **Removed artificial response truncation** - AI models now complete responses naturally
+- **Enhanced message handling** - Message splitting manages Discord limits while preserving complete AI thoughts
+- **Improved provider consistency** - All providers use natural stopping points instead of arbitrary token limits
+
+### Previous Updates
+#### Version 2.1.0 - Multi-Provider Enhancement
 - **Added BaseTen DeepSeek R1 integration** for cost-effective text generation
 - **Refactored command structure** into focused modules for better maintainability
 - **Fixed Discord message length handling** - automatically splits responses over 2000 characters

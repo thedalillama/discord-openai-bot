@@ -1,5 +1,6 @@
 """
 BaseTen (DeepSeek R1) provider implementation.
+CHANGES: Removed artificial truncation logic - let AI complete thoughts naturally
 """
 from openai import OpenAI
 from .base import AIProvider
@@ -18,20 +19,30 @@ class DeepSeekProvider(AIProvider):
         )
         self.model = "deepseek-ai/DeepSeek-R1"
         self.max_context_length = 64000  # DeepSeek R1 context window
-        self.max_response_tokens = 8000   # Max tokens from example
+        self.max_response_tokens = 4000   # Increased from 8000 to balance detail with practicality
         self.supports_images = False      # Text-only model
         self.logger = get_logger('deepseek')
     
-    async def generate_ai_response(self, messages, max_tokens=None, temperature=None):
+    async def generate_ai_response(self, messages, max_tokens=None, temperature=None, channel_id=None):
         """
         Generate an AI response using BaseTen's DeepSeek R1 model.
+        
+        Args:
+            messages: List of message objects with role and content
+            max_tokens: Maximum number of tokens in the response
+            temperature: Creativity of the response (0.0-1.0)
+            channel_id: Optional Discord channel ID for thinking display control
+            
+        Returns:
+            str: The generated response text, with thinking tags filtered based on channel setting
         """
         self.logger.debug(f"Using DeepSeek provider (model: {self.model}) for API call")
+        self.logger.debug(f"Max tokens being used: {max_tokens}")
         
         try:
             # Use default values if not specified
             if max_tokens is None:
-                max_tokens = self.max_response_tokens
+                max_tokens = self.max_response_tokens  # Use DeepSeek's 8000 token limit
             if temperature is None:
                 temperature = DEFAULT_TEMPERATURE
             
@@ -78,13 +89,30 @@ class DeepSeekProvider(AIProvider):
             # Extract the response text
             raw_response = response.choices[0].message.content.strip()
             
-            # Check if the response was cut off due to length
-            if response.choices[0].finish_reason == "length":
-                self.logger.warning(f"Response was truncated due to token limit")
-                raw_response += "\n\n[Note: Response was truncated due to length. Feel free to ask for more details.]"
+            # Log completion reason for debugging
+            finish_reason = response.choices[0].finish_reason
+            self.logger.debug(f"DeepSeek response finished with reason: {finish_reason}")
+            
+            # Filter thinking tags based on channel setting if channel_id provided
+            filtered_response = raw_response
+            if channel_id is not None:
+                # Import here to avoid circular imports
+                from commands.thinking_commands import get_thinking_enabled, filter_thinking_tags
+                
+                show_thinking = get_thinking_enabled(channel_id)
+                filtered_response = filter_thinking_tags(raw_response, show_thinking)
+                
+                self.logger.debug(f"Applied thinking filter for channel {channel_id}: show_thinking={show_thinking}")
+                self.logger.debug(f"Raw response contained <think> tags: {'<think>' in raw_response}")
+                self.logger.debug(f"Response length: raw={len(raw_response)}, filtered={len(filtered_response)}")
+                
+                if not show_thinking and '<think>' in raw_response:
+                    self.logger.info(f"Filtered thinking content from DeepSeek response (channel {channel_id})")
+            else:
+                self.logger.warning(f"No channel_id provided to DeepSeek provider - thinking filter not applied")
             
             self.logger.debug(f"DeepSeek API response received successfully")
-            return raw_response
+            return filtered_response
             
         except Exception as e:
             self.logger.error(f"Error generating AI response from DeepSeek: {e}")
