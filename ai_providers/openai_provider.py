@@ -21,10 +21,16 @@ class OpenAIProvider(AIProvider):
         self.supports_images = True
         self.logger = get_logger('openai')
     
-    async def generate_ai_response(self, messages, max_tokens=None, temperature=None):
+    async def generate_ai_response(self, messages, max_tokens=None, temperature=None, channel_id=None):
         """
         Generate an AI response using OpenAI's Responses API.
         Returns structured response with text and optional images.
+        
+        Args:
+            messages: List of message objects with role and content
+            max_tokens: Maximum number of tokens in the response
+            temperature: Creativity of the response (0.0-1.0)
+            channel_id: Optional Discord channel ID (not used by OpenAI provider)
         """
         self.logger.debug(f"Using OpenAI provider (model: {self.model}) for API call")
         

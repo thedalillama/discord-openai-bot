@@ -15,8 +15,15 @@ class AIProvider(ABC):
         self.logger = get_logger('ai_provider.base')
     
     @abstractmethod
-    async def generate_ai_response(self, messages, max_tokens=None, temperature=None):
-        """Generate AI response from messages"""
+    async def generate_ai_response(self, messages, max_tokens=None, temperature=None, channel_id=None):
+        """Generate AI response from messages
+        
+        Args:
+            messages: List of message objects with role and content
+            max_tokens: Maximum number of tokens in the response
+            temperature: Creativity of the response (0.0-1.0)
+            channel_id: Optional Discord channel ID for channel-specific behavior
+        """
         pass
     
     def get_effective_max_tokens(self, max_tokens=None):

@@ -1,5 +1,6 @@
 """
 Anthropic (Claude) provider implementation.
+CHANGES: Removed artificial truncation logic - let AI complete thoughts naturally
 """
 import anthropic
 from .base import AIProvider
@@ -15,13 +16,19 @@ class AnthropicProvider(AIProvider):
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         self.model = ANTHROPIC_MODEL      # Use config.py variable
         self.max_context_length = 200000  # Claude has 200k context window
-        self.max_response_tokens = 300    # Keep same limit as OpenAI for consistency
+        self.max_response_tokens = 2000    # Increased from 300 to allow detailed responses
         self.supports_images = True       # Claude supports vision
         self.logger = get_logger('anthropic')
     
-    async def generate_ai_response(self, messages, max_tokens=None, temperature=None):
+    async def generate_ai_response(self, messages, max_tokens=None, temperature=None, channel_id=None):
         """
         Generate an AI response using Anthropic's messages API.
+        
+        Args:
+            messages: List of message objects with role and content
+            max_tokens: Maximum number of tokens in the response
+            temperature: Creativity of the response (0.0-1.0)
+            channel_id: Optional Discord channel ID (not used by Anthropic provider)
         """
 
         self.logger.debug(f"Using Anthropic provider (model: {self.model}) for API call")
@@ -68,11 +75,10 @@ class AnthropicProvider(AIProvider):
             )
         
             raw_response = response.content[0].text.strip()
-        
-            # Check if the response was cut off due to length
-            if response.stop_reason == "max_tokens":
-                self.logger.warning(f"Response was truncated due to token limit")
-                return raw_response + "\n\n[Note: Response was truncated due to length. Feel free to ask for more details.]"
+            
+            # Log completion reason for debugging
+            finish_reason = response.stop_reason
+            self.logger.debug(f"Anthropic response finished with reason: {finish_reason}")
 
             self.logger.debug(f"Anthropic API response received successfully")
             return raw_response
