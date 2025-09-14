@@ -14,11 +14,13 @@ CHANNEL_LOCK_TIMEOUT = 30  # Timeout for acquiring a channel lock (in seconds)
 
 # Default AI provider
 AI_PROVIDER = os.environ.get('AI_PROVIDER', 'openai')
+DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 
 # OpenAI configuration
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-AI_MODEL = os.environ.get('AI_MODEL', 'gpt-4o-mini')
-DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
+OPENAI_CONTEXT_LENGTH = int(os.environ.get('OPENAI_CONTEXT_LENGTH', 128000))
+OPENAI_MAX_TOKENS = int(os.environ.get('OPENAI_MAX_TOKENS', 1500))
 
 # Image generation configuration
 ENABLE_IMAGE_GENERATION = os.environ.get('ENABLE_IMAGE_GENERATION', 'true').lower() == 'true'
@@ -26,9 +28,14 @@ ENABLE_IMAGE_GENERATION = os.environ.get('ENABLE_IMAGE_GENERATION', 'true').lowe
 # Anthropic configuration
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
+ANTHROPIC_CONTEXT_LENGTH = int(os.environ.get('ANTHROPIC_CONTEXT_LENGTH', 200000))
+ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', 2000))
 
 # BaseTen DeepSeek configuration
 BASETEN_DEEPSEEK_KEY = os.environ.get('BASETEN_DEEPSEEK_KEY')
+DEEPSEEK_MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-ai/DeepSeek-R1')
+DEEPSEEK_CONTEXT_LENGTH = int(os.environ.get('DEEPSEEK_CONTEXT_LENGTH', 64000))
+DEEPSEEK_MAX_TOKENS = int(os.environ.get('DEEPSEEK_MAX_TOKENS', 4000))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
