@@ -4,7 +4,8 @@ CHANGES: Removed artificial truncation logic - let AI complete thoughts naturall
 """
 from openai import OpenAI
 from .base import AIProvider
-from config import BASETEN_DEEPSEEK_KEY, DEFAULT_TEMPERATURE
+from config import (BASETEN_DEEPSEEK_KEY, DEFAULT_TEMPERATURE, 
+                    DEEPSEEK_MODEL, DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MAX_TOKENS)
 from utils.logging_utils import get_logger
 
 class DeepSeekProvider(AIProvider):
@@ -17,9 +18,9 @@ class DeepSeekProvider(AIProvider):
             api_key=BASETEN_DEEPSEEK_KEY,
             base_url="https://inference.baseten.co/v1"
         )
-        self.model = "deepseek-ai/DeepSeek-R1"
-        self.max_context_length = 64000  # DeepSeek R1 context window
-        self.max_response_tokens = 4000   # Increased from 8000 to balance detail with practicality
+        self.model = DEEPSEEK_MODEL
+        self.max_context_length = DEEPSEEK_CONTEXT_LENGTH
+        self.max_response_tokens = DEEPSEEK_MAX_TOKENS
         self.supports_images = False      # Text-only model
         self.logger = get_logger('deepseek')
     

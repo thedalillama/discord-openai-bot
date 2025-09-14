@@ -1,11 +1,13 @@
 """
 OpenAI provider implementation with image generation support.
+CHANGES: Fixed username duplication in Responses API message conversion
 """
 from openai import OpenAI
 import base64
 import io
 from .base import AIProvider
-from config import OPENAI_API_KEY, AI_MODEL, DEFAULT_TEMPERATURE
+from config import (OPENAI_API_KEY, DEFAULT_TEMPERATURE,
+                    OPENAI_MODEL, OPENAI_CONTEXT_LENGTH, OPENAI_MAX_TOKENS)
 from utils.logging_utils import get_logger
 
 class OpenAIProvider(AIProvider):
@@ -15,9 +17,9 @@ class OpenAIProvider(AIProvider):
         super().__init__()
         self.name = "openai"
         self.client = OpenAI(api_key=OPENAI_API_KEY)
-        self.model = AI_MODEL
-        self.max_context_length = 128000  # GPT-4o context window
-        self.max_response_tokens = 300    # Our current safe limit
+        self.model = OPENAI_MODEL
+        self.max_context_length = OPENAI_CONTEXT_LENGTH
+        self.max_response_tokens = OPENAI_MAX_TOKENS
         self.supports_images = True
         self.logger = get_logger('openai')
     
@@ -123,6 +125,7 @@ class OpenAIProvider(AIProvider):
     def _convert_messages_to_input(self, messages):
         """
         Convert OpenAI chat messages format to single input string for Responses API
+        CHANGES: Fixed username duplication and assistant prefix issues
         """
         input_parts = []
         
@@ -133,10 +136,10 @@ class OpenAIProvider(AIProvider):
             if role == "system":
                 input_parts.append(f"System: {content}")
             elif role == "user":
-                # Extract name if available
-                name = msg.get("name", "User")
-                input_parts.append(f"{name}: {content}")
+                # Content already includes username from bot.py, so use it directly
+                input_parts.append(content)
             elif role == "assistant":
-                input_parts.append(f"Assistant: {content}")
+                # Assistant content is clean, use it directly without prefix
+                input_parts.append(content)
         
         return "\n\n".join(input_parts)

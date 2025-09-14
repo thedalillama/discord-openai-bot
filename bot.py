@@ -1,5 +1,6 @@
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+CHANGES: Added provider override feature - users can direct messages to specific providers
 """
 import discord
 from discord.ext import commands
@@ -36,6 +37,30 @@ def create_bot():
     intents.message_content = True  # This is required for the bot to read message content
     bot = commands.Bot(command_prefix='!', intents=intents)
     
+    def parse_provider_override(content):
+        """
+        Extract provider override from message start.
+        
+        Args:
+            content: Message content to parse
+            
+        Returns:
+            tuple: (provider_name, clean_content) or (None, original_content)
+        """
+        providers = ['openai', 'anthropic', 'deepseek']
+        content_lower = content.lower()
+        
+        for provider in providers:
+            prefix = f"{provider},"
+            if content_lower.startswith(prefix):
+                # Extract clean content after provider name and comma
+                clean_content = content[len(prefix):].strip()
+                logger.debug(f"Provider override detected: {provider}")
+                logger.debug(f"Clean content: {clean_content}")
+                return provider, clean_content
+        
+        return None, content
+    
     def split_message(text, max_length=2000):
         """Split a long message into chunks that fit Discord's character limit"""
         if len(text) <= max_length:
@@ -65,14 +90,18 @@ def create_bot():
         
         return chunks
     
-    async def handle_ai_response_task(message, channel_id, messages):
+    async def handle_ai_response_task(message, channel_id, messages, provider_override=None):
         """
         Background task to handle AI response (both text and images)
         This runs in the background to avoid blocking Discord's heartbeat
         """
         try:
-            # Generate response using our abstracted function
-            bot_response = await generate_ai_response(messages, channel_id=channel_id)
+            # Generate response using our abstracted function with optional provider override
+            bot_response = await generate_ai_response(
+                messages, 
+                channel_id=channel_id,
+                provider_override=provider_override
+            )
             
             # Handle both old string format and new structured format
             if isinstance(bot_response, str):
@@ -138,7 +167,8 @@ def create_bot():
             await message.channel.send(error_msg)
             logger.error(f"Error processing AI response: {e}")
 
-    async def handle_ai_response(message, channel_id, messages):
+
+    async def handle_ai_response(message, channel_id, messages, provider_override=None):
         """
         Helper function to handle AI response using background tasks
         This prevents blocking Discord's heartbeat during long API calls
@@ -146,7 +176,7 @@ def create_bot():
         # Show typing indicator immediately
         async with message.channel.typing():
             # Create a background task for the AI response
-            task = asyncio.create_task(handle_ai_response_task(message, channel_id, messages))
+            task = asyncio.create_task(handle_ai_response_task(message, channel_id, messages, provider_override))
             
             # Wait for the task to complete, but don't block the event loop
             try:
@@ -210,6 +240,9 @@ def create_bot():
         logger.debug(f"Is channel in loaded_history_channels? {channel_id in loaded_history_channels}")
         logger.debug(f"Current channel history length: {len(channel_history.get(channel_id, []))}")
         
+        # Parse for provider override BEFORE other processing
+        provider_override, clean_message_content = parse_provider_override(message.content)
+        
         # IMPORTANT: Move the history loading check to happen before command filtering
         # Automatically load history for this channel if it's not loaded yet
         if channel_id not in loaded_history_channels:
@@ -239,14 +272,24 @@ def create_bot():
         else:
             logger.debug(f"Channel #{message.channel.name} already in loaded_history_channels, skipping history load")
         
-        # Check if message starts with the bot prefix
-        if message.content.lower().startswith(BOT_PREFIX.lower()):
-            logger.debug(f"Detected prefix message: {message.content}")
+        # Check for direct addressing methods
+        is_prefix_message = message.content.lower().startswith(BOT_PREFIX.lower())
+        is_provider_addressed = provider_override is not None
+        
+        # Handle direct addressing (bot prefix OR provider override)
+        if is_prefix_message or is_provider_addressed:
+            if is_prefix_message:
+                logger.debug(f"Detected bot prefix message: {message.content}")
+                # Extract the question (remove prefix)
+                question = message.content[len(BOT_PREFIX):].strip()
+                content_for_history = message.content  # Store full message with prefix
+            else:
+                logger.debug(f"Detected provider override: {provider_override}")
+                # Use clean content without provider prefix
+                question = clean_message_content
+                content_for_history = clean_message_content  # Store clean message for natural history
     
-            # Extract the question (remove prefix)
-            question = message.content[len(BOT_PREFIX):].strip()
-    
-            # Add the user's message to history
+            # Add the user's message to history (using clean content for provider overrides)
             user_name = message.author.display_name
             clean_name = ''.join(c for c in user_name if c.isalnum() or c in '_-')
     
@@ -254,20 +297,20 @@ def create_bot():
                 channel_history[channel_id].append({
                     "role": "user",
                     "name": f"user_{len(channel_history[channel_id])}",
-                    "content": f"{user_name}: {message.content}"
+                    "content": f"{user_name}: {content_for_history}"
                 })
             else:
                 channel_history[channel_id].append({
                     "role": "user",
                     "name": clean_name,
-                    "content": f"{user_name}: {message.content}"
+                    "content": f"{user_name}: {content_for_history}"
                 })
     
             # Use our function to prepare messages for API
             messages = prepare_messages_for_api(channel_id)
             
-            # Handle the AI response using background task (prevents heartbeat blocking)
-            await handle_ai_response(message, channel_id, messages)
+            # Handle the AI response using background task with optional provider override
+            await handle_ai_response(message, channel_id, messages, provider_override)
     
             # Skip the auto-respond logic but still process other commands
             await bot.process_commands(message)
@@ -281,7 +324,7 @@ def create_bot():
             await bot.process_commands(message)
             return  # Skip adding ANY commands to history
         
-        # Add the message to the channel's history
+        # Add the message to the channel's history (using original content)
         user_name = message.author.display_name
         
         # Store the message in history
@@ -327,7 +370,7 @@ def create_bot():
             logger.debug(f"Prepared {len(messages)} messages for API")
             logger.debug(f"System prompt: {messages[0]['content'][:50]}...")
             
-            # Handle the AI response using background task (prevents heartbeat blocking)
+            # Handle the AI response using background task (no provider override for auto-respond)
             await handle_ai_response(message, channel_id, messages)
         
         # Process commands (this is needed for the bot to respond to commands)

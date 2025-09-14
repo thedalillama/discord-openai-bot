@@ -4,7 +4,8 @@ CHANGES: Removed artificial truncation logic - let AI complete thoughts naturall
 """
 import anthropic
 from .base import AIProvider
-from config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, DEFAULT_TEMPERATURE
+from config import (ANTHROPIC_API_KEY, DEFAULT_TEMPERATURE,
+                    ANTHROPIC_MODEL, ANTHROPIC_CONTEXT_LENGTH, ANTHROPIC_MAX_TOKENS)
 from utils.logging_utils import get_logger
 
 class AnthropicProvider(AIProvider):
@@ -14,9 +15,9 @@ class AnthropicProvider(AIProvider):
         super().__init__()
         self.name = "anthropic"
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        self.model = ANTHROPIC_MODEL      # Use config.py variable
-        self.max_context_length = 200000  # Claude has 200k context window
-        self.max_response_tokens = 2000    # Increased from 300 to allow detailed responses
+        self.model = ANTHROPIC_MODEL
+        self.max_context_length = ANTHROPIC_CONTEXT_LENGTH
+        self.max_response_tokens = ANTHROPIC_MAX_TOKENS
         self.supports_images = True       # Claude supports vision
         self.logger = get_logger('anthropic')
     
