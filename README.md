@@ -5,6 +5,7 @@ A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and Ba
 ## Features
 
 - **Multi-AI Provider Support** - Switch between OpenAI GPT, Anthropic Claude, and BaseTen DeepSeek per channel
+- **Direct AI Addressing** - Address specific AI providers directly without changing defaults (e.g., "openai, draw me a cat")
 - **AI Image Generation** - Automatic image creation via OpenAI when contextually appropriate
 - **Custom System Prompts** - Set unique AI personalities for each channel
 - **Conversation History** - Maintains context across conversations with smart filtering
@@ -39,6 +40,38 @@ A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and Ba
    python main.py
    ```
 
+## Usage Examples
+
+**Basic interaction:**
+```
+Bot, tell me about cats
+```
+
+**Direct AI provider addressing:**
+```
+openai, draw me a picture of a sunset
+anthropic, write a poem about coding
+deepseek, explain quantum physics
+```
+
+**Custom AI personality:**
+```
+!setprompt You are a helpful pirate assistant. Arrr!
+Bot, what's the weather like?
+```
+
+**Provider switching with thinking control:**
+```
+!setai deepseek
+!thinking on
+What's the square root of 2?
+[Shows detailed step-by-step reasoning]
+
+!thinking off  
+What's the square root of 3?
+[Shows only final answer]
+```
+
 ## Commands
 
 ### AI Provider Management
@@ -67,30 +100,21 @@ A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and Ba
 - `!cleanhistory` - Remove commands from history
 - `!loadhistory` - Reload channel message history
 
-## Usage Examples
+## Direct AI Addressing
 
-**Direct interaction:**
-```
-Bot, tell me about cats
-```
+**New Feature**: You can now directly address specific AI providers without changing the channel's default provider:
 
-**Custom AI personality:**
 ```
-!setprompt You are a helpful pirate assistant. Arrr!
-Bot, what's the weather like?
+openai, create an image of a robot
+anthropic, analyze this text for sentiment
+deepseek, solve this math problem step by step
 ```
 
-**Provider switching with thinking control:**
-```
-!setai deepseek
-!thinking on
-What's the square root of 2?
-[Shows detailed step-by-step reasoning]
-
-!thinking off  
-What's the square root of 3?
-[Shows only final answer]
-```
+The bot will:
+- Use the specified provider for that single response
+- Keep the channel's default provider unchanged
+- Clean the provider prefix from conversation history
+- Work with both auto-response and direct bot addressing
 
 ## Configuration
 
@@ -127,6 +151,7 @@ What's the square root of 3?
 - **API**: OpenAI-compatible interface via BaseTen
 - **Model**: `deepseek-ai/DeepSeek-R1`
 - **Context**: 64k context window, 8k max response tokens
+- **Special Features**: Reasoning process display control with thinking commands
 
 ## Project Structure
 
@@ -161,13 +186,19 @@ discord-bot/
 
 ## Recent Updates
 
-### Version 2.2.0 - Enhanced AI Response Control
+### Version 2.3.0 - Direct AI Addressing
+- **Added direct provider addressing** - Address specific AI providers without changing channel defaults
+- **Fixed username duplication bug** - Resolved message formatting issues in API calls
+- **Enhanced message parsing** - Clean provider prefix handling for natural conversation history
+- **Improved provider consistency** - All providers now handle direct addressing uniformly
+
+### Previous Updates
+#### Version 2.2.0 - Enhanced AI Response Control
 - **Added DeepSeek thinking control** with `!thinking on/off` commands to show/hide reasoning process
 - **Removed artificial response truncation** - AI models now complete responses naturally
 - **Enhanced message handling** - Message splitting manages Discord limits while preserving complete AI thoughts
 - **Improved provider consistency** - All providers use natural stopping points instead of arbitrary token limits
 
-### Previous Updates
 #### Version 2.1.0 - Multi-Provider Enhancement
 - **Added BaseTen DeepSeek R1 integration** for cost-effective text generation
 - **Refactored command structure** into focused modules for better maintainability
@@ -176,6 +207,7 @@ discord-bot/
 - **Improved error handling** for long responses and API failures
 
 ### Key Improvements
+- **Direct AI Addressing**: New intuitive way to use different providers without configuration changes
 - **Message Splitting**: Long AI responses are now intelligently split at sentence/word boundaries
 - **Modular Commands**: Commands organized into logical groups (history, prompts, AI providers, auto-respond)
 - **DeepSeek Integration**: New cost-effective provider option with 64k context window
@@ -233,6 +265,7 @@ BOT_PREFIX="Bot, "
 - Use Anthropic for tasks requiring large context understanding
 - Monitor `MAX_HISTORY` to control context length and costs
 - Consider shorter `MAX_RESPONSE_TOKENS` for budget-conscious deployments
+- Use direct addressing to access premium providers only when needed
 
 ## Contributing
 
