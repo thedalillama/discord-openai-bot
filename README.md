@@ -1,5 +1,5 @@
 # README.md
-# Version 2.8.0
+# Version 2.9.0
 # Discord AI Assistant Bot
 
 A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and BaseTen DeepSeek APIs, with advanced conversation management and per-channel customization.
@@ -15,7 +15,7 @@ A Discord bot that provides AI-powered responses using OpenAI, Anthropic, and Ba
 - **Flexible Interaction** - Both command-based and prefix-based AI interaction
 - **Message Length Handling** - Automatically splits long responses to fit Discord's limits
 - **Comprehensive Logging** - Structured logging for production deployment
-- **Modular Architecture** - Clean, maintainable codebase with focused modules under 200 lines each
+- **Modular Architecture** - Clean, maintainable codebase with focused modules under 250 lines each
 
 ## Quick Start
 
@@ -175,7 +175,7 @@ discord-bot/
 │   ├── openai_provider.py      # OpenAI with image generation
 │   ├── anthropic_provider.py   # Anthropic Claude
 │   └── baseten_provider.py     # BaseTen DeepSeek R1
-└── utils/                      # Utility modules (all under 200 lines)
+└── utils/                      # Utility modules (all under 250 lines)
     ├── ai_utils.py
     ├── logging_utils.py
     ├── message_utils.py        # Message formatting and splitting
@@ -187,15 +187,23 @@ discord-bot/
         ├── prompts.py          # System prompt management
         ├── message_processing.py # Message filtering and formatting
         ├── loading.py          # History loading coordination (150 lines)
-        ├── discord_loader.py   # Discord API interactions (200 lines)
+        ├── discord_fetcher.py  # Discord API interactions
+        ├── discord_converter.py # Message conversion
+        ├── realtime_settings_parser.py # Real-time settings parsing
         ├── settings_parser.py  # Configuration parsing (120 lines)
         └── settings_manager.py # Settings validation & application (120 lines)
 ```
 
 ## Recent Updates
 
+### Version 2.9.0 - Updated File Size Standards
+- **Updated file size limit** - Increased from 200 lines to 250 lines for better practicality
+- **Maintained modular architecture** - All refactored modules still follow clean separation of concerns
+- **Improved development guidelines** - More realistic constraints while preserving code quality
+- **Enhanced maintainability** - Balanced between modularity and practical development needs
+
 ### Version 2.8.0 - Major Refactoring for Maintainability
-- **Achieved 200-line file limit** - All files now under 200 lines for better maintainability
+- **Achieved 250-line file limit** - All files now under 250 lines for better maintainability
 - **42% reduction in bot.py** - Core file reduced from 320 lines to 185 lines
 - **Modular architecture** - Split large files into focused, single-purpose modules
 - **Enhanced documentation** - Comprehensive docstrings and inline documentation
@@ -235,7 +243,7 @@ discord-bot/
 ### Architecture Improvements
 - **Modular Design**: Each file serves a single, well-defined purpose
 - **Comprehensive Documentation**: Every module includes detailed docstrings and examples
-- **Maintainable Codebase**: 200-line limit ensures files remain readable and manageable
+- **Maintainable Codebase**: 250-line limit ensures files remain readable and manageable
 - **Foundation for Future Features**: Clean architecture supports easy addition of new capabilities
 - **Backward Compatibility**: All existing imports and APIs preserved during refactoring
 
@@ -299,7 +307,7 @@ BOT_PREFIX="Bot, "
 ## Contributing
 
 The codebase follows a clean architecture with:
-- **200-line file limit** - Ensures all files remain readable and maintainable
+- **250-line file limit** - Ensures all files remain readable and maintainable
 - **Modular design** - Each file serves a single, well-defined purpose
 - **Provider abstraction** - Easy to add new AI providers
 - **Focused command modules** - Commands organized by functionality
@@ -307,7 +315,7 @@ The codebase follows a clean architecture with:
 - **Type hints and documentation** - Well-documented code structure
 
 When adding new features:
-1. Follow the 200-line limit for all new files
+1. Follow the 250-line limit for all new files
 2. Create focused modules for new functionality
 3. Follow the existing provider pattern for new AI integrations
 4. Add commands to appropriate modules (or create new focused modules)
@@ -322,6 +330,6 @@ MIT
 ## Development Status
 
 **Current State**: Production-ready with comprehensive refactoring completed
-**Architecture**: All files under 200 lines, modular design, comprehensive documentation
+**Architecture**: All files under 250 lines, modular design, comprehensive documentation
 **Next Priority**: Configuration Persistence feature (infrastructure ready)
 **Maintainability**: Excellent - clean separation of concerns and focused modules
