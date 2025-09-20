@@ -1,7 +1,12 @@
 # utils/history/realtime_settings_parser.py
-# Version 1.0.0
+# Version 2.0.0
 """
 Real-time settings parsing during Discord message loading.
+
+CHANGES v2.0.0: Simplified to confirmed settings only
+- REMOVED: Processing of unprocessed commands (!setprompt, etc.)
+- FOCUSED: Only parse confirmed settings from bot confirmation messages
+- SIMPLIFIED: More reliable restoration from actual conversation confirmations
 
 This module provides real-time parsing of bot configuration settings as Discord
 messages are being loaded. It detects the most recent settings and applies them
@@ -15,7 +20,7 @@ Key Features:
 - Stop parsing each setting type once found and applied
 - Apply settings immediately to in-memory dictionaries
 - Handle errors gracefully without stopping message loading
-- Support for system prompts, AI providers, auto-respond, thinking settings
+- Only restore from confirmed settings (bot confirmation messages)
 """
 import datetime
 from utils.logging_utils import get_logger
@@ -32,6 +37,9 @@ async def parse_settings_during_load(messages, channel_id):
     This function processes messages in reverse chronological order (newest first)
     to find the most recent settings. Once a setting type is found and applied,
     parsing stops for that type to optimize performance.
+    
+    Only processes confirmed settings from bot confirmation messages, not
+    unprocessed commands.
     
     Args:
         messages: List of Discord message objects (should be in chronological order)
@@ -65,7 +73,7 @@ async def parse_settings_during_load(messages, channel_id):
                 logger.debug(f"All settings found, stopping parsing after {i+1} messages")
                 break
             
-            # Parse system prompt updates (highest priority)
+            # Parse system prompt confirmations (highest priority)
             if not settings_found['system_prompt']:
                 if _parse_and_apply_system_prompt(message, channel_id):
                     settings_found['system_prompt'] = True
@@ -104,9 +112,10 @@ async def parse_settings_during_load(messages, channel_id):
 
 def _parse_and_apply_system_prompt(message, channel_id):
     """
-    Parse and apply system prompt from a Discord message.
+    Parse and apply system prompt from bot confirmation messages only.
     
-    Handles both setprompt commands and system prompt update confirmations.
+    Only processes confirmed system prompt updates from bot response messages,
+    not unprocessed commands.
     
     Args:
         message: Discord message object
@@ -116,22 +125,8 @@ def _parse_and_apply_system_prompt(message, channel_id):
         bool: True if system prompt was found and applied, False otherwise
     """
     try:
-        # Handle unprocessed setprompt commands
-        if message.content.startswith('!setprompt '):
-            prompt_text = message.content[len('!setprompt '):].strip()
-            if prompt_text:
-                # Apply directly to storage
-                channel_system_prompts[channel_id] = prompt_text
-                
-                # Also add to history for consistency
-                system_update = create_system_update_message(prompt_text)
-                add_message_to_history(channel_id, system_update)
-                
-                logger.info(f"Applied system prompt from setprompt command: {prompt_text[:50]}...")
-                return True
-        
-        # Handle system prompt update confirmations from bot
-        elif (hasattr(message, 'author') and 
+        # Only handle system prompt update confirmations from bot
+        if (hasattr(message, 'author') and 
               hasattr(message.author, 'bot') and 
               message.author.bot and
               "System prompt updated for" in message.content and 
@@ -150,7 +145,7 @@ def _parse_and_apply_system_prompt(message, channel_id):
 
 def _parse_and_apply_ai_provider(message, channel_id):
     """
-    Parse and apply AI provider setting from a Discord message.
+    Parse and apply AI provider setting from bot confirmation messages.
     
     TODO: Implement parsing of AI provider change confirmations.
     
@@ -163,12 +158,12 @@ def _parse_and_apply_ai_provider(message, channel_id):
     """
     # TODO: Implement AI provider parsing
     # Look for messages like "AI provider for #channel changed from openai to deepseek"
-    logger.debug("AI provider parsing not yet implemented (dummy function)")
+    logger.debug("AI provider parsing not yet implemented")
     return False
 
 def _parse_and_apply_auto_respond(message, channel_id):
     """
-    Parse and apply auto-respond setting from a Discord message.
+    Parse and apply auto-respond setting from bot confirmation messages.
     
     TODO: Implement parsing of auto-respond toggle confirmations.
     
@@ -181,12 +176,12 @@ def _parse_and_apply_auto_respond(message, channel_id):
     """
     # TODO: Implement auto-respond parsing
     # Look for messages like "Auto-response is now **enabled** in #channel"
-    logger.debug("Auto-respond parsing not yet implemented (dummy function)")
+    logger.debug("Auto-respond parsing not yet implemented")
     return False
 
 def _parse_and_apply_thinking_setting(message, channel_id):
     """
-    Parse and apply thinking display setting from a Discord message.
+    Parse and apply thinking display setting from bot confirmation messages.
     
     TODO: Implement parsing of thinking setting confirmations.
     
@@ -199,7 +194,7 @@ def _parse_and_apply_thinking_setting(message, channel_id):
     """
     # TODO: Implement thinking setting parsing
     # Look for messages like "DeepSeek thinking display **enabled** for #channel"
-    logger.debug("Thinking setting parsing not yet implemented (dummy function)")
+    logger.debug("Thinking setting parsing not yet implemented")
     return False
 
 def extract_prompt_from_update_message(message):
