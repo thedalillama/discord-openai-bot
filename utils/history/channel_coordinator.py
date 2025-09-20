@@ -1,7 +1,12 @@
 # utils/history/channel_coordinator.py
-# Version 1.0.0
+# Version 2.0.0
 """
 Channel coordination and locking management for Discord message history loading.
+
+CHANGES v2.0.0: Removed legacy settings restoration
+- REMOVED: Legacy post-loading settings restoration (now handled during Discord loading)
+- SIMPLIFIED: Loading workflow now focuses on core Discord loading and cleanup
+- ELIMINATED: Double-application of settings (prevention of redundancy)
 
 This module handles the high-level coordination of channel history loading,
 including concurrency control through channel-specific locking, basic validation,
@@ -10,12 +15,12 @@ and delegation to specialized coordinators for different aspects of the loading 
 Key Responsibilities:
 - Channel locking to prevent race conditions during loading
 - High-level coordination of the loading workflow
-- Delegation to specialized coordinators (settings, cleanup)
+- Delegation to specialized coordinators for cleanup
 - Error handling and recovery for the overall process
 - Public API entry points that other parts of the bot call
 
-Created in refactoring to maintain under 200-line limit while preserving
-all functionality from the original loading.py.
+Settings are now applied during Discord message discovery via realtime parsing,
+eliminating the need for post-loading restoration.
 """
 import asyncio
 import datetime
@@ -36,7 +41,7 @@ async def coordinate_channel_loading(channel, is_automatic=False):
     This is the main coordination function that handles:
     1. Channel loading status validation
     2. Concurrency control through channel-specific locking
-    3. Delegation to Discord loading and other coordinators
+    3. Delegation to Discord loading with realtime settings parsing
     4. Final status marking and cleanup
     
     Args:
@@ -79,7 +84,7 @@ async def coordinate_channel_loading(channel, is_automatic=False):
             return
         
         try:
-            # Perform the actual loading process using modular coordinators
+            # Perform the actual loading process using simplified workflow
             await _execute_loading_workflow(channel, is_automatic)
             
             # Mark channel as loaded only after successful loading
@@ -105,10 +110,11 @@ async def coordinate_channel_loading(channel, is_automatic=False):
 
 async def _execute_loading_workflow(channel, is_automatic):
     """
-    Execute the complete loading workflow by coordinating with specialized modules.
+    Execute the simplified loading workflow with realtime settings parsing.
     
-    This function orchestrates the loading process by calling specialized coordinators
-    in the correct order while handling errors appropriately.
+    This function orchestrates the loading process using the simplified architecture
+    where settings are applied during Discord message discovery, eliminating the need
+    for post-loading restoration.
     
     Args:
         channel: Discord channel object
@@ -120,9 +126,9 @@ async def _execute_loading_workflow(channel, is_automatic):
     channel_id = channel.id
     channel_name = channel.name
     
-    logger.info(f"Starting loading workflow for channel #{channel_name} ({channel_id})")
+    logger.info(f"Starting simplified loading workflow for channel #{channel_name} ({channel_id})")
     
-    # Step 1: Load messages from Discord API using new modular system
+    # Step 1: Load messages from Discord API with realtime settings parsing
     # This handles: fetch → real-time settings parsing → message conversion
     try:
         processed_count, skipped_count = await load_messages_from_discord(channel, is_automatic)
@@ -132,20 +138,7 @@ async def _execute_loading_workflow(channel, is_automatic):
         logger.error(f"Failed to load messages from Discord: {e}")
         raise
     
-    # Step 2: Additional settings restoration (backup for real-time parsing)
-    try:
-        from .settings_coordinator import coordinate_settings_restoration
-        settings_result = await coordinate_settings_restoration(channel_id)
-        
-        if settings_result['applied']:
-            logger.info(f"Additional settings restored: {settings_result['applied']}")
-        
-    except Exception as e:
-        logger.error(f"Failed to restore additional settings: {e}")
-        # Settings restoration failure shouldn't stop history loading
-        logger.warning("Continuing with history loading despite additional settings failure")
-    
-    # Step 3: Final cleanup and validation
+    # Step 2: Final cleanup and validation (optional)
     try:
         from .cleanup_coordinator import coordinate_final_cleanup
         cleanup_result = await coordinate_final_cleanup(channel)
@@ -154,40 +147,36 @@ async def _execute_loading_workflow(channel, is_automatic):
         
     except Exception as e:
         logger.error(f"Failed to complete final cleanup: {e}")
-        raise
+        # Cleanup failure shouldn't stop history loading
+        logger.warning("Continuing with history loading despite cleanup issues")
     
-    logger.info(f"Loading workflow completed successfully for channel #{channel_name}")
+    logger.info(f"Simplified loading workflow completed successfully for channel #{channel_name}")
 
 def validate_channel_for_loading(channel):
     """
     Validate that a channel is suitable for history loading.
     
+    Performs basic validation checks to ensure the channel can be processed
+    for history loading.
+    
     Args:
         channel: Discord channel object to validate
         
     Returns:
-        tuple: (is_valid, validation_errors)
-        
-    Raises:
-        None - returns validation results instead of raising
+        tuple: (is_valid, error_message)
+            is_valid: bool indicating if channel is valid for loading
+            error_message: str describing validation failure, None if valid
     """
-    errors = []
+    if not channel:
+        return False, "Channel object is None"
     
     if not hasattr(channel, 'id'):
-        errors.append("Channel missing 'id' attribute")
+        return False, "Channel missing id attribute"
     
     if not hasattr(channel, 'name'):
-        errors.append("Channel missing 'name' attribute")
+        return False, "Channel missing name attribute"
     
-    if not hasattr(channel, 'guild'):
-        errors.append("Channel missing 'guild' attribute")
+    if not hasattr(channel, 'history'):
+        return False, "Channel missing history method"
     
-    if hasattr(channel, 'guild') and not hasattr(channel.guild, 'me'):
-        errors.append("Channel guild missing 'me' attribute")
-    
-    is_valid = len(errors) == 0
-    
-    if not is_valid:
-        logger.warning(f"Channel validation failed: {errors}")
-    
-    return is_valid, errors
+    return True, None

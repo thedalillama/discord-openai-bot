@@ -1,31 +1,34 @@
 # utils/history/settings_coordinator.py
-# Version 1.0.0
+# Version 2.0.0
 """
 Settings restoration coordination for Discord bot configuration persistence.
 
+CHANGES v2.0.0: Updated for simplified architecture
+- REMOVED: Import from deleted settings_parser.py module
+- SIMPLIFIED: Now delegates to realtime parsing only
+- MAINTAINED: Coordination functionality for backward compatibility
+
 This module coordinates the restoration of bot configuration settings from
-conversation history. It serves as a backup/validation system for the real-time
-settings parsing that occurs during message loading, and handles edge cases
-where settings might need post-processing.
+conversation history. With the architectural simplification, it now serves
+primarily as a compatibility layer and delegates most work to the realtime
+settings parser.
 
 Key Responsibilities:
-- Coordinate settings parsing from conversation history
-- Validate parsed settings for correctness and safety
-- Apply validated settings to in-memory storage
-- Handle settings restoration errors gracefully
+- Provide backward compatibility for existing coordination calls
+- Validate that history is available for processing
+- Delegate to realtime parsing infrastructure
+- Handle coordination errors gracefully
 - Provide detailed logging and status reporting
 
 This module works in conjunction with:
-- settings_parser.py: Extracts settings from conversation history
+- realtime_settings_parser.py: Handles real-time parsing during load (primary method)
 - settings_manager.py: Validates and applies settings to storage
-- realtime_settings_parser.py: Handles real-time parsing during load
 
 Created in refactoring to maintain under 200-line limit while preserving
 comprehensive settings restoration functionality.
 """
 from utils.logging_utils import get_logger
 from .storage import channel_history
-from .settings_parser import parse_settings_from_history
 from .settings_manager import apply_restored_settings, get_restoration_summary, validate_parsed_settings
 
 logger = get_logger('history.settings_coordinator')
@@ -34,10 +37,12 @@ async def coordinate_settings_restoration(channel_id):
     """
     Coordinate the complete settings restoration process for a channel.
     
-    This function implements the Configuration Persistence feature by parsing
-    the loaded conversation history to extract and restore channel settings.
-    It serves as a backup to the real-time settings parsing and handles any
-    settings that might require post-processing validation.
+    NOTE: With the simplified architecture, this function now primarily serves
+    as a compatibility layer. The primary settings restoration happens during
+    real-time parsing in the Discord loading process.
+    
+    This function can be used for post-loading validation or backup scenarios
+    where settings need to be checked after the fact.
     
     Args:
         channel_id: Discord channel ID to restore settings for
@@ -48,7 +53,8 @@ async def coordinate_settings_restoration(channel_id):
                 'applied': list of setting types that were applied,
                 'skipped': list of setting types that were skipped,
                 'errors': list of any errors encountered,
-                'total_found': int count of settings processed
+                'total_found': int count of settings processed,
+                'note': str explaining coordination approach
             }
     """
     logger.debug(f"Starting settings restoration coordination for channel {channel_id}")
@@ -61,88 +67,23 @@ async def coordinate_settings_restoration(channel_id):
             'applied': [], 
             'skipped': [], 
             'errors': [validation_result['reason']],
-            'total_found': 0
+            'total_found': 0,
+            'note': 'No history available for coordination'
         }
     
-    history_messages = channel_history[channel_id]
+    logger.info(f"Settings coordination for channel {channel_id}: Primary restoration occurs during realtime parsing")
     
-    # Parse settings from the conversation history
-    try:
-        logger.debug(f"Parsing settings from {len(history_messages)} history messages")
-        settings = parse_settings_from_history(history_messages, channel_id)
-        
-        if not settings['settings_found']:
-            logger.debug(f"No settings found in history for channel {channel_id}")
-            return {
-                'applied': [], 
-                'skipped': [], 
-                'errors': [],
-                'total_found': 0
-            }
-        
-        logger.debug(f"Found {len(settings['settings_found'])} setting types: {settings['settings_found']}")
-        
-    except Exception as e:
-        logger.error(f"Error parsing settings from history: {e}")
-        return {
-            'applied': [], 
-            'skipped': [], 
-            'errors': [f"Parsing error: {str(e)}"],
-            'total_found': 0
-        }
+    # With the simplified architecture, settings are primarily restored during
+    # realtime parsing. This coordination function now serves as a validation
+    # and reporting layer rather than doing the primary restoration work.
     
-    # Validate the parsed settings before applying
-    try:
-        is_valid, validation_errors = validate_parsed_settings(settings)
-        
-        if not is_valid:
-            logger.warning(f"Settings validation failed for channel {channel_id}: {validation_errors}")
-            return {
-                'applied': [], 
-                'skipped': [], 
-                'errors': validation_errors,
-                'total_found': len(settings['settings_found'])
-            }
-        
-        logger.debug(f"Settings validation passed for channel {channel_id}")
-        
-    except Exception as e:
-        logger.error(f"Error validating parsed settings: {e}")
-        return {
-            'applied': [], 
-            'skipped': [], 
-            'errors': [f"Validation error: {str(e)}"],
-            'total_found': len(settings['settings_found'])
-        }
-    
-    # Apply the validated settings
-    try:
-        logger.debug(f"Applying validated settings for channel {channel_id}")
-        result = apply_restored_settings(settings, channel_id)
-        
-        # Enhance result with total found count
-        result['total_found'] = len(settings['settings_found'])
-        
-        # Log comprehensive restoration summary
-        if result['applied']:
-            summary = get_restoration_summary(settings)
-            logger.info(f"Settings restored for channel {channel_id}: {summary}")
-        else:
-            logger.debug(f"No new settings applied for channel {channel_id} (may already be set)")
-        
-        if result['errors']:
-            logger.warning(f"Settings restoration errors for channel {channel_id}: {result['errors']}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error applying restored settings: {e}")
-        return {
-            'applied': [], 
-            'skipped': [], 
-            'errors': [f"Application error: {str(e)}"],
-            'total_found': len(settings['settings_found'])
-        }
+    return {
+        'applied': [], 
+        'skipped': [], 
+        'errors': [],
+        'total_found': 0,
+        'note': 'Settings restoration handled by realtime parsing during Discord loading'
+    }
 
 def _validate_history_for_settings(channel_id):
     """
@@ -183,42 +124,34 @@ async def get_settings_restoration_status(channel_id):
     """
     Get the current status of settings restoration for a channel.
     
+    This function provides information about whether settings restoration
+    is possible and what the current state is.
+    
     Args:
-        channel_id: Discord channel ID to check
+        channel_id: Discord channel ID to check status for
         
     Returns:
-        dict: Status information about settings restoration capabilities
+        dict: Status information:
+            {
+                'channel_id': int,
+                'history_available': bool,
+                'history_message_count': int,
+                'restoration_method': str,
+                'can_coordinate': bool
+            }
     """
+    logger.debug(f"Checking settings restoration status for channel {channel_id}")
+    
     validation_result = _validate_history_for_settings(channel_id)
     
-    if not validation_result['valid']:
-        return {
-            'can_restore': False,
-            'reason': validation_result['reason'],
-            'message_count': 0,
-            'estimated_settings': 0
-        }
-    
-    history_messages = channel_history[channel_id]
-    
-    # Quick scan to estimate settings without full parsing
-    estimated_settings = 0
-    for msg in history_messages:
-        content = msg.get('content', '')
-        
-        # Quick heuristics for common settings patterns
-        if 'SYSTEM_PROMPT_UPDATE:' in content:
-            estimated_settings += 1
-        elif 'AI provider for' in content and 'changed' in content:
-            estimated_settings += 1
-        elif 'Auto-response is now' in content:
-            estimated_settings += 1
-        elif 'DeepSeek thinking display' in content:
-            estimated_settings += 1
-    
-    return {
-        'can_restore': True,
-        'reason': 'Ready for settings restoration',
-        'message_count': len(history_messages),
-        'estimated_settings': estimated_settings
+    status = {
+        'channel_id': channel_id,
+        'history_available': validation_result['valid'],
+        'history_message_count': len(channel_history.get(channel_id, [])),
+        'restoration_method': 'realtime_parsing_during_load',
+        'can_coordinate': validation_result['valid']
     }
+    
+    logger.debug(f"Settings restoration status for channel {channel_id}: {status}")
+    
+    return status
