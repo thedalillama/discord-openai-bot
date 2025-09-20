@@ -1,7 +1,17 @@
 # utils/history/api_imports.py
-# Version 1.0.0
+# Version 1.2.0
 """
-Centralized import coordination for history package API.
+API imports coordination for history package.
+
+CHANGES v1.2.0: Removed obsolete coordination imports
+- Removed settings_parser.py imports (deleted in refactoring)
+- Added settings_coordinator.py imports for simplified architecture
+- Updated to support single-method settings persistence
+
+CHANGES v1.1.0: Removed obsolete settings_parser imports
+- Removed settings_parser.py imports (deleted in refactoring)
+- Maintained all other imports for backward compatibility
+- Updated to support simplified architecture with realtime parsing only
 
 This module groups related imports for better organization and maintainability.
 Created during refactoring to reduce utils/history/__init__.py from 263 to under 250 lines
@@ -85,25 +95,19 @@ from .discord_loader import (
     fetch_recent_messages_compat as fetch_recent_messages
 )
 
-# Settings parsing imports
-from .settings_parser import (
-    parse_settings_from_history,
-    parse_system_prompt_update,
-    parse_ai_provider_change,
-    parse_auto_respond_change,
-    parse_thinking_setting_change,
-    extract_settings_by_type,
-    get_parsing_statistics
-)
-
-# Settings management imports
+# Settings management imports (backup functions removed in v1.1.0)
 from .settings_manager import (
     apply_restored_settings,
     validate_parsed_settings,
     get_restoration_summary,
-    create_settings_backup,
-    restore_from_backup,
-    get_current_settings,
+    apply_individual_setting
+)
+
+# Management utilities imports (extracted in v1.1.0)
+from .management_utilities import (
     clear_channel_settings,
-    get_settings_statistics
+    get_settings_statistics,
+    validate_setting_value,
+    get_channel_setting_summary,
+    bulk_clear_settings
 )

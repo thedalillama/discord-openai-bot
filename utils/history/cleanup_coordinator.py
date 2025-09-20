@@ -1,7 +1,12 @@
 # utils/history/cleanup_coordinator.py
-# Version 1.2.1
+# Version 2.0.0
 """
 Final cleanup coordination for Discord message history loading.
+
+CHANGES v2.0.0: Removed legacy system prompt support
+- REMOVED: Legacy system prompt restoration for old SYSTEM_PROMPT_UPDATE format
+- SIMPLIFIED: Focus only on message filtering and final validation
+- ELIMINATED: Backward compatibility overhead (no longer needed)
 
 CHANGES v1.2.1: Minor formatting adjustment to meet 250-line limit
 CHANGES v1.2.0: Simplified statistics generation for maintainability
@@ -10,24 +15,21 @@ CHANGES v1.2.0: Simplified statistics generation for maintainability
 - Maintained essential message count for validation
 - Reduced file size from 280 to under 250 lines while preserving all functionality
 
-This module coordinates final cleanup operations after message loading and settings
-restoration. Handles message filtering, legacy system prompt restoration, and final
-validation of loaded conversation history.
+This module coordinates final cleanup operations after message loading.
+Handles message filtering and final validation of loaded conversation history.
 
 Key Responsibilities:
 - Filter out unwanted messages (commands, history outputs, etc.)
-- Handle legacy system prompt restoration for backward compatibility
 - Perform final validation and statistics reporting
 - Clean up artifacts from the loading process
 - Ensure conversation history is ready for AI usage
 
-Created in refactoring to maintain under 250-line limit while preserving
-all cleanup and validation functionality.
+All system prompt handling is now done via realtime parsing during Discord loading.
+No legacy format support is needed since realtime parsing handles all cases.
 """
 from utils.logging_utils import get_logger
 from .storage import filter_channel_history, channel_history
-from .message_processing import is_bot_command, extract_system_prompt_updates
-from .prompts import channel_system_prompts
+from .message_processing import is_bot_command
 
 logger = get_logger('history.cleanup_coordinator')
 
@@ -35,8 +37,8 @@ async def coordinate_final_cleanup(channel):
     """
     Coordinate final cleanup operations for a channel after history loading.
     
-    Performs cleanup steps: filter unwanted messages, handle legacy prompts, 
-    and validate final results.
+    Performs cleanup steps: filter unwanted messages and validate final results.
+    System prompts are handled during realtime parsing, no legacy support needed.
     
     Args:
         channel: Discord channel object that was processed
@@ -51,7 +53,6 @@ async def coordinate_final_cleanup(channel):
     
     result = {
         'messages_filtered': 0,
-        'legacy_prompts_restored': 0,
         'final_message_count': 0,
         'cleanup_status': 'started'
     }
@@ -61,11 +62,7 @@ async def coordinate_final_cleanup(channel):
         filter_result = await _filter_conversation_history(channel_id)
         result['messages_filtered'] = filter_result['removed_count']
         
-        # Step 2: Handle legacy system prompt restoration for backward compatibility
-        legacy_result = await _handle_legacy_system_prompts(channel_id)
-        result['legacy_prompts_restored'] = legacy_result['prompts_restored']
-        
-        # Step 3: Final validation and statistics
+        # Step 2: Final validation and statistics
         final_result = await _perform_final_validation(channel)
         result['final_message_count'] = final_result['message_count']
         
@@ -73,7 +70,6 @@ async def coordinate_final_cleanup(channel):
         
         logger.info(f"Final cleanup completed for channel #{channel_name}: "
                    f"{result['messages_filtered']} filtered, "
-                   f"{result['legacy_prompts_restored']} legacy prompts, "
                    f"{result['final_message_count']} final messages")
         
         return result
@@ -107,49 +103,6 @@ async def _filter_conversation_history(channel_id):
         'original_count': original_count,
         'filtered_count': filtered_count,
         'removed_count': removed_count
-    }
-
-async def _handle_legacy_system_prompts(channel_id):
-    """
-    Handle legacy system prompt restoration for backward compatibility.
-    Processes old SYSTEM_PROMPT_UPDATE format for channels not using new system.
-    """
-    logger.debug(f"Checking for legacy system prompt restoration for channel {channel_id}")
-    
-    prompts_restored = 0
-    
-    # Only restore legacy prompts if no modern prompt is already set
-    if channel_id not in channel_system_prompts:
-        try:
-            # Look for legacy system prompt updates using the old method
-            system_updates = extract_system_prompt_updates(channel_history[channel_id])
-            
-            logger.debug(f"Found {len(system_updates)} legacy system prompt updates")
-            
-            if system_updates:
-                # Get the most recent update
-                latest_update = system_updates[-1]
-                
-                # Extract the prompt (remove the prefix)
-                prompt_text = latest_update["content"].replace("SYSTEM_PROMPT_UPDATE:", "", 1).strip()
-                
-                if prompt_text:
-                    # Restore the prompt using legacy method
-                    channel_system_prompts[channel_id] = prompt_text
-                    prompts_restored = 1
-                    logger.info(f"Restored legacy system prompt for channel {channel_id}: {prompt_text[:50]}...")
-                else:
-                    logger.debug(f"Legacy prompt text was empty after extraction")
-            else:
-                logger.debug(f"No legacy system prompt updates found for channel {channel_id}")
-                
-        except Exception as e:
-            logger.error(f"Error during legacy system prompt restoration for channel {channel_id}: {e}")
-    else:
-        logger.debug(f"Channel {channel_id} already has modern system prompt, skipping legacy restoration")
-    
-    return {
-        'prompts_restored': prompts_restored
     }
 
 async def _perform_final_validation(channel):

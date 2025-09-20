@@ -1,7 +1,18 @@
 # utils/history/api_exports.py
-# Version 1.0.0
+# Version 1.2.0
 """
 Public API exports for history package.
+
+CHANGES v1.2.0: Updated exports for simplified architecture
+- Removed settings_parser.py function exports (deleted in refactoring)
+- Added settings_coordinator.py function exports for compatibility
+- Updated settings exports to reflect extracted utility functions
+
+CHANGES v1.1.0: Removed obsolete settings_parser exports
+- Removed settings_parser.py function exports (deleted in refactoring)
+- Removed settings_backup.py function exports (deleted in refactoring)
+- Maintained all other exports for backward compatibility
+- Updated to support simplified architecture with realtime parsing only
 
 This module defines what functions and variables are available when importing 
 from utils.history. Created during refactoring to reduce utils/history/__init__.py 
@@ -69,24 +80,16 @@ __all__ = [
     'parse_settings_during_load',
     'extract_prompt_from_update_message_new',
     
-    # Settings parsing (configuration extraction from history)
-    'parse_settings_from_history',
-    'parse_system_prompt_update',
-    'parse_ai_provider_change',
-    'parse_auto_respond_change',
-    'parse_thinking_setting_change',
-    'extract_settings_by_type',
-    'get_parsing_statistics',
-    
-    # Settings management (validation, backup, restoration)
+    # Settings management (core validation and application - backup functions removed)
     'apply_restored_settings',
     'validate_parsed_settings',
     'get_restoration_summary',
-    'create_settings_backup',
-    'restore_from_backup',
-    'get_current_settings',
+    'apply_individual_setting',
     'clear_channel_settings',
-    'get_settings_statistics'
+    'get_settings_statistics',
+    'validate_setting_value',
+    'get_channel_setting_summary',
+    'bulk_clear_settings'
 ]
 
 # Organized export categories for documentation and maintenance
@@ -111,9 +114,8 @@ LOADING_EXPORTS = [
 ]
 
 SETTINGS_EXPORTS = [
-    'parse_settings_from_history', 'parse_system_prompt_update', 'parse_ai_provider_change',
-    'parse_auto_respond_change', 'parse_thinking_setting_change', 'extract_settings_by_type',
-    'get_parsing_statistics', 'apply_restored_settings', 'validate_parsed_settings',
-    'get_restoration_summary', 'create_settings_backup', 'restore_from_backup',
-    'get_current_settings', 'clear_channel_settings', 'get_settings_statistics'
+    'coordinate_settings_restoration', 'get_settings_restoration_status',
+    'apply_restored_settings', 'validate_parsed_settings', 'get_restoration_summary',
+    'apply_individual_setting', 'clear_channel_settings', 'get_settings_statistics',
+    'validate_setting_value', 'get_channel_setting_summary', 'bulk_clear_settings'
 ]
