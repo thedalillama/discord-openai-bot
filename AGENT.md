@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 2.9.0
+# Version 2.10.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -71,6 +71,58 @@
 - Use existing logging, error handling, and testing approaches
 - Maintain backward compatibility with existing APIs and imports
 
+## Development Quality Standards
+
+### 11. **CODE QUALITY REQUIREMENTS**
+- **250-line file limit** - Mandatory for all new files
+- **Single responsibility** - Each module serves one clear purpose
+- **Comprehensive documentation** - Detailed docstrings and inline comments
+- **Module-specific logging** - Structured logging with appropriate levels
+- **Error handling** - Graceful degradation and proper error recovery
+- **Version tracking** - Proper version numbers and changelogs in all files
+
+### 12. **ASYNC SAFETY REQUIREMENTS**
+- **Proper async/await usage** - Use async patterns for all I/O operations
+- **Thread-safe operations** - Wrap synchronous API calls in executors when needed
+- **Event loop protection** - Never block the Discord event loop with synchronous calls
+- **Background task management** - Use proper task creation and cleanup
+
+### 13. **STABILITY REQUIREMENTS**
+- **Test heartbeat stability** - Ensure no Discord gateway blocking during testing
+- **Monitor resource usage** - Check memory and CPU usage during development
+- **Validate error handling** - Test error conditions and recovery scenarios
+- **Verify backward compatibility** - Ensure existing functionality remains intact
+
+## Recent Development Context
+
+### Version 2.10.1 - Stability Focus
+- **Fixed**: OpenAI heartbeat blocking with async executor wrapper
+- **Enhanced**: Thread-safe API operations prevent Discord timeouts
+- **Maintained**: All existing functionality with improved stability
+- **Pattern**: Use `asyncio.run_in_executor()` for synchronous API calls
+
+### Async Development Patterns
+**When wrapping synchronous operations:**
+```python
+import asyncio
+import concurrent.futures
+
+# Wrap synchronous API calls
+loop = asyncio.get_event_loop()
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    result = await loop.run_in_executor(
+        executor, 
+        lambda: synchronous_api_call(params)
+    )
+```
+
+### Current Architecture Principles
+- **Modular design** - Focused modules under 250 lines
+- **Settings persistence** - Automatic recovery from Discord messages
+- **Provider abstraction** - Clean separation between AI providers
+- **Command safety** - Explicit controls prevent accidental changes
+- **Async stability** - Proper thread handling for all external APIs
+
 ---
 
 ## REMEMBER: 
@@ -78,8 +130,11 @@
 2. **ALL DEVELOPMENT WORK IN `development` BRANCH**
 3. **`main` BRANCH IS FOR STABLE CODE ONLY**
 4. **DISCUSS FIRST, CODE SECOND**
+5. **TEST ASYNC STABILITY - NO HEARTBEAT BLOCKING**
+6. **FOLLOW 250-LINE LIMIT AND MODULAR PATTERNS**
 
 These rules ensure proper agent workflow and coordination while leveraging the comprehensive technical documentation already established in README.md and STATUS.md.
 
 **For Technical Details**: See README.md and STATUS.md  
 **For Agent Workflow**: Follow this document
+**For Async Patterns**: Reference recent stability improvements in Version 2.10.1
