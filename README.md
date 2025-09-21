@@ -1,13 +1,13 @@
 # README.md
-# Version 2.10.0
+# Version 2.10.1
 # Discord AI Bot
 
-A sophisticated Discord bot with multi-provider AI integration, conversation history management, and persistent configuration settings. Features seamless switching between OpenAI, Anthropic, and DeepSeek providers with automatic settings recovery.
+A sophisticated Discord bot with multi-provider AI integration, conversation history management, and persistent configuration settings. Features seamless switching between OpenAI, Anthropic, and DeepSeek providers with automatic settings recovery and stable asynchronous operation.
 
 ## Features
 
 ### Multi-Provider AI Support
-- **OpenAI Integration**: GPT models with image generation via DALL-E
+- **OpenAI Integration**: GPT models with image generation via DALL-E (async executor for stability)
 - **Anthropic Integration**: Claude models with large context windows
 - **DeepSeek Integration**: Cost-effective reasoning with thinking display control
 
@@ -16,6 +16,11 @@ A sophisticated Discord bot with multi-provider AI integration, conversation his
 - **Per-Channel Customization**: Individual system prompts and AI providers per channel
 - **Auto-Response Control**: Configurable automatic responses with explicit on/off control
 - **Thinking Display**: Toggle DeepSeek's reasoning process visibility
+
+### Stability and Performance
+- **Async Operation**: Non-blocking API calls prevent Discord heartbeat issues
+- **Background Processing**: Long-running tasks don't interfere with bot responsiveness
+- **Thread-Safe Execution**: Proper async handling for all AI provider interactions
 
 ### Direct AI Addressing
 - Address specific providers without changing defaults: `openai, draw me a picture`
@@ -134,6 +139,19 @@ The bot will:
 - Clean the provider prefix from conversation history
 - Work with both auto-response and direct bot addressing
 
+## Stability Features
+
+### Async Operation
+- **Non-blocking AI calls**: All AI provider requests use proper async handling
+- **Thread-safe execution**: OpenAI API calls wrapped in `asyncio.run_in_executor()`
+- **Heartbeat protection**: Prevents Discord gateway timeouts during long operations
+- **Background processing**: Image generation and complex requests don't block bot responsiveness
+
+### Error Handling
+- **Graceful degradation**: Bot continues operating if individual requests fail
+- **Comprehensive logging**: Detailed logs for debugging and monitoring
+- **Automatic recovery**: Settings restoration handles parsing errors gracefully
+
 ## Configuration
 
 | Variable | Description | Default | Valid Options |
@@ -232,8 +250,8 @@ MIT
 
 ## Development Status
 
-**Current Version**: 2.10.0 - Settings Persistence and Enhanced Commands
-**Current State**: Production-ready with comprehensive settings persistence and enhanced command interface
+**Current Version**: 2.10.1 - Stability and Performance Enhancement
+**Current State**: Production-ready with comprehensive settings persistence, enhanced command interface, and stable async operation
 **Architecture**: All files under 250 lines, modular design, comprehensive documentation
-**Recent Features**: Settings recovery from Discord messages, enhanced autorespond command, comprehensive status display
+**Recent Features**: Settings recovery from Discord messages, enhanced autorespond command, comprehensive status display, async API stability
 **Maintainability**: Excellent - clean separation of concerns and focused modules

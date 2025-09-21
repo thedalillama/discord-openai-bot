@@ -1,7 +1,18 @@
+# ai_providers/openai_provider.py
+# Version 1.1.0
 """
 OpenAI provider implementation with image generation support.
-CHANGES: Fixed username duplication in Responses API message conversion
+
+CHANGES v1.1.0: Added async executor wrapper for API calls
+- ADDED: asyncio.run_in_executor() wrapper for synchronous OpenAI API calls
+- FIXED: Heartbeat blocking during both text and image generation
+- MAINTAINED: All existing functionality and response format
+- ENHANCED: Thread-safe API calls prevent Discord event loop blocking
+
+CHANGES v1.0.0: Fixed username duplication in Responses API message conversion
 """
+import asyncio
+import concurrent.futures
 from openai import OpenAI
 import base64
 import io
@@ -60,11 +71,19 @@ class OpenAIProvider(AIProvider):
         self.logger.debug(f"Converted {len(messages)} messages to input text for Responses API")
         
         try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=input_text,
-                tools=[{"type": "image_generation"}]
-            )
+            # Wrap synchronous API call in executor to prevent heartbeat blocking
+            self.logger.debug("Starting async OpenAI API call using executor")
+            
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                response = await loop.run_in_executor(
+                    executor, 
+                    lambda: self.client.responses.create(
+                        model=self.model,
+                        input=input_text,
+                        tools=[{"type": "image_generation"}]
+                    )
+                )
             
             self.logger.debug(f"Responses API call completed successfully")
             

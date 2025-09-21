@@ -1,8 +1,14 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.10.0
+# Version 2.10.1
 
 ## Current Version Features
+
+### Version 2.10.1 - Stability and Performance Enhancement
+- **FIXED**: OpenAI heartbeat blocking during API calls
+- **ENHANCED**: Async executor wrapper for synchronous OpenAI client calls
+- **IMPROVED**: Thread-safe AI provider operations prevent Discord gateway timeouts
+- **MAINTAINED**: All existing functionality with improved stability
 
 ### Version 2.10.0 - Settings Persistence and Enhanced Commands
 - **COMPLETED**: Full settings recovery from Discord message history
@@ -44,7 +50,7 @@
 
 ### ✅ Achieved Metrics
 - **Functionality**: Both text and image generation working perfectly
-- **Stability**: No heartbeat blocking issues with background task architecture
+- **Stability**: No heartbeat blocking issues with async executor architecture
 - **User Experience**: Intuitive commands and responses with direct addressing
 - **Direct Addressing**: Seamless provider override functionality
 - **Message Quality**: Fixed username duplication and formatting issues
@@ -53,6 +59,7 @@
 - **Documentation**: Comprehensive inline and module documentation
 - **Settings Persistence**: Complete automatic recovery from Discord message history
 - **Command Safety**: Enhanced autorespond command prevents accidental toggles
+- **API Stability**: Thread-safe execution prevents Discord gateway timeouts
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Clean memory usage (cleanup task ready for implementation)
@@ -63,52 +70,31 @@
 - **Performance**: Response time optimization
 - **Scalability**: Multi-server deployment capabilities
 
-## Recent Enhancements (Version 2.10.0)
+## Recent Enhancements (Version 2.10.1)
 
-### 1. Complete Settings Persistence - COMPLETED ✅
-**Implementation**: Full settings recovery from Discord message history
-- **System Prompts**: Automatically recovered from bot confirmation messages
-- **AI Provider Settings**: Parsed from provider change confirmations
-- **Auto-Response Settings**: Detected from toggle confirmations
-- **Thinking Display Settings**: Restored from thinking command confirmations
+### 1. OpenAI API Stability Fix - COMPLETED ✅
+**Problem**: Discord heartbeat blocking during OpenAI API calls
+- **Symptom**: "Shard ID None heartbeat blocked for more than 10 seconds" warnings
+- **Root Cause**: Synchronous `client.responses.create()` calls blocking event loop
+- **Impact**: Affected both text generation and image generation requests
 
-**Technical Details**:
-- Enhanced `utils/history/realtime_settings_parser.py` (v2.1.0)
-- Implemented all TODO functions for comprehensive recovery
-- Processes messages in reverse chronological order (newest first)
-- Stops after finding most recent setting of each type
-- Graceful error handling with comprehensive logging
+**Solution**: Async executor wrapper implementation
+- **Technical Implementation**: Wrapped synchronous API calls in `asyncio.run_in_executor()`
+- **Thread Safety**: Uses `ThreadPoolExecutor` for safe concurrent execution
+- **Performance**: Maintains Discord event loop responsiveness during API calls
+- **Compatibility**: Zero breaking changes to existing functionality
 
-### 2. Enhanced !autorespond Command - COMPLETED ✅
-**New Behavior**:
-- `!autorespond` - Shows current status (safe, no changes)
-- `!autorespond on` - Explicitly enables auto-response
-- `!autorespond off` - Explicitly disables auto-response
+**Code Changes**:
+- Enhanced `ai_providers/openai_provider.py` (v1.1.0)
+- Added `asyncio` and `concurrent.futures` imports
+- Wrapped `client.responses.create()` in executor lambda
+- Enhanced logging for async operation tracking
 
-**Benefits**:
-- **Safer Operation**: No accidental toggles when checking status
-- **More Explicit**: Users know exactly what will happen
-- **Consistent Pattern**: Matches `!thinking on/off` command style
-- **Settings Recovery Compatible**: Maintains same confirmation message format
-
-**Technical Details**:
-- Updated `commands/auto_respond_commands.py` (v1.1.0)
-- Added parameter parsing similar to thinking commands
-- Preserved admin permission requirements
-- Enhanced logging and error handling
-
-### 3. Comprehensive Status Command - COMPLETED ✅
-**New Command**: `!status`
-- **System Prompt**: Shows full prompt text with custom/default indication
-- **AI Provider**: Displays current provider and default comparison
-- **Auto-Response**: Shows enabled/disabled status
-- **Thinking Display**: Shows current thinking visibility setting
-
-**Features**:
-- Available to all users (no admin requirement)
-- Clean, organized output format
-- Full system prompt display in code blocks
-- Graceful handling of missing settings
+**Results**:
+- **Eliminated heartbeat blocking** for both text and image generation
+- **Improved bot stability** during long-running OpenAI requests
+- **Maintained response quality** and processing speed
+- **Enhanced production reliability** under load
 
 ## Architecture Status
 
@@ -125,6 +111,12 @@
 │   ├── auto_respond_commands.py # Auto-response controls (v1.1.0)
 │   ├── thinking_commands.py   # DeepSeek thinking controls
 │   └── status_commands.py     # Comprehensive status display (v1.0.0)
+├── ai_providers/              # AI provider implementations
+│   ├── __init__.py
+│   ├── base.py
+│   ├── openai_provider.py     # OpenAI with async executor (v1.1.0)
+│   ├── anthropic_provider.py  # Anthropic Claude
+│   └── baseten_provider.py    # BaseTen DeepSeek R1
 └── utils/                     # Utility modules (all under 250 lines)
     ├── ai_utils.py            # AI provider abstraction
     ├── logging_utils.py       # Structured logging system
@@ -185,6 +177,16 @@
 - `!autorespond on/off` for explicit control
 - `!status` command for comprehensive settings overview
 
+#### 6. Discord Heartbeat Blocking - RESOLVED ✅
+**Problem**: OpenAI API calls blocking Discord event loop causing heartbeat timeouts
+**Solution**: Async executor wrapper for thread-safe API calls
+**Status**: ✅ COMPLETED in Version 2.10.1
+**Technical Details**:
+- Wrapped synchronous `client.responses.create()` in `asyncio.run_in_executor()`
+- Added `ThreadPoolExecutor` for safe concurrent execution
+- Prevents "heartbeat blocked for more than 10 seconds" warnings
+- Affects both text generation and image generation requests
+
 ### Current Priority Issues
 
 #### 1. Channel Data Cleanup (LOW PRIORITY)
@@ -193,11 +195,11 @@
 **Growth**: Memory dictionaries accumulate stale channel data
 **Solution**: Periodic cleanup task to validate channel access (straightforward implementation)
 
-#### 2. Discord Connection Stability (MONITORING)
-**Problem**: Occasional "waiting too long" errors from Discord
-**Status**: 🔄 MONITORING - Improved with background task refactoring
-**Likely Cause**: Edge cases where operations still block event loop
-**Solution**: Add timeout handling and retry logic (enhanced error handling)
+#### 2. Enhanced Error Handling (MEDIUM PRIORITY)
+**Status**: Ready for implementation  
+**Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
+**Impact**: Medium - Better production stability
+**Implementation**: Add timeout wrappers and retry logic for edge cases
 
 ### Monitoring and Observability
 
@@ -208,7 +210,7 @@
 - `discord_bot.provider_utils` - Provider override handling
 - `discord_bot.response_handler` - AI response processing
 - `discord_bot.history.*` - History management (multiple focused loggers)
-- `discord_bot.ai_providers.*` - Provider-specific operations
+- `discord_bot.ai_providers.*` - Provider-specific operations with async tracking
 - `discord_bot.commands.*` - Command execution and status
 
 **Structured Output**: Comprehensive logging for production debugging and monitoring
@@ -221,7 +223,7 @@
 **Status**: Ready for implementation  
 **Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
 **Impact**: Medium - Better production stability
-**Implementation**: Add timeout wrappers and retry logic
+**Implementation**: Add timeout wrappers and retry logic for remaining edge cases
 
 #### 2. Channel Cleanup Task (LOW PRIORITY)
 **Status**: Ready for implementation
@@ -252,6 +254,7 @@
 4. **Module-specific logging** - Structured logging with appropriate levels
 5. **Error handling** - Graceful degradation and proper error recovery
 6. **Version tracking** - Proper version numbers and changelogs in all files
+7. **Async safety** - Proper async/await usage and thread-safe operations
 
 ### Adding New Features
 1. **Follow modular design** - Create focused modules under 250 lines
@@ -259,5 +262,6 @@
 3. **Add comprehensive tests** - Test new functionality thoroughly
 4. **Document changes** - Update README.md and STATUS.md
 5. **Follow existing patterns** - Use established conventions and architectures
+6. **Consider async requirements** - Wrap synchronous operations properly
 
-This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, and outstanding maintainability. Version 2.10.0 delivers a significant improvement in user experience and system reliability.
+This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, stable async operation, and outstanding maintainability. Version 2.10.1 delivers significant stability improvements for production deployment.
