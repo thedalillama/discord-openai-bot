@@ -1,7 +1,13 @@
 # ai_providers/openai_provider.py
-# Version 1.1.0
+# Version 1.2.0
 """
 OpenAI provider implementation with image generation support.
+
+CHANGES v1.2.0: Implemented ENABLE_IMAGE_GENERATION configuration
+- ADDED: Conditional image generation based on ENABLE_IMAGE_GENERATION setting
+- ENHANCED: Configurable tools array for OpenAI API calls
+- MAINTAINED: All existing functionality and response format
+- IMPROVED: Cost control through optional image generation
 
 CHANGES v1.1.0: Added async executor wrapper for API calls
 - ADDED: asyncio.run_in_executor() wrapper for synchronous OpenAI API calls
@@ -18,7 +24,8 @@ import base64
 import io
 from .base import AIProvider
 from config import (OPENAI_API_KEY, DEFAULT_TEMPERATURE,
-                    OPENAI_MODEL, OPENAI_CONTEXT_LENGTH, OPENAI_MAX_TOKENS)
+                    OPENAI_MODEL, OPENAI_CONTEXT_LENGTH, OPENAI_MAX_TOKENS,
+                    ENABLE_IMAGE_GENERATION)
 from utils.logging_utils import get_logger
 
 class OpenAIProvider(AIProvider):
@@ -71,8 +78,11 @@ class OpenAIProvider(AIProvider):
         self.logger.debug(f"Converted {len(messages)} messages to input text for Responses API")
         
         try:
+            # Determine tools based on image generation setting
+            tools = [{"type": "image_generation"}] if ENABLE_IMAGE_GENERATION else []
+            
             # Wrap synchronous API call in executor to prevent heartbeat blocking
-            self.logger.debug("Starting async OpenAI API call using executor")
+            self.logger.debug(f"Starting async OpenAI API call using executor (image generation: {'enabled' if ENABLE_IMAGE_GENERATION else 'disabled'})")
             
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -81,7 +91,7 @@ class OpenAIProvider(AIProvider):
                     lambda: self.client.responses.create(
                         model=self.model,
                         input=input_text,
-                        tools=[{"type": "image_generation"}]
+                        tools=tools
                     )
                 )
             

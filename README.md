@@ -154,19 +154,21 @@ The bot will:
 
 ## Configuration
 
-| Variable | Description | Default | Valid Options |
-|----------|-------------|---------|---------------|
-| `DISCORD_TOKEN` | Discord bot token | Required | - |
-| `OPENAI_API_KEY` | OpenAI API key | Required | - |
-| `ANTHROPIC_API_KEY` | Anthropic API key | Required | - |
-| `BASETEN_DEEPSEEK_KEY` | BaseTen DeepSeek API key | Required | - |
-| `AI_PROVIDER` | Default AI provider | `openai` | `openai`, `anthropic`, `deepseek` |
-| `ANTHROPIC_MODEL` | Claude model to use | `claude-3-haiku-20240307` | Any valid Claude model |
-| `AUTO_RESPOND` | Default auto-response behavior | `false` | `true`, `false` |
-| `MAX_HISTORY` | Messages to keep in history | `15` | Any positive integer |
-| `MAX_RESPONSE_TOKENS` | Max tokens per response | `1500` | Any positive integer |
-| `BOT_PREFIX` | Bot mention prefix | `"Bot, "` | Any string |
-| `LOG_LEVEL` | Logging verbosity | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+For comprehensive environment variable documentation, see **[README_ENV.md](README_ENV.md)**.
+
+**Quick Start Configuration:**
+```bash
+# Required
+DISCORD_TOKEN=your_discord_bot_token
+
+# Choose your AI provider
+AI_PROVIDER=deepseek
+BASETEN_DEEPSEEK_KEY=your_baseten_key
+
+# Optional settings
+AUTO_RESPOND=false
+LOG_LEVEL=INFO
+```
 
 ## Deployment
 
@@ -205,10 +207,12 @@ BASETEN_DEEPSEEK_KEY=your_baseten_key
 
 # Optional Configuration
 AUTO_RESPOND=false
-MAX_HISTORY=20
+MAX_HISTORY=10
 LOG_LEVEL=INFO
 BOT_PREFIX="Bot, "
 ```
+
+See **[README_ENV.md](README_ENV.md)** for complete environment variable documentation.
 
 ## Cost Optimization
 
