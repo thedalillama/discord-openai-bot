@@ -1,6 +1,13 @@
+# config.py
+# Version 1.1.0
 """
 Configuration module for the Discord bot.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.1.0: Fixed CHANNEL_LOCK_TIMEOUT configuration
+- FIXED: CHANNEL_LOCK_TIMEOUT now properly reads from environment variable
+- MAINTAINED: 30-second default value for backward compatibility
+- ENHANCED: Makes timeout configurable for different deployment scenarios
 """
 import os
 
@@ -10,7 +17,7 @@ MAX_HISTORY = int(os.environ.get('MAX_HISTORY', 10))
 INITIAL_HISTORY_LOAD = int(os.environ.get('INITIAL_HISTORY_LOAD', 50))
 MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 800))
 BOT_PREFIX = os.environ.get('BOT_PREFIX', 'Bot, ')
-CHANNEL_LOCK_TIMEOUT = 30  # Timeout for acquiring a channel lock (in seconds)
+CHANNEL_LOCK_TIMEOUT = int(os.environ.get('CHANNEL_LOCK_TIMEOUT', 30))  # Timeout for acquiring a channel lock (in seconds)
 
 # Default AI provider
 AI_PROVIDER = os.environ.get('AI_PROVIDER', 'openai')
