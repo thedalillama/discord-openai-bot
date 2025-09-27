@@ -1,9 +1,18 @@
+# ai_providers/__init__.py
+# Version 1.2.0
 """
 AI Providers package - factory for creating AI provider instances.
+
+CHANGES v1.2.0: Removed BaseTen provider and updated deepseek routing
+- REMOVED: BaseTen DeepSeekProvider import and usage
+- ADDED: OpenAICompatibleProvider import for deepseek routing
+- UPDATED: deepseek provider routing to use OpenAI-compatible provider
+- ENHANCED: Debug logging for provider selection transparency
+- MAINTAINED: All existing provider functionality and backward compatibility
 """
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
-from .baseten_provider import DeepSeekProvider
+from .openai_compatible_provider import OpenAICompatibleProvider
 from utils.logging_utils import get_logger
 
 # Get logger for this module
@@ -39,7 +48,8 @@ def get_provider(provider_name=None, channel_id=None):
     elif provider_name == 'anthropic':
         return AnthropicProvider()
     elif provider_name == 'deepseek':
-        return DeepSeekProvider()
+        logger.debug("Using OpenAI-compatible provider for deepseek")
+        return OpenAICompatibleProvider()
     else:
         error_msg = f"Unsupported AI provider: {provider_name}. Supported providers: openai, anthropic, deepseek"
         logger.error(error_msg)
