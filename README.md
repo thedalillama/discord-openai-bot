@@ -1,245 +1,191 @@
-# README.md
-# Version 2.10.1
 # Discord AI Bot
+# Version 2.11.0
 
-A sophisticated Discord bot with multi-provider AI integration, conversation history management, and persistent configuration settings. Features seamless switching between OpenAI, Anthropic, and DeepSeek providers with automatic settings recovery and stable asynchronous operation.
+A Discord bot that provides AI-powered conversations using multiple AI providers (OpenAI, Anthropic, DeepSeek) with comprehensive conversation history, system prompt management, and enhanced command interface.
 
-## Features
+## Key Features
 
-### Multi-Provider AI Support
-- **OpenAI Integration**: GPT models with image generation via DALL-E (async executor for stability)
-- **Anthropic Integration**: Claude models with large context windows
-- **DeepSeek Integration**: Cost-effective reasoning with thinking display control
-
-### Advanced Configuration Management
-- **Settings Persistence**: Automatic recovery of channel settings from Discord message history
-- **Per-Channel Customization**: Individual system prompts and AI providers per channel
-- **Auto-Response Control**: Configurable automatic responses with explicit on/off control
-- **Thinking Display**: Toggle DeepSeek's reasoning process visibility
-
-### Stability and Performance
-- **Async Operation**: Non-blocking API calls prevent Discord heartbeat issues
-- **Background Processing**: Long-running tasks don't interfere with bot responsiveness
-- **Thread-Safe Execution**: Proper async handling for all AI provider interactions
-
-### Direct AI Addressing
-- Address specific providers without changing defaults: `openai, draw me a picture`
-- Seamless provider switching for single responses
-- Clean conversation history without provider prefixes
+- **Multi-Provider AI Support**: OpenAI GPT models, Anthropic Claude, and DeepSeek via OpenAI-compatible provider
+- **Conversation History**: Maintains context across messages with configurable history limits
+- **System Prompt Management**: Customizable AI behavior per channel
+- **Auto-Response Mode**: Optional automatic responses to all messages
+- **Direct Provider Addressing**: Address specific AI providers without changing defaults
+- **Image Generation**: Integrated DALL-E image generation with OpenAI provider
+- **Settings Persistence**: Automatic recovery of all settings from Discord message history
+- **Enhanced Status Display**: Comprehensive status overview with provider backend identification
+- **Thinking Display Control**: Toggle DeepSeek reasoning process visibility
 
 ## Quick Start
 
-1. **Clone and install:**
+1. **Clone and install dependencies**:
    ```bash
-   git clone <repository-url>
-   cd discord-bot
+   git clone <repository>
+   cd discord-ai-bot
    pip install -r requirements.txt
    ```
 
-2. **Configure environment:**
+2. **Configure environment** (create `.env` file):
    ```bash
-   cp .env.example .env
-   # Edit .env with your API keys and settings
+   # Required
+   DISCORD_TOKEN=your_discord_bot_token
+   
+   # Choose your AI provider
+   AI_PROVIDER=deepseek
+   OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+   OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+   OPENAI_COMPATIBLE_MODEL=deepseek-chat
    ```
 
-3. **Run the bot:**
+3. **Run the bot**:
    ```bash
    python main.py
    ```
 
-## Usage Examples
+## AI Providers
 
-**Basic interaction:**
-```
-Bot, tell me about cats
-```
-
-**Direct AI provider addressing:**
-```
-openai, draw me a picture of a sunset
-anthropic, write a poem about coding
-deepseek, explain quantum physics
+### OpenAI (GPT Models + Image Generation)
+```bash
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini
+ENABLE_IMAGE_GENERATION=true
 ```
 
-**Custom AI personality:**
-```
-!setprompt You are a helpful pirate assistant. Arrr!
-Bot, what's the weather like?
-```
-
-**Provider switching with thinking control:**
-```
-!setai deepseek
-!thinking on
-What's the square root of 2?
-[Shows detailed step-by-step reasoning]
-
-!thinking off  
-What's the square root of 3?
-[Shows only final answer]
+### Anthropic (Claude Models)
+```bash
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_anthropic_key
+ANTHROPIC_MODEL=claude-3-haiku-20240307
 ```
 
-## Commands
+### DeepSeek (Cost-Effective Option)
+```bash
+AI_PROVIDER=deepseek
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+OPENAI_COMPATIBLE_MODEL=deepseek-chat
+```
 
-### Channel Status
-- `!status` - Display all current channel settings (system prompt, AI provider, auto-response, thinking)
+### Other OpenAI-Compatible Providers
+The bot supports any OpenAI-compatible API:
+```bash
+# OpenRouter
+OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1
 
-### AI Provider Management
-- `!setai <provider>` - Switch AI provider (openai/anthropic/deepseek)
-- `!getai` - Show current AI provider
-- `!resetai` - Reset to default provider
+# Local APIs
+OPENAI_COMPATIBLE_BASE_URL=http://localhost:8000
 
-### DeepSeek Thinking Control
-- `!thinking on` - Show DeepSeek's reasoning process (including `<think>` tags)
-- `!thinking off` - Hide DeepSeek's reasoning process (default)
-- `!thinking` - Check current thinking display setting
-- `!thinkingstatus` - Alternative way to check current setting
+# Other providers following OpenAI API standard
+```
 
-### System Prompts
-- `!setprompt <prompt>` - Set custom AI personality
-- `!getprompt` - Show current system prompt
-- `!resetprompt` - Reset to default prompt
+## Core Commands
 
-### Auto-Response (Enhanced)
+### System Prompt Management
+- `!setprompt <prompt>` - Set custom system prompt for current channel
+- `!resetprompt` - Reset to default system prompt
+- `!getprompt` - Display current system prompt
+
+### AI Provider Control
+- `!setai <provider>` - Set AI provider for current channel (`openai`, `anthropic`, `deepseek`)
+- `!getai` - Display current AI provider
+- `!resetai` - Reset to default AI provider
+
+### Auto-Response Control
 - `!autorespond` - Show current auto-response status
-- `!autorespond on` - Enable auto-response for channel
-- `!autorespond off` - Disable auto-response for channel
-- `!autostatus` - Show auto-response status (alternative)
-- `!autosetup` - Apply default auto-response setting
+- `!autorespond on` - Enable auto-response to all messages
+- `!autorespond off` - Disable auto-response
+- `!resetautorespond` - Reset to default auto-response setting
 
 ### History Management
-- `!history [count]` - Display conversation history
-- `!cleanhistory` - Remove commands from history
-- `!loadhistory` - Reload channel message history
+- `!history` - Display recent conversation history
+- `!clearhistory` - Clear conversation history for current channel
 
-## Settings Persistence
+### Status and Information
+- `!status` - Comprehensive overview of all channel settings
+- `!thinking on/off` - Control DeepSeek reasoning process display
 
-**Automatic Recovery**: The bot automatically recovers the most recent channel settings from Discord message history when restarting. This includes:
-
-- **System Prompts**: Custom AI personalities persist across restarts
-- **AI Provider Settings**: Channel-specific provider choices are maintained
-- **Auto-Response Settings**: Auto-response enabled/disabled state is preserved
-- **Thinking Display Settings**: DeepSeek thinking visibility preferences are restored
-
-**How it Works**: The bot scans recent Discord messages for confirmation messages (like "System prompt updated for #channel") and extracts the most recent settings automatically during startup.
-
-## Direct AI Addressing
-
-**Feature**: You can now directly address specific AI providers without changing the channel's default provider:
-
-```
-openai, create an image of a robot
-anthropic, analyze this text for sentiment
-deepseek, solve this math problem step by step
-```
-
-The bot will:
-- Use the specified provider for that single response
-- Keep the channel's default provider unchanged
-- Clean the provider prefix from conversation history
-- Work with both auto-response and direct bot addressing
-
-## Stability Features
-
-### Async Operation
-- **Non-blocking AI calls**: All AI provider requests use proper async handling
-- **Thread-safe execution**: OpenAI API calls wrapped in `asyncio.run_in_executor()`
-- **Heartbeat protection**: Prevents Discord gateway timeouts during long operations
-- **Background processing**: Image generation and complex requests don't block bot responsiveness
-
-### Error Handling
-- **Graceful degradation**: Bot continues operating if individual requests fail
-- **Comprehensive logging**: Detailed logs for debugging and monitoring
-- **Automatic recovery**: Settings restoration handles parsing errors gracefully
+### Direct Provider Addressing
+Address specific providers without changing channel defaults:
+- `openai, draw a picture of a sunset`
+- `anthropic, explain quantum physics`
+- `deepseek, solve this math problem`
 
 ## Configuration
 
-For comprehensive environment variable documentation, see **[README_ENV.md](README_ENV.md)**.
+See [README_ENV.md](README_ENV.md) for comprehensive environment variable documentation.
 
-**Quick Start Configuration:**
+### Essential Configuration
 ```bash
-# Required
+# Bot Requirements
 DISCORD_TOKEN=your_discord_bot_token
 
-# Choose your AI provider
+# Primary AI Provider
 AI_PROVIDER=deepseek
-BASETEN_DEEPSEEK_KEY=your_baseten_key
+OPENAI_COMPATIBLE_API_KEY=your_api_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 
-# Optional settings
-AUTO_RESPOND=false
-LOG_LEVEL=INFO
-```
-
-## Deployment
-
-### Docker Deployment
-```bash
-docker build -t discord-bot .
-docker run -d --env-file .env discord-bot
-```
-
-### Production Considerations
-1. Set `LOG_FILE=stdout` for service logging or specify a file path
-2. Use process managers like systemd, Docker, or PM2
-3. Monitor logs for structured output with module-specific logging
-4. Configure appropriate AI model limits for your use case
-5. Set up all required API keys for your chosen providers
-
-**Service logging includes:**
-- `discord_bot.events` - Message and connection events
-- `discord_bot.ai_providers` - AI provider operations (openai, anthropic, deepseek)
-- `discord_bot.history.*` - Conversation management (modular logging)
-- `discord_bot.commands.*` - Command execution
-- `discord_bot.message_utils` - Message processing and formatting
-- `discord_bot.provider_utils` - Provider override handling
-- `discord_bot.response_handler` - AI response processing
-
-**Environment variables for production:**
-```bash
-# Core Configuration
-DISCORD_TOKEN=your_discord_bot_token
-AI_PROVIDER=deepseek  # or openai, anthropic
-
-# API Keys (set only the ones you plan to use)
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key  
-BASETEN_DEEPSEEK_KEY=your_baseten_key
-
-# Optional Configuration
+# Optional Settings
 AUTO_RESPOND=false
 MAX_HISTORY=10
+MAX_RESPONSE_TOKENS=800
 LOG_LEVEL=INFO
-BOT_PREFIX="Bot, "
 ```
 
-See **[README_ENV.md](README_ENV.md)** for complete environment variable documentation.
+## Architecture
 
-## Cost Optimization
+### File Structure
+```
+├── main.py                    # Entry point
+├── bot.py                     # Core Discord events
+├── config.py                  # Configuration management
+├── commands/                  # Modular command system
+│   ├── history_commands.py
+│   ├── prompt_commands.py
+│   ├── ai_provider_commands.py
+│   ├── auto_respond_commands.py
+│   ├── thinking_commands.py
+│   └── status_commands.py
+├── ai_providers/              # AI provider implementations
+│   ├── openai_provider.py
+│   ├── anthropic_provider.py
+│   └── openai_compatible_provider.py
+└── utils/                     # Utility modules
+    ├── ai_utils.py
+    ├── logging_utils.py
+    ├── message_utils.py
+    └── history/               # History management
+```
 
-**Provider Cost Comparison (approximate):**
-- **DeepSeek**: Most cost-effective for text-only tasks
-- **OpenAI**: Moderate cost, includes image generation
-- **Anthropic**: Higher cost, large context window
+### Design Principles
+- **Modular Architecture**: All files under 250 lines for maintainability
+- **Single Responsibility**: Each module serves one clear purpose
+- **Comprehensive Documentation**: Detailed docstrings and inline comments
+- **Async Safety**: Thread-safe operations prevent Discord event loop blocking
+- **Settings Persistence**: Automatic recovery from Discord message history
 
-**Tips for cost management:**
-- Use DeepSeek for general conversation and text tasks
-- Reserve OpenAI for when image generation is needed
-- Use Anthropic for tasks requiring large context understanding
-- Monitor `MAX_HISTORY` to control context length and costs
-- Consider shorter `MAX_RESPONSE_TOKENS` for budget-conscious deployments
-- Use direct addressing to access premium providers only when needed
+## Provider Comparison
 
-## Contributing
+| Provider | Strengths | Cost | Image Generation |
+|----------|-----------|------|------------------|
+| **DeepSeek** | Most cost-effective, reasoning display | ~$2.24/1M tokens | No |
+| **OpenAI** | Image generation, latest models | ~$15/1M tokens | Yes (DALL-E) |
+| **Anthropic** | Large context, excellent reasoning | ~$18/1M tokens | No |
 
-The codebase follows a clean architecture with:
-- **250-line file limit** - Ensures all files remain readable and maintainable
-- **Modular design** - Each file serves a single, well-defined purpose
-- **Provider abstraction** - Easy to add new AI providers
-- **Focused command modules** - Commands organized by functionality
-- **Comprehensive logging** - Module-specific logging throughout
-- **Type hints and documentation** - Well-documented code structure
+**Recommendation**: Use DeepSeek for cost-effective text generation, OpenAI when image generation is needed.
 
-When adding new features:
+## Development
+
+### Prerequisites
+- Python 3.8+
+- Discord bot token
+- At least one AI provider API key
+
+### Dependencies
+```bash
+pip install discord.py openai anthropic python-dotenv
+```
+
+### Development Guidelines
 1. Follow the 250-line limit for all new files
 2. Create focused modules for new functionality
 3. Follow the existing provider pattern for new AI integrations
@@ -254,8 +200,8 @@ MIT
 
 ## Development Status
 
-**Current Version**: 2.10.1 - Stability and Performance Enhancement
-**Current State**: Production-ready with comprehensive settings persistence, enhanced command interface, and stable async operation
+**Current Version**: 2.11.0 - Multi-Provider Enhancement with OpenAI-Compatible Support
+**Current State**: Production-ready with comprehensive settings persistence, enhanced command interface, stable async operation, and flexible provider architecture
 **Architecture**: All files under 250 lines, modular design, comprehensive documentation
-**Recent Features**: Settings recovery from Discord messages, enhanced autorespond command, comprehensive status display, async API stability
+**Recent Features**: OpenAI-compatible provider support, provider backend identification, BaseTen migration completed, cost optimization
 **Maintainability**: Excellent - clean separation of concerns and focused modules

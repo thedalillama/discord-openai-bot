@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 2.10.1
+# Version 2.11.0
 # Environment Variables Configuration Guide
 
 This document provides comprehensive documentation for all environment variables used by the Discord AI Bot.
@@ -20,7 +20,7 @@ Set only the API keys for providers you plan to use:
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | OpenAI API key for GPT models and image generation | `sk-proj-...` |
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude models | `sk-ant-...` |
-| `BASETEN_DEEPSEEK_KEY` | BaseTen API key for DeepSeek R1 model | `your_baseten_key` |
+| `OPENAI_COMPATIBLE_API_KEY` | API key for OpenAI-compatible providers (DeepSeek, etc.) | `sk-...` |
 
 ## Core Bot Configuration
 
@@ -57,27 +57,28 @@ Set only the API keys for providers you plan to use:
 | `ANTHROPIC_CONTEXT_LENGTH` | Maximum context length for Claude | `200000` | Model-dependent |
 | `ANTHROPIC_MAX_TOKENS` | Maximum tokens per Claude response | `2000` | Model-dependent |
 
-## DeepSeek Configuration
+## OpenAI-Compatible Provider Configuration
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `DEEPSEEK_MODEL` | DeepSeek model to use via BaseTen | `deepseek-ai/DeepSeek-R1` | BaseTen model path |
-| `DEEPSEEK_CONTEXT_LENGTH` | Maximum context length for DeepSeek | `64000` | Model-dependent |
-| `DEEPSEEK_MAX_TOKENS` | Maximum tokens per DeepSeek response | `4000` | Model-dependent |
+| `OPENAI_COMPATIBLE_BASE_URL` | API base URL for OpenAI-compatible provider | None | `https://api.deepseek.com`, `https://inference.baseten.co/v1` |
+| `OPENAI_COMPATIBLE_MODEL` | Model to use with compatible provider | `deepseek-chat` | Provider-dependent |
+| `OPENAI_COMPATIBLE_CONTEXT_LENGTH` | Maximum context length | `128000` | Model-dependent |
+| `OPENAI_COMPATIBLE_MAX_TOKENS` | Maximum tokens per response | `8000` | Model-dependent |
 
 ## Logging Configuration
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `LOG_LEVEL` | Logging verbosity | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_LEVEL` | Logging verbosity level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | Log output destination | `stdout` | `stdout` or file path |
-| `LOG_FORMAT` | Log message format | Complex format string | Any valid Python logging format |
+| `LOG_FORMAT` | Log message format | Standard format | Custom format string |
 
 ## System Prompt Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEFAULT_SYSTEM_PROMPT` | Default personality for the AI assistant | `"You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies."` |
+| `DEFAULT_SYSTEM_PROMPT` | Default system prompt for AI responses | `"You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies."` |
 
 ## Example Configuration Files
 
@@ -88,7 +89,9 @@ DISCORD_TOKEN=your_discord_bot_token
 
 # Choose your primary provider
 AI_PROVIDER=deepseek
-BASETEN_DEEPSEEK_KEY=your_baseten_key
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+OPENAI_COMPATIBLE_MODEL=deepseek-chat
 
 # Optional customization
 AUTO_RESPOND=false
@@ -104,7 +107,8 @@ DISCORD_TOKEN=your_discord_bot_token
 # All providers available
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
-BASETEN_DEEPSEEK_KEY=your_baseten_key
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 
 # Configuration
 AI_PROVIDER=openai
@@ -122,7 +126,8 @@ DISCORD_TOKEN=your_discord_bot_token
 AI_PROVIDER=deepseek
 
 # API Keys (set only what you use)
-BASETEN_DEEPSEEK_KEY=your_baseten_key
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_API_KEY=your_openai_key  # For image generation
 
 # Production Settings
@@ -135,7 +140,7 @@ LOG_FILE=stdout
 # Cost Optimization
 OPENAI_MAX_TOKENS=1000
 ANTHROPIC_MAX_TOKENS=1500
-DEEPSEEK_MAX_TOKENS=3000
+OPENAI_COMPATIBLE_MAX_TOKENS=8000
 ```
 
 ## Provider-Specific Notes
@@ -150,10 +155,34 @@ DEEPSEEK_MAX_TOKENS=3000
 - Excellent for complex reasoning and analysis
 - Higher cost but superior context understanding
 
-### DeepSeek (via BaseTen)
-- Most cost-effective option for text generation
+### DeepSeek (via OpenAI-Compatible Provider)
+- **Most cost-effective option** for text generation
+- Use `OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com`
+- **Official API**: ~74% cost savings vs other providers
 - Includes reasoning process display (`<think>` tags)
-- Good balance of quality and cost
+- Models: `deepseek-chat`, `deepseek-reasoner`
+- **Recommended**: `deepseek-chat` for Discord chat use
+
+### Other OpenAI-Compatible Providers
+- **BaseTen**: Use `OPENAI_COMPATIBLE_BASE_URL=https://inference.baseten.co/v1`
+- **OpenRouter**: Use `OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1`
+- **LocalAI**: Use your local endpoint URL
+- Any provider following OpenAI API standards
+
+## Migration from BaseTen
+
+If you were previously using BaseTen configuration, update your environment:
+
+```bash
+# Old BaseTen Configuration (REMOVE):
+# BASETEN_DEEPSEEK_KEY=your_baseten_key
+# DEEPSEEK_MODEL=deepseek-ai/DeepSeek-R1
+
+# New OpenAI-Compatible Configuration:
+OPENAI_COMPATIBLE_API_KEY=your_baseten_key
+OPENAI_COMPATIBLE_BASE_URL=https://inference.baseten.co/v1
+OPENAI_COMPATIBLE_MODEL=deepseek-ai/DeepSeek-R1
+```
 
 ## Environment Variable Priority
 
@@ -186,9 +215,14 @@ DEEPSEEK_MAX_TOKENS=3000
 - Check that `ENABLE_IMAGE_GENERATION=true`
 
 **High costs:**
+- Use DeepSeek via OpenAI-compatible provider for cost savings
 - Reduce `MAX_HISTORY` to limit context size
 - Lower `MAX_RESPONSE_TOKENS` for shorter responses
-- Use DeepSeek for cost-effective text generation
+
+**DeepSeek/OpenAI-Compatible Issues:**
+- Verify `OPENAI_COMPATIBLE_BASE_URL` is correct for your provider
+- Check `OPENAI_COMPATIBLE_MODEL` matches provider's available models
+- Ensure API key has sufficient credits/permissions
 
 ### Log Analysis
 
