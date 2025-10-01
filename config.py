@@ -1,8 +1,19 @@
 # config.py
-# Version 1.1.0
+# Version 1.3.0
 """
 Configuration module for the Discord bot.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.3.0: Removed BaseTen provider configuration
+- REMOVED: All BASETEN_DEEPSEEK_* and DEEPSEEK_* environment variables
+- SIMPLIFIED: DeepSeek now handled via OpenAI-compatible provider configuration
+- MAINTAINED: All other provider configurations unchanged
+- ENHANCED: Cleaner configuration with single generic provider approach
+
+CHANGES v1.2.0: Added OpenAI-compatible provider configuration
+- ADDED: OPENAI_COMPATIBLE_* environment variables for generic provider
+- MAINTAINED: All existing provider configurations
+- ENHANCED: Support for any OpenAI-compatible API endpoint
 
 CHANGES v1.1.0: Fixed CHANNEL_LOCK_TIMEOUT configuration
 - FIXED: CHANNEL_LOCK_TIMEOUT now properly reads from environment variable
@@ -38,11 +49,12 @@ ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
 ANTHROPIC_CONTEXT_LENGTH = int(os.environ.get('ANTHROPIC_CONTEXT_LENGTH', 200000))
 ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', 2000))
 
-# BaseTen DeepSeek configuration
-BASETEN_DEEPSEEK_KEY = os.environ.get('BASETEN_DEEPSEEK_KEY')
-DEEPSEEK_MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-ai/DeepSeek-R1')
-DEEPSEEK_CONTEXT_LENGTH = int(os.environ.get('DEEPSEEK_CONTEXT_LENGTH', 64000))
-DEEPSEEK_MAX_TOKENS = int(os.environ.get('DEEPSEEK_MAX_TOKENS', 4000))
+# Generic OpenAI-compatible provider configuration
+OPENAI_COMPATIBLE_API_KEY = os.environ.get('OPENAI_COMPATIBLE_API_KEY')
+OPENAI_COMPATIBLE_BASE_URL = os.environ.get('OPENAI_COMPATIBLE_BASE_URL')
+OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-chat')
+OPENAI_COMPATIBLE_CONTEXT_LENGTH = int(os.environ.get('OPENAI_COMPATIBLE_CONTEXT_LENGTH', 128000))
+OPENAI_COMPATIBLE_MAX_TOKENS = int(os.environ.get('OPENAI_COMPATIBLE_MAX_TOKENS', 8000))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
