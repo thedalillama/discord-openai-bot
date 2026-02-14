@@ -1,19 +1,8 @@
+# README.md
+# Version 2.12.0
 # Discord AI Bot
-# Version 2.11.0
 
-A Discord bot that provides AI-powered conversations using multiple AI providers (OpenAI, Anthropic, DeepSeek) with comprehensive conversation history, system prompt management, and enhanced command interface.
-
-## Key Features
-
-- **Multi-Provider AI Support**: OpenAI GPT models, Anthropic Claude, and DeepSeek via OpenAI-compatible provider
-- **Conversation History**: Maintains context across messages with configurable history limits
-- **System Prompt Management**: Customizable AI behavior per channel
-- **Auto-Response Mode**: Optional automatic responses to all messages
-- **Direct Provider Addressing**: Address specific AI providers without changing defaults
-- **Image Generation**: Integrated DALL-E image generation with OpenAI provider
-- **Settings Persistence**: Automatic recovery of all settings from Discord message history
-- **Enhanced Status Display**: Comprehensive status overview with provider backend identification
-- **Thinking Display Control**: Toggle DeepSeek reasoning process visibility
+A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic, DeepSeek) to provide intelligent responses and brainstorming support in Discord channels.
 
 ## Quick Start
 
@@ -28,7 +17,7 @@ A Discord bot that provides AI-powered conversations using multiple AI providers
    ```bash
    # Required
    DISCORD_TOKEN=your_discord_bot_token
-   
+
    # Choose your AI provider
    AI_PROVIDER=deepseek
    OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
@@ -173,19 +162,75 @@ LOG_LEVEL=INFO
 
 **Recommendation**: Use DeepSeek for cost-effective text generation, OpenAI when image generation is needed.
 
-## Development
+## Deployment
 
-### Prerequisites
-- Python 3.8+
-- Discord bot token
-- At least one AI provider API key
-
-### Dependencies
+### Docker
 ```bash
-pip install discord.py openai anthropic python-dotenv
+docker build -t discord-bot .
+docker run -d --env-file .env discord-bot
 ```
 
-### Development Guidelines
+### Production Considerations
+1. Set `LOG_FILE=stdout` for service logging or specify a file path
+2. Use process managers like systemd, Docker, or PM2
+3. Monitor logs for structured output with module-specific logging
+4. Configure appropriate AI model limits for your use case
+5. Set up all required API keys for your chosen providers
+
+**Service logging includes:**
+- `discord_bot.events` - Message and connection events
+- `discord_bot.ai_providers` - AI provider operations (openai, anthropic, deepseek)
+- `discord_bot.history.*` - Conversation management (modular logging)
+- `discord_bot.commands.*` - Command execution
+- `discord_bot.message_utils` - Message processing and formatting
+- `discord_bot.provider_utils` - Provider override handling
+- `discord_bot.response_handler` - AI response processing
+
+**Environment variables for production:**
+```bash
+# Core Configuration
+DISCORD_TOKEN=your_discord_bot_token
+AI_PROVIDER=deepseek  # or openai, anthropic
+
+# API Keys (set only the ones you plan to use)
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_or_compatible_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+
+# Optional Configuration
+AUTO_RESPOND=false
+MAX_HISTORY=20
+LOG_LEVEL=INFO
+BOT_PREFIX="Bot, "
+```
+
+## Cost Optimization
+
+**Provider Cost Comparison (approximate):**
+- **DeepSeek**: Most cost-effective for text-only tasks
+- **OpenAI**: Moderate cost, includes image generation
+- **Anthropic**: Higher cost, large context window
+
+**Tips for cost management:**
+- Use DeepSeek for general conversation and text tasks
+- Reserve OpenAI for when image generation is needed
+- Use Anthropic for tasks requiring large context understanding
+- Monitor `MAX_HISTORY` to control context length and costs
+- Consider shorter `MAX_RESPONSE_TOKENS` for budget-conscious deployments
+- Use direct addressing to access premium providers only when needed
+
+## Contributing
+
+The codebase follows a clean architecture with:
+- **250-line file limit** - Ensures all files remain readable and maintainable
+- **Modular design** - Each file serves a single, well-defined purpose
+- **Provider abstraction** - Easy to add new AI providers
+- **Focused command modules** - Commands organized by functionality
+- **Comprehensive logging** - Module-specific logging throughout
+- **Type hints and documentation** - Well-documented code structure
+
+When adding new features:
 1. Follow the 250-line limit for all new files
 2. Create focused modules for new functionality
 3. Follow the existing provider pattern for new AI integrations
@@ -200,8 +245,8 @@ MIT
 
 ## Development Status
 
-**Current Version**: 2.11.0 - Multi-Provider Enhancement with OpenAI-Compatible Support
+**Current Version**: 2.12.0 - BaseTen Legacy Cleanup
 **Current State**: Production-ready with comprehensive settings persistence, enhanced command interface, stable async operation, and flexible provider architecture
 **Architecture**: All files under 250 lines, modular design, comprehensive documentation
-**Recent Features**: OpenAI-compatible provider support, provider backend identification, BaseTen migration completed, cost optimization
+**Recent Features**: OpenAI-compatible provider support, provider backend identification, BaseTen fully removed, cost optimization
 **Maintainability**: Excellent - clean separation of concerns and focused modules

@@ -1,8 +1,15 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.11.0
+# Version 2.12.0
 
 ## Current Version Features
+
+### Version 2.12.0 - BaseTen Legacy Cleanup
+- **REMOVED**: `ai_providers/baseten_provider.py` dead code file
+- **REMOVED**: BaseTen variables from `config.py` (BASETEN_DEEPSEEK_KEY, DEEPSEEK_MODEL, DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MAX_TOKENS)
+- **REMOVED**: `BASETEN_DEEPSEEK_KEY` reference from `README.md` production env example
+- **UPDATED**: `STATUS.md` file structure listing to reflect actual repository state
+- **RESULT**: Codebase now fully consistent with v2.11.0 migration documentation
 
 ### Version 2.11.0 - Provider Migration and Enhanced Status Display
 - **COMPLETED**: BaseTen provider migration to OpenAI-compatible architecture
@@ -70,6 +77,7 @@
 - **Settings Persistence**: Complete automatic recovery from Discord message history
 - **Command Safety**: Enhanced autorespond command prevents accidental toggles
 - **API Stability**: Thread-safe execution prevents Discord gateway timeouts
+- **Codebase Hygiene**: No dead code or stale references remaining
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Clean memory usage (cleanup task ready for implementation)
@@ -80,61 +88,13 @@
 - **Performance**: Response time optimization
 - **Scalability**: Multi-server deployment capabilities
 
-## Recent Enhancements (Version 2.11.0)
-
-### 1. BaseTen Provider Migration - COMPLETED ✅
-**Problem**: High costs and rate limiting with BaseTen DeepSeek provider
-- **Cost Issue**: $8.50 per 1M tokens vs $2.24 with DeepSeek Official
-- **Rate Limiting**: Frequent 429 errors disrupting user experience
-- **Vendor Lock-in**: Dependency on single provider endpoint
-
-**Solution**: Migration to OpenAI-compatible provider architecture
-- **Technical Implementation**: Generic OpenAI-compatible provider for flexibility
-- **Cost Reduction**: Direct integration with DeepSeek Official API
-- **Future-Proofing**: Support for any OpenAI-compatible provider
-- **Backward Compatibility**: Preserved all existing user commands
-
-**Code Changes**:
-- Enhanced `ai_providers/__init__.py` (v1.2.0) - Updated deepseek routing
-- Updated `config.py` (v1.3.0) - Removed BaseTen configuration
-- Created `ai_providers/openai_compatible_provider.py` (v1.0.0) - Generic provider
-- Removed `ai_providers/baseten_provider.py` - Legacy provider eliminated
-
-**Results**:
-- **74% cost reduction** from $8.50 to $2.24 per 1M tokens
-- **Eliminated 429 rate limit errors** completely
-- **Maintained all user functionality** - no breaking changes
-- **Enhanced provider transparency** with backend identification
-
-### 2. Enhanced Status Command - COMPLETED ✅
-**Problem**: Users couldn't identify which actual provider backend was being used
-- **Ambiguity**: "deepseek" could mean DeepSeek Official, BaseTen, or other providers
-- **Troubleshooting**: Difficult to verify which API endpoint was active
-- **Transparency**: No visibility into cost implications of provider choice
-
-**Solution**: Provider backend identification in status display
-- **URL Parsing**: Automatic detection of provider from API base URL
-- **Future-Proof**: Works with any new OpenAI-compatible provider
-- **Privacy-Friendly**: Shows company name only, not full URLs
-
-**Code Changes**:
-- Enhanced `commands/status_commands.py` (v1.1.1) - Added backend detection
-- Fixed URL object string conversion bug for proper parsing
-- Added comprehensive logging for provider identification
-
-**Results**:
-- **Clear provider identification**: Shows "deepseek (Deepseek)" vs "deepseek (Baseten)"
-- **Enhanced transparency**: Users know exactly which service they're using
-- **Better cost awareness**: Clear indication of cost-effective vs premium options
-- **Improved troubleshooting**: Easy verification of provider configuration
-
 ## Architecture Status
 
 ### Current File Structure
 ```
 ├── main.py                    # Entry point (minimal)
 ├── bot.py                     # Core Discord events (185 lines)
-├── config.py                  # Configuration management (v1.3.0)
+├── config.py                  # Configuration management (v1.4.0)
 ├── commands/                  # Modular command system
 │   ├── __init__.py
 │   ├── history_commands.py    # History management
@@ -148,7 +108,7 @@
 │   ├── base.py
 │   ├── openai_provider.py     # OpenAI with async executor (v1.2.0)
 │   ├── anthropic_provider.py  # Anthropic Claude
-│   └── openai_compatible_provider.py # Generic OpenAI-compatible (v1.0.0)
+│   └── openai_compatible_provider.py # Generic provider (DeepSeek, OpenRouter, etc.)
 └── utils/                     # Utility modules (all under 250 lines)
     ├── ai_utils.py            # AI provider abstraction
     ├── logging_utils.py       # Structured logging system
@@ -177,7 +137,7 @@
 - **Status**: ✅ COMPLETED - All files under 250 lines
 - **Impact**: Dramatically improved maintainability and code organization
 
-#### 2. Message Formatting Bug - RESOLVED  
+#### 2. Message Formatting Bug - RESOLVED
 **Problem**: Username duplication in API calls (e.g., "user: user: message")
 **Solution**: Fixed message conversion in OpenAI provider and extracted to message utilities
 **Status**: ✅ COMPLETED in Version 2.3.0, enhanced in refactoring
@@ -186,7 +146,7 @@
 **Problem**: Mixed responsibilities in large files, hard to test and extend
 **Solution**: Clear modular separation:
 - Message handling → `message_utils.py`
-- Provider logic → `provider_utils.py`  
+- Provider logic → `provider_utils.py`
 - Response processing → `response_handler.py`
 - History management → Focused modules in `history/` package
 **Status**: ✅ COMPLETED - Excellent separation of concerns achieved
@@ -195,7 +155,7 @@
 **Problem**: Channel settings lost on bot restart
 **Solution**: Complete settings recovery from Discord message history
 **Status**: ✅ COMPLETED in Version 2.10.0
-**Features**: 
+**Features**:
 - Automatic recovery of system prompts, AI providers, auto-response, and thinking settings
 - Real-time parsing during Discord loading for optimal performance
 - Most recent setting wins with graceful fallback to defaults
@@ -238,19 +198,31 @@
 - Future-proof parsing for any OpenAI-compatible provider
 - Privacy-friendly display showing company names only
 
+#### 9. BaseTen Legacy Code Cleanup - RESOLVED ✅
+**Problem**: Dead code and stale references remaining after migration
+**Solution**: Full audit and removal of all BaseTen remnants
+**Status**: ✅ COMPLETED in Version 2.12.0
+**Changes**:
+- Deleted `ai_providers/baseten_provider.py` (orphaned dead code)
+- Removed BaseTen variables from `config.py`
+- Removed `BASETEN_DEEPSEEK_KEY` from README production env example
+- Corrected file structure listing in STATUS.md
+
 ### Current Priority Issues
 
-#### 1. Channel Data Cleanup (LOW PRIORITY)
+#### 1. Enhanced Error Handling (MEDIUM PRIORITY)
+**Status**: Ready for implementation
+**Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
+**Impact**: Medium - Better production stability
+**Implementation**: Add timeout wrappers and retry logic for remaining edge cases
+
+#### 2. Channel Data Cleanup (LOW PRIORITY)
 **Problem**: Memory grows with orphaned channel data
 **Status**: 🔄 READY FOR IMPLEMENTATION
 **Growth**: Memory dictionaries accumulate stale channel data
 **Solution**: Periodic cleanup task to validate channel access (straightforward implementation)
-
-#### 2. Enhanced Error Handling (MEDIUM PRIORITY)
-**Status**: Ready for implementation  
-**Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
-**Impact**: Medium - Better production stability
-**Implementation**: Add timeout wrappers and retry logic for edge cases
+**Files to create**: `utils/cleanup.py`
+**Files to modify**: `bot.py` (integrate periodic task)
 
 ### Monitoring and Observability
 
@@ -271,7 +243,7 @@
 ### Immediate Implementation Ready
 
 #### 1. Enhanced Error Handling (MEDIUM PRIORITY)
-**Status**: Ready for implementation  
+**Status**: Ready for implementation
 **Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
 **Impact**: Medium - Better production stability
 **Implementation**: Add timeout wrappers and retry logic for remaining edge cases
@@ -291,7 +263,7 @@
 **Priority**: Medium - Important for production cost control
 
 #### 4. Advanced Image Generation Controls
-**Status**: Design phase  
+**Status**: Design phase
 **Implementation**: Enhance `commands/image_commands.py`
 **Features**: Image generation modes (auto/always/never/ask), style controls
 **Priority**: Low - Nice to have feature
@@ -309,7 +281,10 @@
 
 ### Adding New Features
 1. **Follow modular design** - Create focused modules under 250 lines
-2. **Maintain backward compatibility** - Preserve existing user commands
-3. **Add comprehensive tests** - Verify functionality and edge cases
-4. **Update documentation** - Keep all docs current with changes
-5. **Use proper version tracking** - Increment versions and document changes
+2. **Update version numbers** - Increment versions in modified files
+3. **Add comprehensive tests** - Test new functionality thoroughly
+4. **Document changes** - Update README.md and STATUS.md
+5. **Follow existing patterns** - Use established conventions and architectures
+6. **Consider async requirements** - Wrap synchronous operations properly
+
+This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, stable async operation, and outstanding maintainability. Version 2.12.0 completes the BaseTen legacy cleanup, leaving a fully consistent and clean codebase.
