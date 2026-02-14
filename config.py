@@ -1,24 +1,29 @@
 # config.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Configuration module for the Discord bot.
 Loads and provides access to environment variables and other configuration.
 
-CHANGES v1.3.0: Removed BaseTen provider configuration
-- REMOVED: All BASETEN_DEEPSEEK_* and DEEPSEEK_* environment variables
-- SIMPLIFIED: DeepSeek now handled via OpenAI-compatible provider configuration
+CHANGES v1.4.0: Final BaseTen cleanup - removed all legacy references
+- REMOVED: BASETEN_DEEPSEEK_KEY environment variable
+- REMOVED: DEEPSEEK_MODEL, DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MAX_TOKENS variables
+- REMOVED: BaseTen DeepSeek configuration comment block
+- NOTE: DeepSeek is now fully handled via OPENAI_COMPATIBLE_* variables
 - MAINTAINED: All other provider configurations unchanged
-- ENHANCED: Cleaner configuration with single generic provider approach
+
+CHANGES v1.3.0: Added CHANNEL_LOCK_TIMEOUT as configurable env var
+- FIXED: CHANNEL_LOCK_TIMEOUT now properly reads from environment variable
+- MAINTAINED: 30-second default value for backward compatibility
+- ENHANCED: Makes timeout configurable for different deployment scenarios
 
 CHANGES v1.2.0: Added OpenAI-compatible provider configuration
 - ADDED: OPENAI_COMPATIBLE_* environment variables for generic provider
 - MAINTAINED: All existing provider configurations
 - ENHANCED: Support for any OpenAI-compatible API endpoint
 
-CHANGES v1.1.0: Fixed CHANNEL_LOCK_TIMEOUT configuration
-- FIXED: CHANNEL_LOCK_TIMEOUT now properly reads from environment variable
-- MAINTAINED: 30-second default value for backward compatibility
-- ENHANCED: Makes timeout configurable for different deployment scenarios
+CHANGES v1.1.0: Added ENABLE_IMAGE_GENERATION flag
+- ADDED: Conditional image generation based on environment variable
+- MAINTAINED: All existing provider configurations
 """
 import os
 
@@ -50,6 +55,7 @@ ANTHROPIC_CONTEXT_LENGTH = int(os.environ.get('ANTHROPIC_CONTEXT_LENGTH', 200000
 ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', 2000))
 
 # Generic OpenAI-compatible provider configuration
+# Used for DeepSeek Official API, OpenRouter, BaseTen, LocalAI, or any OpenAI-compatible endpoint
 OPENAI_COMPATIBLE_API_KEY = os.environ.get('OPENAI_COMPATIBLE_API_KEY')
 OPENAI_COMPATIBLE_BASE_URL = os.environ.get('OPENAI_COMPATIBLE_BASE_URL')
 OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-chat')
@@ -65,5 +71,5 @@ LOG_FORMAT = os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)
 HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')  # Default prefix that's unlikely to appear in normal messages
 
 # System prompts
-DEFAULT_SYSTEM_PROMPT = os.environ.get('DEFAULT_SYSTEM_PROMPT', 
+DEFAULT_SYSTEM_PROMPT = os.environ.get('DEFAULT_SYSTEM_PROMPT',
     "You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies.")
