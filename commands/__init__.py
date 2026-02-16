@@ -1,8 +1,17 @@
 # commands/__init__.py
-# Version 1.1.0
+# Version 2.0.0
 """
 Commands package initialization.
 Registers all command modules with the bot.
+
+CHANGES v2.0.0: Command interface redesign (SOW v2.13.0)
+- REDESIGNED: !prompt replaces !setprompt, !getprompt, !resetprompt
+- REDESIGNED: !ai replaces !setai, !getai, !resetai
+- REDESIGNED: !autorespond - fixed permissions, removed !autostatus and !autosetup
+- REDESIGNED: !thinking - fixed permissions, removed !thinkingstatus
+- REDESIGNED: !history - merged !cleanhistory and !loadhistory as subcommands
+- RESULT: 15 commands consolidated into 6 unified base commands
+- MAINTAINED: All module filenames and registration calls unchanged
 
 CHANGES v1.1.0: Added status command module
 - ADDED: register_status_commands for !status command
