@@ -1,5 +1,5 @@
 # README.md
-# Version 2.12.0
+# Version 2.13.0
 # Discord AI Bot
 
 A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic, DeepSeek) to provide intelligent responses and brainstorming support in Discord channels.
@@ -56,48 +56,66 @@ OPENAI_COMPATIBLE_MODEL=deepseek-chat
 ```
 
 ### Other OpenAI-Compatible Providers
-The bot supports any OpenAI-compatible API:
 ```bash
 # OpenRouter
 OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1
 
 # Local APIs
 OPENAI_COMPATIBLE_BASE_URL=http://localhost:8000
-
-# Other providers following OpenAI API standard
 ```
 
-## Core Commands
+## Commands
 
-### System Prompt Management
-- `!setprompt <prompt>` - Set custom system prompt for current channel
-- `!resetprompt` - Reset to default system prompt
-- `!getprompt` - Display current system prompt
+🔒 = Administrator permission required
 
-### AI Provider Control
-- `!setai <provider>` - Set AI provider for current channel (`openai`, `anthropic`, `deepseek`)
-- `!getai` - Display current AI provider
-- `!resetai` - Reset to default AI provider
+### `!prompt` — System Prompt
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!prompt` | Show current system prompt | All users |
+| `!prompt <text>` | Set new system prompt | 🔒 Admin |
+| `!prompt reset` | Reset to default prompt | 🔒 Admin |
 
-### Auto-Response Control
-- `!autorespond` - Show current auto-response status
-- `!autorespond on` - Enable auto-response to all messages
-- `!autorespond off` - Disable auto-response
-- `!resetautorespond` - Reset to default auto-response setting
+### `!ai` — AI Provider
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!ai` | Show current provider and available options | All users |
+| `!ai <provider>` | Set provider: `openai`, `anthropic`, `deepseek` | 🔒 Admin |
+| `!ai reset` | Reset to default provider | 🔒 Admin |
 
-### History Management
-- `!history` - Display recent conversation history
-- `!clearhistory` - Clear conversation history for current channel
+### `!autorespond` — Auto-Response
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!autorespond` | Show current status and options | All users |
+| `!autorespond on` | Enable auto-response to all messages | 🔒 Admin |
+| `!autorespond off` | Disable auto-response | 🔒 Admin |
 
-### Status and Information
-- `!status` - Comprehensive overview of all channel settings
-- `!thinking on/off` - Control DeepSeek reasoning process display
+### `!thinking` — DeepSeek Thinking Display
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!thinking` | Show current status and options | All users |
+| `!thinking on` | Show DeepSeek reasoning process | 🔒 Admin |
+| `!thinking off` | Hide DeepSeek reasoning process | 🔒 Admin |
+
+### `!history` — History Management
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!history` | Display recent history (last 25 messages) | 🔒 Admin |
+| `!history <count>` | Display N most recent messages | 🔒 Admin |
+| `!history clean` | Remove commands/artifacts from history | 🔒 Admin |
+| `!history reload` | Reload history from Discord | 🔒 Admin |
+
+### `!status` — Channel Overview
+| Usage | Description | Permission |
+|-------|-------------|------------|
+| `!status` | Show all current channel settings | All users |
 
 ### Direct Provider Addressing
-Address specific providers without changing channel defaults:
-- `openai, draw a picture of a sunset`
-- `anthropic, explain quantum physics`
-- `deepseek, solve this math problem`
+Address a specific provider without changing channel defaults:
+```
+openai, draw a picture of a sunset
+anthropic, explain quantum physics
+deepseek, solve this math problem
+```
 
 ## Configuration
 
@@ -164,71 +182,24 @@ LOG_LEVEL=INFO
 
 ## Deployment
 
-### Docker
-```bash
-docker build -t discord-bot .
-docker run -d --env-file .env discord-bot
-```
-
 ### Production Considerations
 1. Set `LOG_FILE=stdout` for service logging or specify a file path
 2. Use process managers like systemd, Docker, or PM2
 3. Monitor logs for structured output with module-specific logging
 4. Configure appropriate AI model limits for your use case
-5. Set up all required API keys for your chosen providers
-
-**Service logging includes:**
-- `discord_bot.events` - Message and connection events
-- `discord_bot.ai_providers` - AI provider operations (openai, anthropic, deepseek)
-- `discord_bot.history.*` - Conversation management (modular logging)
-- `discord_bot.commands.*` - Command execution
-- `discord_bot.message_utils` - Message processing and formatting
-- `discord_bot.provider_utils` - Provider override handling
-- `discord_bot.response_handler` - AI response processing
 
 **Environment variables for production:**
 ```bash
-# Core Configuration
 DISCORD_TOKEN=your_discord_bot_token
-AI_PROVIDER=deepseek  # or openai, anthropic
-
-# API Keys (set only the ones you plan to use)
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-OPENAI_COMPATIBLE_API_KEY=your_deepseek_or_compatible_key
+AI_PROVIDER=deepseek
+OPENAI_COMPATIBLE_API_KEY=your_key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-
-# Optional Configuration
 AUTO_RESPOND=false
 MAX_HISTORY=20
 LOG_LEVEL=INFO
-BOT_PREFIX="Bot, "
 ```
 
-## Cost Optimization
-
-**Provider Cost Comparison (approximate):**
-- **DeepSeek**: Most cost-effective for text-only tasks
-- **OpenAI**: Moderate cost, includes image generation
-- **Anthropic**: Higher cost, large context window
-
-**Tips for cost management:**
-- Use DeepSeek for general conversation and text tasks
-- Reserve OpenAI for when image generation is needed
-- Use Anthropic for tasks requiring large context understanding
-- Monitor `MAX_HISTORY` to control context length and costs
-- Consider shorter `MAX_RESPONSE_TOKENS` for budget-conscious deployments
-- Use direct addressing to access premium providers only when needed
-
 ## Contributing
-
-The codebase follows a clean architecture with:
-- **250-line file limit** - Ensures all files remain readable and maintainable
-- **Modular design** - Each file serves a single, well-defined purpose
-- **Provider abstraction** - Easy to add new AI providers
-- **Focused command modules** - Commands organized by functionality
-- **Comprehensive logging** - Module-specific logging throughout
-- **Type hints and documentation** - Well-documented code structure
 
 When adding new features:
 1. Follow the 250-line limit for all new files
@@ -236,8 +207,7 @@ When adding new features:
 3. Follow the existing provider pattern for new AI integrations
 4. Add commands to appropriate modules (or create new focused modules)
 5. Include comprehensive logging with appropriate log levels
-6. Test message length handling for any new response types
-7. Update documentation and version numbers properly
+6. Update documentation and version numbers properly
 
 ## License
 
@@ -245,8 +215,8 @@ MIT
 
 ## Development Status
 
-**Current Version**: 2.12.0 - BaseTen Legacy Cleanup
-**Current State**: Production-ready with comprehensive settings persistence, enhanced command interface, stable async operation, and flexible provider architecture
+**Current Version**: 2.13.0 - Command Interface Redesign
+**Current State**: Production-ready with unified command interface, comprehensive settings persistence, stable async operation, and flexible provider architecture
 **Architecture**: All files under 250 lines, modular design, comprehensive documentation
-**Recent Features**: OpenAI-compatible provider support, provider backend identification, BaseTen fully removed, cost optimization
+**Recent Features**: Unified command interface (15 → 6 commands), consistent permission model, provider backend identification, cost optimization
 **Maintainability**: Excellent - clean separation of concerns and focused modules
