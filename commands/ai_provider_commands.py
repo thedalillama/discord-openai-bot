@@ -1,122 +1,124 @@
+# commands/ai_provider_commands.py
+# Version 2.0.0
 """
-AI provider related commands for the Discord bot.
+AI provider management command for the Discord bot.
+
+CHANGES v2.0.0: Command interface redesign (SOW v2.13.0)
+- REPLACED: !setai, !getai, !resetai with single unified !ai command
+- ADDED: No-arg path shows current provider + available providers (all users)
+- ADDED: Value arg sets provider (admin only, manual permission check)
+- ADDED: 'reset' arg resets to default (admin only, with already-at-default check)
+- PRESERVED: Exact confirmation message strings required by realtime_settings_parser
+
+Usage:
+  !ai              - Show current AI provider and available options (all users)
+  !ai <provider>   - Set AI provider: openai, anthropic, deepseek (admin only)
+  !ai reset        - Reset to default provider (admin only)
 """
-from discord.ext import commands
 from utils.history import (
-    get_ai_provider, set_ai_provider, channel_ai_providers
+    get_ai_provider, set_ai_provider, remove_ai_provider, channel_ai_providers
 )
 from utils.logging_utils import get_logger
 
-# Get logger for command execution
 logger = get_logger('commands.ai_provider')
 
+VALID_PROVIDERS = ['openai', 'anthropic', 'deepseek']
+
 def register_ai_provider_commands(bot):
-    """Register AI provider related commands with the bot"""
-    
-    @bot.command(name='setai')
-    @commands.has_permissions(administrator=True)
-    async def set_ai_cmd(ctx, provider_name):
+    """Register AI provider management command with the bot"""
+
+    @bot.command(name='ai')
+    async def ai_cmd(ctx, arg=None):
         """
-        Set the AI provider for the current channel.
-        Usage: !setai [provider]
-        Example: !setai deepseek
-        
+        Manage the AI provider for this channel.
+
+        Usage:
+          !ai              - Show current provider and available options (all users)
+          !ai <provider>   - Set AI provider (🔒 admin only)
+          !ai reset        - Reset to default provider (🔒 admin only)
+
+        Valid providers: openai, anthropic, deepseek
+
         Args:
-            provider_name: The AI provider to use (openai, anthropic, deepseek)
+            arg: None to show status, 'reset' to reset, or provider name to set
         """
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
-        
-        logger.info(f"AI provider change requested for #{channel_name} by {ctx.author.display_name}")
-        logger.debug(f"Requested provider: {provider_name}")
-        
-        # Validate provider name
-        valid_providers = ['openai', 'anthropic', 'deepseek']
-        provider_name = provider_name.lower()
-        
-        if provider_name not in valid_providers:
-            await ctx.send(f"Invalid AI provider: **{provider_name}**. Valid options: {', '.join(valid_providers)}")
-            logger.warning(f"Invalid AI provider requested: {provider_name}")
-            return
-        
-        # Check if this is actually a change
-        current_provider = get_ai_provider(channel_id)
-        
-        # If no current provider set, show what the default would be
-        if current_provider is None:
+
+        # --- No-arg: show current provider + available list (all users) ---
+        if arg is None:
             from config import AI_PROVIDER
-            current_provider = AI_PROVIDER
-            provider_source = "default"
-        else:
-            provider_source = "channel setting"
-        
-        if current_provider == provider_name:
-            await ctx.send(f"AI provider for #{channel_name} is already set to **{provider_name}** (from {provider_source}).")
-            logger.debug(f"AI provider unchanged: {provider_name}")
-            return
-        
-        # Set the new provider
-        set_ai_provider(channel_id, provider_name)
-        
-        # Send confirmation
-        await ctx.send(f"AI provider for #{channel_name} changed from **{current_provider}** to **{provider_name}**.")
-        logger.info(f"AI provider for #{channel_name} changed from {current_provider} to {provider_name}")
+            channel_provider = get_ai_provider(channel_id)
 
-    @bot.command(name='getai')
-    async def get_ai_cmd(ctx):
-        """
-        Show the current AI provider for this channel.
-        Usage: !getai
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        from config import AI_PROVIDER
-        
-        # Get channel-specific provider
-        channel_provider = get_ai_provider(channel_id)
-        
-        logger.debug(f"AI provider requested for #{channel_name} by {ctx.author.display_name}")
-        
-        if channel_provider is None:
-            # Using default from config
-            await ctx.send(f"AI provider for #{channel_name}: **{AI_PROVIDER}** (default setting)")
-        else:
-            # Using channel-specific setting
-            await ctx.send(f"AI provider for #{channel_name}: **{channel_provider}** (channel setting)")
+            if channel_provider is None:
+                provider = AI_PROVIDER
+                source = "default"
+            else:
+                provider = channel_provider
+                source = "channel setting"
 
-    @bot.command(name='resetai')
-    @commands.has_permissions(administrator=True)
-    async def reset_ai_cmd(ctx):
-        """
-        Reset the AI provider for this channel to use the default.
-        Usage: !resetai
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-        
-        from config import AI_PROVIDER
-        
-        logger.info(f"AI provider reset requested for #{channel_name} by {ctx.author.display_name}")
-        
-        # Check if there's a channel-specific setting
-        if channel_id not in channel_ai_providers:
-            await ctx.send(f"AI provider for #{channel_name} is already using the default (**{AI_PROVIDER}**).")
-            logger.debug(f"AI provider already using default for #{channel_name}")
+            logger.debug(f"AI provider requested for #{channel_name} by {ctx.author.display_name}")
+            await ctx.send(
+                f"AI provider for #{channel_name}: **{provider}** ({source})\n"
+                f"Available providers: {', '.join(VALID_PROVIDERS)}"
+            )
             return
-        
-        # Get current setting before removing
+
+        # --- Write operations: admin only ---
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("You need administrator permissions to change this setting.")
+            logger.warning(f"Unauthorized AI provider change attempt by {ctx.author.display_name} in #{channel_name}")
+            return
+
+        arg = arg.strip().lower()
+
+        # --- 'reset': restore default provider ---
+        if arg == 'reset':
+            from config import AI_PROVIDER
+            logger.info(f"AI provider reset requested for #{channel_name} by {ctx.author.display_name}")
+
+            # Check if already at default
+            if channel_id not in channel_ai_providers:
+                await ctx.send(f"AI provider for #{channel_name} is already using the default (**{AI_PROVIDER}**).")
+                logger.debug(f"AI provider already at default for #{channel_name}")
+                return
+
+            # Get current before removing
+            current_provider = get_ai_provider(channel_id)
+
+            # Remove channel-specific setting
+            remove_ai_provider(channel_id)
+
+            # CRITICAL: "AI provider for" and " to " required by realtime_settings_parser.py
+            await ctx.send(f"AI provider for #{channel_name} reset from **{current_provider}** to default (**{AI_PROVIDER}**).")
+            logger.info(f"AI provider for #{channel_name} reset from {current_provider} to default ({AI_PROVIDER})")
+            return
+
+        # --- Validate provider name ---
+        if arg not in VALID_PROVIDERS:
+            await ctx.send(f"Invalid AI provider: **{arg}**. Valid options: {', '.join(VALID_PROVIDERS)}")
+            logger.warning(f"Invalid AI provider requested: {arg} in #{channel_name}")
+            return
+
+        # --- Set new provider ---
+        from config import AI_PROVIDER
         current_provider = get_ai_provider(channel_id)
-        
-        # Remove the channel-specific setting
-        del channel_ai_providers[channel_id]
-        
-        await ctx.send(f"AI provider for #{channel_name} reset from **{current_provider}** to default (**{AI_PROVIDER}**).")
-        logger.info(f"AI provider for #{channel_name} reset from {current_provider} to default")
-    
-    # Return the commands for reference if needed
-    return {
-        "setai": set_ai_cmd,
-        "getai": get_ai_cmd,
-        "resetai": reset_ai_cmd
-    }
+
+        # Resolve effective current provider for comparison and confirmation message
+        if current_provider is None:
+            effective_current = AI_PROVIDER
+        else:
+            effective_current = current_provider
+
+        if effective_current == arg:
+            await ctx.send(f"AI provider for #{channel_name} is already set to **{arg}**.")
+            logger.debug(f"AI provider unchanged for #{channel_name}: {arg}")
+            return
+
+        set_ai_provider(channel_id, arg)
+
+        # CRITICAL: "AI provider for" and " to " required by realtime_settings_parser.py
+        await ctx.send(f"AI provider for #{channel_name} changed from **{effective_current}** to **{arg}**.")
+        logger.info(f"AI provider for #{channel_name} changed from {effective_current} to {arg}")
+
+    return {"ai": ai_cmd}
