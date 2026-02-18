@@ -1,8 +1,19 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.16.0
+# Version 2.17.0
 
 ## Current Version Features
+
+### Version 2.17.0 - History Trim After Load
+- **FIXED**: channel_history is now trimmed to MAX_HISTORY after every channel load
+- **WHERE**: Trim runs in cleanup_coordinator.py after settings are applied and
+  noise is filtered — no settings data is lost
+- **RESULT**: API context is always bounded to MAX_HISTORY; memory usage is
+  predictable; prepare_messages_for_api() sends all stored messages with no
+  runtime slicing needed
+- **ROOT CAUSE**: v2.15.0 changed fetch to limit=None (correct for settings
+  persistence) but the downstream trim was never added, leaving full channel
+  history in memory and sent to the API on every call
 
 ### Version 2.16.0 - Dead Code Cleanup
 - **REMOVED**: `INITIAL_HISTORY_LOAD` config variable and all references
@@ -13,12 +24,10 @@
 
 ### Version 2.15.0 - Settings Persistence Fix
 - **FIXED**: Settings persistence now works correctly across bot restarts
-- **ROOT CAUSE**: `discord_fetcher.py` was capping history fetch at 50 messages
-  (`INITIAL_HISTORY_LOAD`), so settings confirmed beyond that threshold were never
-  seen by the settings parser during reload
+- **ROOT CAUSE**: `discord_fetcher.py` was capping history fetch at 50 messages,
+  so settings confirmed beyond that threshold were never seen by the settings parser
 - **RESOLUTION**: `fetch_messages_from_discord()` now fetches full channel history
-  (`limit=None`); existing settings parser, converter, and `MAX_HISTORY` trimmer
-  were already correct and required no changes
+  (`limit=None`)
 - **FILE CHANGED**: `utils/history/discord_fetcher.py` → v1.1.0
 
 ### Version 2.14.0 - History Noise Cleanup
@@ -74,6 +83,7 @@
 - **Settings Persistence**: Complete automatic recovery from Discord message history
 - **API Stability**: Thread-safe execution prevents Discord gateway timeouts
 - **Codebase Hygiene**: No dead code, unused variables, or stale references
+- **Bounded API Context**: channel_history always trimmed to MAX_HISTORY after load
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Clean memory usage (cleanup task ready for implementation)
@@ -92,19 +102,19 @@
 ├── bot.py                     # Core Discord events (v2.8.0)
 ├── config.py                  # Configuration management (v1.5.0)
 ├── commands/                  # Modular command system (v2.0.0+)
-│   ├── __init__.py            # v2.0.0
-│   ├── history_commands.py    # History management (v2.0.1)
-│   ├── prompt_commands.py     # System prompt controls (v2.0.0)
-│   ├── ai_provider_commands.py # Provider switching (v2.0.0)
-│   ├── auto_respond_commands.py # Auto-response controls (v2.0.0)
-│   ├── thinking_commands.py   # DeepSeek thinking controls (v2.0.0)
-│   └── status_commands.py     # Enhanced status display (v1.1.1)
+│   ├── __init__.py
+│   ├── history_commands.py
+│   ├── prompt_commands.py
+│   ├── ai_provider_commands.py
+│   ├── auto_respond_commands.py
+│   ├── thinking_commands.py
+│   └── status_commands.py
 ├── ai_providers/              # AI provider implementations
 │   ├── __init__.py            # Provider factory (v1.2.0)
 │   ├── base.py
-│   ├── openai_provider.py     # OpenAI with async executor (v1.2.0)
-│   ├── anthropic_provider.py  # Anthropic Claude
-│   └── openai_compatible_provider.py # Generic provider (DeepSeek, OpenRouter, etc.)
+│   ├── openai_provider.py
+│   ├── anthropic_provider.py
+│   └── openai_compatible_provider.py
 └── utils/                     # Utility modules
     ├── ai_utils.py
     ├── logging_utils.py
@@ -118,9 +128,9 @@
         ├── discord_loader.py      # v2.1.0
         ├── discord_converter.py
         ├── discord_fetcher.py     # v1.2.0
-        ├── realtime_settings_parser.py # v2.1.0
+        ├── realtime_settings_parser.py
         ├── settings_manager.py
-        ├── cleanup_coordinator.py # v2.1.0
+        ├── cleanup_coordinator.py # v2.2.0
         ├── channel_coordinator.py # v2.0.0
         ├── loading.py             # v2.4.0
         ├── loading_utils.py       # v1.2.0
@@ -145,36 +155,27 @@
 **Status**: Ready for implementation
 **Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
 **Impact**: Medium - Better production stability
-**Implementation**: Add timeout wrappers and retry logic for remaining edge cases
 
 #### 2. DeepSeek Thinking Display Verification (LOW PRIORITY)
 **Status**: Pending model configuration review
 **Issue**: `deepseek-chat` model does not consistently emit `<think>` tags;
 `deepseek-reasoner` model required for reliable thinking display
-**Impact**: Low — feature works correctly when tags are present; model selection issue only
 
 ### Resolved Issues
+- ✅ Unbounded API context (history trim) — resolved in v2.17.0
 - ✅ Dead code cleanup — resolved in v2.16.0
 - ✅ Settings persistence (fetch limit) — resolved in v2.15.0
 - ✅ History noise pollution — resolved in v2.14.0
 - ✅ Command interface inconsistencies — resolved in v2.13.0
-- ✅ Permission model errors (read ops requiring admin) — resolved in v2.13.0
-- ✅ Duplicate commands (autostatus, thinkingstatus) — resolved in v2.13.0
+- ✅ Permission model errors — resolved in v2.13.0
+- ✅ Duplicate commands — resolved in v2.13.0
 - ✅ BaseTen legacy code — resolved in v2.12.0
 - ✅ Provider cost and rate limiting — resolved in v2.11.0
 - ✅ Discord heartbeat blocking — resolved in v2.10.1
 - ✅ Settings persistence (initial implementation) — resolved in v2.10.0
 
-### Adding New Features
-1. **Follow modular design** - Create focused modules under 250 lines
-2. **Update version numbers** - Increment versions in modified files
-3. **Add comprehensive tests** - Test new functionality thoroughly
-4. **Document changes** - Update README.md, STATUS.md, and docs/sow/
-5. **Follow existing patterns** - Use established conventions and architectures
-6. **Consider async requirements** - Wrap synchronous operations properly
-
 This project represents a mature, production-ready Discord AI bot with excellent
 architecture, comprehensive functionality, complete settings persistence, stable
-async operation, and outstanding maintainability. Version 2.16.0 completes a
-thorough dead code audit, leaving the codebase clean and free of orphaned
-functions, unused variables, and stale compatibility shims.
+async operation, and outstanding maintainability. Version 2.17.0 completes the
+history management pipeline by ensuring API context is always bounded to
+MAX_HISTORY after every channel load.
