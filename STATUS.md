@@ -1,8 +1,15 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.15.0
+# Version 2.16.0
 
 ## Current Version Features
+
+### Version 2.16.0 - Dead Code Cleanup
+- **REMOVED**: `INITIAL_HISTORY_LOAD` config variable and all references
+- **REMOVED**: `fetch_recent_messages()` function family (dead code chain across 4 files)
+- **REMOVED**: `settings_coordinator.py` (verified no-op compatibility layer, no callers)
+- **REMOVED**: Backward compatibility aliases in `loading.py` and `loading_utils.py`
+- **RESULT**: Cleaner, leaner codebase with no orphaned functions or unused variables
 
 ### Version 2.15.0 - Settings Persistence Fix
 - **FIXED**: Settings persistence now works correctly across bot restarts
@@ -66,7 +73,7 @@
 - **Code Quality**: All files under 250 lines, excellent maintainability
 - **Settings Persistence**: Complete automatic recovery from Discord message history
 - **API Stability**: Thread-safe execution prevents Discord gateway timeouts
-- **Codebase Hygiene**: No dead code or stale references remaining
+- **Codebase Hygiene**: No dead code, unused variables, or stale references
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Clean memory usage (cleanup task ready for implementation)
@@ -82,8 +89,8 @@
 ### Current File Structure
 ```
 ├── main.py                    # Entry point (minimal)
-├── bot.py                     # Core Discord events (185 lines)
-├── config.py                  # Configuration management (v1.4.0)
+├── bot.py                     # Core Discord events (v2.8.0)
+├── config.py                  # Configuration management (v1.5.0)
 ├── commands/                  # Modular command system (v2.0.0+)
 │   ├── __init__.py            # v2.0.0
 │   ├── history_commands.py    # History management (v2.0.1)
@@ -104,16 +111,22 @@
     ├── message_utils.py
     ├── response_handler.py
     └── history/               # History management (modular)
-        ├── __init__.py
+        ├── __init__.py        # v3.0.0
         ├── storage.py
         ├── prompts.py
         ├── message_processing.py  # v2.2.3
-        ├── discord_loader.py
+        ├── discord_loader.py      # v2.1.0
         ├── discord_converter.py
-        ├── discord_fetcher.py     # v1.1.0
+        ├── discord_fetcher.py     # v1.2.0
         ├── realtime_settings_parser.py # v2.1.0
         ├── settings_manager.py
         ├── cleanup_coordinator.py # v2.1.0
+        ├── channel_coordinator.py # v2.0.0
+        ├── loading.py             # v2.4.0
+        ├── loading_utils.py       # v1.2.0
+        ├── api_imports.py         # v1.3.0
+        ├── api_exports.py         # v1.3.0
+        ├── management_utilities.py
         └── diagnostics.py
 ```
 
@@ -141,6 +154,7 @@
 **Impact**: Low — feature works correctly when tags are present; model selection issue only
 
 ### Resolved Issues
+- ✅ Dead code cleanup — resolved in v2.16.0
 - ✅ Settings persistence (fetch limit) — resolved in v2.15.0
 - ✅ History noise pollution — resolved in v2.14.0
 - ✅ Command interface inconsistencies — resolved in v2.13.0
@@ -155,8 +169,12 @@
 1. **Follow modular design** - Create focused modules under 250 lines
 2. **Update version numbers** - Increment versions in modified files
 3. **Add comprehensive tests** - Test new functionality thoroughly
-4. **Document changes** - Update README.md and STATUS.md
+4. **Document changes** - Update README.md, STATUS.md, and docs/sow/
 5. **Follow existing patterns** - Use established conventions and architectures
 6. **Consider async requirements** - Wrap synchronous operations properly
 
-This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, stable async operation, and outstanding maintainability. Version 2.15.0 resolves the settings persistence fetch limit bug, ensuring all channel settings are correctly restored after bot restarts regardless of channel history length.
+This project represents a mature, production-ready Discord AI bot with excellent
+architecture, comprehensive functionality, complete settings persistence, stable
+async operation, and outstanding maintainability. Version 2.16.0 completes a
+thorough dead code audit, leaving the codebase clean and free of orphaned
+functions, unused variables, and stale compatibility shims.
