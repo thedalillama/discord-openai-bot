@@ -1,20 +1,31 @@
 # README.md
-# Version 2.13.0
+# Version 2.17.0
 # Discord AI Bot
 
-A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic, DeepSeek) to provide intelligent responses and brainstorming support in Discord channels.
+A production-ready Discord bot supporting multiple AI providers with
+per-channel configuration, conversation history, and settings persistence.
+
+## Features
+
+- **Multi-provider AI**: OpenAI, Anthropic Claude, DeepSeek via per-channel selection
+- **Conversation history**: Automatic loading and persistence across restarts
+- **Settings persistence**: Provider and prompt settings recovered from Discord history
+- **Direct addressing**: Address specific providers without changing channel defaults
+- **Image generation**: OpenAI DALL-E integration via Responses API
+- **DeepSeek reasoning**: Optional display of DeepSeek R1 thinking process
+- **Auto-response mode**: Per-channel automatic response to all messages
 
 ## Quick Start
 
 1. **Clone and install dependencies**:
-   ```bash
+```bash
    git clone <repository>
    cd discord-ai-bot
    pip install -r requirements.txt
-   ```
+```
 
 2. **Configure environment** (create `.env` file):
-   ```bash
+```bash
    # Required
    DISCORD_TOKEN=your_discord_bot_token
 
@@ -23,12 +34,12 @@ A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic, Dee
    OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
    OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
    OPENAI_COMPATIBLE_MODEL=deepseek-chat
-   ```
+```
 
 3. **Run the bot**:
-   ```bash
+```bash
    python main.py
-   ```
+```
 
 ## AI Providers
 
@@ -169,16 +180,19 @@ LOG_LEVEL=INFO
 - **Comprehensive Documentation**: Detailed docstrings and inline comments
 - **Async Safety**: Thread-safe operations prevent Discord event loop blocking
 - **Settings Persistence**: Automatic recovery from Discord message history
+- **Bounded Context**: History trimmed to MAX_HISTORY after load; API context
+  always predictable and cost-controlled
 
 ## Provider Comparison
 
-| Provider | Strengths | Cost | Image Generation |
-|----------|-----------|------|------------------|
-| **DeepSeek** | Most cost-effective, reasoning display | ~$2.24/1M tokens | No |
-| **OpenAI** | Image generation, latest models | ~$15/1M tokens | Yes (DALL-E) |
-| **Anthropic** | Large context, excellent reasoning | ~$18/1M tokens | No |
+| Provider | Strengths | Image Generation |
+|----------|-----------|-----------------|
+| **DeepSeek** | Most cost-effective, reasoning display | No |
+| **OpenAI** | Image generation, latest models | Yes (DALL-E) |
+| **Anthropic** | Large context, excellent reasoning | No |
 
-**Recommendation**: Use DeepSeek for cost-effective text generation, OpenAI when image generation is needed.
+For current pricing, refer to each provider's official pricing page.
+Pricing changes frequently — check before making provider decisions.
 
 ## Deployment
 
@@ -215,8 +229,10 @@ MIT
 
 ## Development Status
 
-**Current Version**: 2.13.0 - Command Interface Redesign
-**Current State**: Production-ready with unified command interface, comprehensive settings persistence, stable async operation, and flexible provider architecture
-**Architecture**: All files under 250 lines, modular design, comprehensive documentation
-**Recent Features**: Unified command interface (15 → 6 commands), consistent permission model, provider backend identification, cost optimization
+**Current Version**: 2.17.0  
+**Current State**: Production-ready with bounded API context, complete settings
+persistence, unified command interface, stable async operation, and flexible
+provider architecture  
+**Architecture**: All files under 250 lines, modular design, comprehensive documentation  
+**Recent Features**: History trim after load, dead code cleanup, settings persistence fix  
 **Maintainability**: Excellent - clean separation of concerns and focused modules
