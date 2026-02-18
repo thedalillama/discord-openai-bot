@@ -1,19 +1,19 @@
 # utils/history/cleanup_coordinator.py
-# Version 2.0.0
+# Version 2.1.0
 """
 Final cleanup coordination for Discord message history loading.
+
+CHANGES v2.1.0: Expand filtering to include assistant-side noise (SOW v2.14.0)
+- ADDED: is_history_output import for assistant message filtering
+- EXPANDED: _filter_conversation_history() now filters assistant messages matching is_history_output()
+- EXPANDED: Also filters system messages that are not SYSTEM_PROMPT_UPDATE records
+- FIXED: Stale !setprompt reference → !prompt for v2.13.0 consistency
+- RESULT: Full cleanup matching !history clean logic, eliminating noise in AI context
 
 CHANGES v2.0.0: Removed legacy system prompt support
 - REMOVED: Legacy system prompt restoration for old SYSTEM_PROMPT_UPDATE format
 - SIMPLIFIED: Focus only on message filtering and final validation
 - ELIMINATED: Backward compatibility overhead (no longer needed)
-
-CHANGES v1.2.1: Minor formatting adjustment to meet 250-line limit
-CHANGES v1.2.0: Simplified statistics generation for maintainability
-- Reduced _generate_history_statistics from 85 lines to 5 lines
-- Removed unused detailed statistics (user/assistant counts, average length)
-- Maintained essential message count for validation
-- Reduced file size from 280 to under 250 lines while preserving all functionality
 
 This module coordinates final cleanup operations after message loading.
 Handles message filtering and final validation of loaded conversation history.
@@ -25,11 +25,10 @@ Key Responsibilities:
 - Ensure conversation history is ready for AI usage
 
 All system prompt handling is now done via realtime parsing during Discord loading.
-No legacy format support is needed since realtime parsing handles all cases.
 """
 from utils.logging_utils import get_logger
-from .storage import filter_channel_history, channel_history
-from .message_processing import is_bot_command
+from .storage import channel_history
+from .message_processing import is_bot_command, is_history_output
 
 logger = get_logger('history.cleanup_coordinator')
 
@@ -82,26 +81,45 @@ async def coordinate_final_cleanup(channel):
 async def _filter_conversation_history(channel_id):
     """
     Filter conversation history to remove unwanted messages.
-    Removes commands, history outputs and artifacts not needed for AI context.
+    
+    Removes bot commands, history outputs, and system artifacts not needed for
+    AI context. This applies the same filtering logic as !history clean to ensure
+    automatic reload and manual reload produce the same clean results.
     """
     logger.debug(f"Filtering conversation history for channel {channel_id}")
     
-    # Filter out command messages that slipped through, except setprompt
-    original_count, filtered_count, removed_count = filter_channel_history(
-        channel_id, 
-        lambda msg: not (
-            msg["role"] == "user" and 
-            is_bot_command(msg["content"]) and 
-            not msg["content"].startswith('!setprompt')
+    if channel_id not in channel_history or not channel_history[channel_id]:
+        logger.debug(f"No history to filter for channel {channel_id}")
+        return {
+            'original_count': 0,
+            'filtered_count': 0,
+            'removed_count': 0
+        }
+    
+    before_count = len(channel_history[channel_id])
+    
+    # Apply full cleanup filter matching !history clean logic:
+    # 1. Filter user-side bot commands (except !prompt which carries settings)
+    # 2. Filter assistant-side history outputs (status messages, help, etc.)
+    # 3. Filter system messages that are not SYSTEM_PROMPT_UPDATE records
+    channel_history[channel_id] = [
+        msg for msg in channel_history[channel_id]
+        if (
+            not (msg["role"] == "user" and is_bot_command(msg["content"])) and
+            not (msg["role"] == "assistant" and is_history_output(msg["content"])) and
+            not (msg["role"] == "system" and not msg["content"].startswith("SYSTEM_PROMPT_UPDATE:"))
         )
-    )
+    ]
+    
+    after_count = len(channel_history[channel_id])
+    removed_count = before_count - after_count
     
     if removed_count > 0:
-        logger.debug(f"Filtered {removed_count} command messages from history")
+        logger.debug(f"Filtered {removed_count} noise messages from history")
     
     return {
-        'original_count': original_count,
-        'filtered_count': filtered_count,
+        'original_count': before_count,
+        'filtered_count': after_count,
         'removed_count': removed_count
     }
 
