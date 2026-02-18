@@ -1,8 +1,13 @@
 # README_ENV.md
-# Version 2.11.0
+# Version 2.16.0
 # Environment Variables Configuration Guide
 
-This document provides comprehensive documentation for all environment variables used by the Discord AI Bot.
+CHANGES v2.16.0: Removed INITIAL_HISTORY_LOAD (SOW v2.16.0)
+- REMOVED: INITIAL_HISTORY_LOAD variable — bot now fetches full channel history
+  unconditionally; this variable is no longer read or used anywhere in the codebase
+
+This document provides comprehensive documentation for all environment variables
+used by the Discord AI Bot.
 
 ## Required Variables
 
@@ -35,10 +40,10 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `MAX_HISTORY` | Messages to keep in conversation context | `10` | Any positive integer |
-| `INITIAL_HISTORY_LOAD` | Messages to load when starting in a channel | `50` | Any positive integer |
+| `MAX_HISTORY` | Messages to keep in conversation context for API calls | `10` | Any positive integer |
 | `MAX_RESPONSE_TOKENS` | Maximum tokens per AI response | `800` | Any positive integer |
 | `HISTORY_LINE_PREFIX` | Prefix for history display messages | `➤ ` | Any string |
+| `CHANNEL_LOCK_TIMEOUT` | Seconds to wait for channel lock during history load | `30` | Any positive integer |
 
 ## OpenAI Configuration
 
@@ -61,8 +66,9 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `OPENAI_COMPATIBLE_BASE_URL` | API base URL for OpenAI-compatible provider | None | `https://api.deepseek.com`, `https://inference.baseten.co/v1` |
-| `OPENAI_COMPATIBLE_MODEL` | Model to use with compatible provider | `deepseek-chat` | Provider-dependent |
+| `OPENAI_COMPATIBLE_API_KEY` | API key for compatible provider | — | Provider API key |
+| `OPENAI_COMPATIBLE_BASE_URL` | Base URL of compatible provider | — | Any valid URL |
+| `OPENAI_COMPATIBLE_MODEL` | Model name at compatible provider | `deepseek-chat` | Provider-dependent |
 | `OPENAI_COMPATIBLE_CONTEXT_LENGTH` | Maximum context length | `128000` | Model-dependent |
 | `OPENAI_COMPATIBLE_MAX_TOKENS` | Maximum tokens per response | `8000` | Model-dependent |
 
@@ -70,121 +76,38 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `LOG_LEVEL` | Logging verbosity level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_LEVEL` | Logging verbosity | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | Log output destination | `stdout` | `stdout` or file path |
-| `LOG_FORMAT` | Log message format | Standard format | Custom format string |
+| `LOG_FORMAT` | Log message format string | Standard format | Any valid Python log format |
 
-## System Prompt Configuration
+## Example Configurations
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DEFAULT_SYSTEM_PROMPT` | Default system prompt for AI responses | `"You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies."` |
-
-## Example Configuration Files
-
-### Basic Setup (.env)
+### Minimal (DeepSeek)
 ```bash
-# Required
 DISCORD_TOKEN=your_discord_bot_token
-
-# Choose your primary provider
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-chat
-
-# Optional customization
-AUTO_RESPOND=false
-MAX_HISTORY=15
-LOG_LEVEL=INFO
 ```
 
-### Multi-Provider Setup (.env)
+### Full Production
 ```bash
-# Required
-DISCORD_TOKEN=your_discord_bot_token
-
-# All providers available
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-
-# Configuration
-AI_PROVIDER=openai
-AUTO_RESPOND=false
-MAX_HISTORY=20
-MAX_RESPONSE_TOKENS=1200
-LOG_LEVEL=DEBUG
-LOG_FILE=/var/log/discord-bot.log
-```
-
-### Production Setup (.env)
-```bash
-# Core Configuration
 DISCORD_TOKEN=your_discord_bot_token
 AI_PROVIDER=deepseek
-
-# API Keys (set only what you use)
 OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-OPENAI_API_KEY=your_openai_key  # For image generation
-
-# Production Settings
+OPENAI_COMPATIBLE_MODEL=deepseek-chat
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
 AUTO_RESPOND=false
 MAX_HISTORY=10
 MAX_RESPONSE_TOKENS=800
 LOG_LEVEL=INFO
 LOG_FILE=stdout
-
-# Cost Optimization
-OPENAI_MAX_TOKENS=1000
-ANTHROPIC_MAX_TOKENS=1500
-OPENAI_COMPATIBLE_MAX_TOKENS=8000
 ```
 
-## Provider-Specific Notes
-
-### OpenAI
-- Supports both text generation and image creation
-- Uses Responses API with integrated image generation tools
-- Higher cost but includes DALL-E image generation
-
-### Anthropic (Claude)
-- Text-only responses with large context windows
-- Excellent for complex reasoning and analysis
-- Higher cost but superior context understanding
-
-### DeepSeek (via OpenAI-Compatible Provider)
-- **Most cost-effective option** for text generation
-- Use `OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com`
-- **Official API**: ~74% cost savings vs other providers
-- Includes reasoning process display (`<think>` tags)
-- Models: `deepseek-chat`, `deepseek-reasoner`
-- **Recommended**: `deepseek-chat` for Discord chat use
-
-### Other OpenAI-Compatible Providers
-- **BaseTen**: Use `OPENAI_COMPATIBLE_BASE_URL=https://inference.baseten.co/v1`
-- **OpenRouter**: Use `OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1`
-- **LocalAI**: Use your local endpoint URL
-- Any provider following OpenAI API standards
-
-## Migration from BaseTen
-
-If you were previously using BaseTen configuration, update your environment:
-
-```bash
-# Old BaseTen Configuration (REMOVE):
-# BASETEN_DEEPSEEK_KEY=your_baseten_key
-# DEEPSEEK_MODEL=deepseek-ai/DeepSeek-R1
-
-# New OpenAI-Compatible Configuration:
-OPENAI_COMPATIBLE_API_KEY=your_baseten_key
-OPENAI_COMPATIBLE_BASE_URL=https://inference.baseten.co/v1
-OPENAI_COMPATIBLE_MODEL=deepseek-ai/DeepSeek-R1
-```
-
-## Environment Variable Priority
+## Configuration Priority
 
 1. **Environment variables** (highest priority)
 2. **`.env` file values**

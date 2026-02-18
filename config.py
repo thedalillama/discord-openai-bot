@@ -1,8 +1,12 @@
 # config.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Configuration module for the Discord bot.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.5.0: Dead code cleanup (SOW v2.16.0)
+- REMOVED: INITIAL_HISTORY_LOAD variable (no longer needed; full history fetch
+  is now unconditional via limit=None in discord_fetcher.py)
 
 CHANGES v1.4.0: Final BaseTen cleanup - removed all legacy references
 - REMOVED: BASETEN_DEEPSEEK_KEY environment variable
@@ -12,28 +16,17 @@ CHANGES v1.4.0: Final BaseTen cleanup - removed all legacy references
 - MAINTAINED: All other provider configurations unchanged
 
 CHANGES v1.3.0: Added CHANNEL_LOCK_TIMEOUT as configurable env var
-- FIXED: CHANNEL_LOCK_TIMEOUT now properly reads from environment variable
-- MAINTAINED: 30-second default value for backward compatibility
-- ENHANCED: Makes timeout configurable for different deployment scenarios
-
 CHANGES v1.2.0: Added OpenAI-compatible provider configuration
-- ADDED: OPENAI_COMPATIBLE_* environment variables for generic provider
-- MAINTAINED: All existing provider configurations
-- ENHANCED: Support for any OpenAI-compatible API endpoint
-
 CHANGES v1.1.0: Added ENABLE_IMAGE_GENERATION flag
-- ADDED: Conditional image generation based on environment variable
-- MAINTAINED: All existing provider configurations
 """
 import os
 
 # Bot configuration
 DEFAULT_AUTO_RESPOND = os.environ.get('AUTO_RESPOND', 'false').lower() == 'true'
 MAX_HISTORY = int(os.environ.get('MAX_HISTORY', 10))
-INITIAL_HISTORY_LOAD = int(os.environ.get('INITIAL_HISTORY_LOAD', 50))
 MAX_RESPONSE_TOKENS = int(os.environ.get('MAX_RESPONSE_TOKENS', 800))
 BOT_PREFIX = os.environ.get('BOT_PREFIX', 'Bot, ')
-CHANNEL_LOCK_TIMEOUT = int(os.environ.get('CHANNEL_LOCK_TIMEOUT', 30))  # Timeout for acquiring a channel lock (in seconds)
+CHANNEL_LOCK_TIMEOUT = int(os.environ.get('CHANNEL_LOCK_TIMEOUT', 30))
 
 # Default AI provider
 AI_PROVIDER = os.environ.get('AI_PROVIDER', 'openai')
@@ -55,7 +48,6 @@ ANTHROPIC_CONTEXT_LENGTH = int(os.environ.get('ANTHROPIC_CONTEXT_LENGTH', 200000
 ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', 2000))
 
 # Generic OpenAI-compatible provider configuration
-# Used for DeepSeek Official API, OpenRouter, BaseTen, LocalAI, or any OpenAI-compatible endpoint
 OPENAI_COMPATIBLE_API_KEY = os.environ.get('OPENAI_COMPATIBLE_API_KEY')
 OPENAI_COMPATIBLE_BASE_URL = os.environ.get('OPENAI_COMPATIBLE_BASE_URL')
 OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-chat')
@@ -68,7 +60,7 @@ LOG_FILE = os.environ.get('LOG_FILE', 'stdout')
 LOG_FORMAT = os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s')
 
 # History display configuration
-HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')  # Default prefix that's unlikely to appear in normal messages
+HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')
 
 # System prompts
 DEFAULT_SYSTEM_PROMPT = os.environ.get('DEFAULT_SYSTEM_PROMPT',
