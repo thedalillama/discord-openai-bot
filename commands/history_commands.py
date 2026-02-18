@@ -1,7 +1,12 @@
 # commands/history_commands.py
-# Version 2.0.0
+# Version 2.0.1
 """
 History management command for the Discord bot.
+
+CHANGES v2.0.1: Make manual reload run full clean pass (SOW v2.14.0)
+- CHANGED: _reload_history() now calls _clean_history() after loading
+- REMOVED: Partial filter (user-side bot commands only) that left noise
+- RESULT: Manual !history reload produces same clean result as startup reload
 
 CHANGES v2.0.0: Command interface redesign (SOW v2.13.0)
 - REPLACED: !history, !cleanhistory, !loadhistory with single unified !history command
@@ -199,11 +204,9 @@ def register_history_commands(bot):
         import datetime
         loaded_history_channels[channel_id] = datetime.datetime.now()
 
-        # Clean up bot commands from loaded history
-        channel_history[channel_id] = [
-            msg for msg in channel_history[channel_id]
-            if not (msg["role"] == "user" and is_bot_command(msg["content"]))
-        ]
+        # Run full cleanup pass (same as automatic reload and !history clean)
+        # This ensures manual reload produces the same clean result as startup
+        await _clean_history(ctx, channel_id)
 
         # Restore custom prompt if it wasn't found in history
         if current_prompt and channel_id not in channel_system_prompts:
