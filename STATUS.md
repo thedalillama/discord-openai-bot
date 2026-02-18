@@ -1,8 +1,18 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.14.0
+# Version 2.15.0
 
 ## Current Version Features
+
+### Version 2.15.0 - Settings Persistence Fix
+- **FIXED**: Settings persistence now works correctly across bot restarts
+- **ROOT CAUSE**: `discord_fetcher.py` was capping history fetch at 50 messages
+  (`INITIAL_HISTORY_LOAD`), so settings confirmed beyond that threshold were never
+  seen by the settings parser during reload
+- **RESOLUTION**: `fetch_messages_from_discord()` now fetches full channel history
+  (`limit=None`); existing settings parser, converter, and `MAX_HISTORY` trimmer
+  were already correct and required no changes
+- **FILE CHANGED**: `utils/history/discord_fetcher.py` → v1.1.0
 
 ### Version 2.14.0 - History Noise Cleanup
 - **FIXED**: Bot command responses and housekeeping messages no longer sent to AI API
@@ -100,6 +110,7 @@
         ├── message_processing.py  # v2.2.3
         ├── discord_loader.py
         ├── discord_converter.py
+        ├── discord_fetcher.py     # v1.1.0
         ├── realtime_settings_parser.py # v2.1.0
         ├── settings_manager.py
         ├── cleanup_coordinator.py # v2.1.0
@@ -117,27 +128,20 @@
 
 ## Current Priority Issues
 
-#### 1. Settings Persistence Investigation (HIGH PRIORITY)
-**Status**: Bug identified during v2.14.0 testing
-**Issue**: AI provider setting not persisting across bot restarts despite confirmation 
-message appearing in history. realtime_settings_parser may not be correctly parsing 
-the "AI provider for #channel changed from X to Y" confirmation messages.
-**Files to investigate**: `utils/history/realtime_settings_parser.py`
-**Impact**: Medium — settings commands appear to work but don't persist after restart
-
-#### 2. Enhanced Error Handling (MEDIUM PRIORITY)
+#### 1. Enhanced Error Handling (MEDIUM PRIORITY)
 **Status**: Ready for implementation
 **Files to modify**: `utils/ai_utils.py`, `utils/response_handler.py`
 **Impact**: Medium - Better production stability
 **Implementation**: Add timeout wrappers and retry logic for remaining edge cases
 
-#### 3. DeepSeek Thinking Display Verification (LOW PRIORITY)
+#### 2. DeepSeek Thinking Display Verification (LOW PRIORITY)
 **Status**: Pending model configuration review
 **Issue**: `deepseek-chat` model does not consistently emit `<think>` tags;
 `deepseek-reasoner` model required for reliable thinking display
 **Impact**: Low — feature works correctly when tags are present; model selection issue only
 
 ### Resolved Issues
+- ✅ Settings persistence (fetch limit) — resolved in v2.15.0
 - ✅ History noise pollution — resolved in v2.14.0
 - ✅ Command interface inconsistencies — resolved in v2.13.0
 - ✅ Permission model errors (read ops requiring admin) — resolved in v2.13.0
@@ -145,7 +149,7 @@ the "AI provider for #channel changed from X to Y" confirmation messages.
 - ✅ BaseTen legacy code — resolved in v2.12.0
 - ✅ Provider cost and rate limiting — resolved in v2.11.0
 - ✅ Discord heartbeat blocking — resolved in v2.10.1
-- ✅ Settings persistence — resolved in v2.10.0
+- ✅ Settings persistence (initial implementation) — resolved in v2.10.0
 
 ### Adding New Features
 1. **Follow modular design** - Create focused modules under 250 lines
@@ -155,4 +159,4 @@ the "AI provider for #channel changed from X to Y" confirmation messages.
 5. **Follow existing patterns** - Use established conventions and architectures
 6. **Consider async requirements** - Wrap synchronous operations properly
 
-This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, stable async operation, and outstanding maintainability. Version 2.13.0 completes the command interface redesign, delivering a consistent and intuitive user experience.
+This project represents a mature, production-ready Discord AI bot with excellent architecture, comprehensive functionality, complete settings persistence, stable async operation, and outstanding maintainability. Version 2.15.0 resolves the settings persistence fetch limit bug, ensuring all channel settings are correctly restored after bot restarts regardless of channel history length.

@@ -1,7 +1,14 @@
 # utils/history/discord_fetcher.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Discord API interaction functionality for fetching messages.
+
+CHANGES v1.1.0: Fetch all messages for complete settings restoration
+- FIXED: Removed INITIAL_HISTORY_LOAD limit from fetch_messages_from_discord()
+- REASON: Settings parser needs full channel history to correctly restore the most
+  recent settings; a 50-message cap caused settings beyond that threshold to be lost
+  on bot restart
+- NOTE: fetch_recent_messages() retains its limit parameter for lightweight use cases
 
 This module handles the low-level Discord API interactions for fetching messages
 from Discord channels. It focuses purely on API calls and basic error handling,
@@ -17,10 +24,12 @@ logger = get_logger('history.discord_fetcher')
 
 async def fetch_messages_from_discord(channel, is_automatic):
     """
-    Fetch messages from Discord API without any processing.
+    Fetch all messages from Discord API without any processing.
     
-    This function handles the core Discord API interaction, fetching raw messages
-    and performing basic filtering, but does no conversion or processing.
+    Fetches the complete channel history so that real-time settings parsing
+    can find the most recent confirmed settings regardless of how far back
+    they appear. The downstream pipeline (settings parser, converter, trimmer)
+    already handles large message sets correctly.
     
     Args:
         channel: Discord channel object to fetch messages from
@@ -35,8 +44,8 @@ async def fetch_messages_from_discord(channel, is_automatic):
     channel_id = channel.id
     channel_name = channel.name
     
-    logger.info(f"Fetching messages from Discord API for channel #{channel_name} ({channel_id})")
-    logger.debug(f"Automatic loading: {is_automatic}, will fetch up to {INITIAL_HISTORY_LOAD} messages")
+    logger.info(f"Fetching all messages from Discord API for channel #{channel_name} ({channel_id})")
+    logger.debug(f"Automatic loading: {is_automatic}, fetching full channel history (no limit)")
     
     messages = []
     
@@ -46,10 +55,8 @@ async def fetch_messages_from_discord(channel, is_automatic):
     message_count = 0
     skipped_count = 0
     
-    logger.debug(f"Fetching up to {INITIAL_HISTORY_LOAD} messages from Discord API")
-    
-    # Fetch messages from Discord API
-    async for message in channel.history(limit=INITIAL_HISTORY_LOAD):
+    # Fetch all messages from Discord API (limit=None removes the cap)
+    async for message in channel.history(limit=None):
         message_count += 1
         
         logger.debug(f"Fetched Discord message {message_count}: {message.content[:80]}...")
