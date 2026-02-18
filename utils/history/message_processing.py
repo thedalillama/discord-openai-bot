@@ -1,20 +1,15 @@
 # utils/history/message_processing.py
-# Version 2.2.1
+# Version 2.2.3
 """
 Message processing and filtering for Discord bot history.
 
-CHANGES v2.2.1: Fix create_user_message() signature for backward compatibility
-- FIXED: create_user_message() now accepts optional history_length argument
-- REASON: discord_converter.py calls this function with 3 positional arguments;
-  incorrect 2-arg signature introduced in v2.2.0 caused history load errors
+CHANGES v2.2.3: Complete help output filtering (SOW v2.14.0)
+- ADDED: Pattern for !help <command> output
 
-CHANGES v2.2.0: Update command name references for v2.13.0 redesign
-- CHANGED: is_bot_command() special-case exemption updated from !setprompt to !prompt
-- REMOVED: Stale is_history_output() patterns for !getprompt and !getai responses
-  ('Current system prompt for', 'Current AI provider for') — dead code after command redesign
-- MAINTAINED: All other filtering logic unchanged
+CHANGES v2.2.2: Add v2.13.0 command noise patterns (SOW v2.14.0)
+- ADDED: !status, !history, !ai/!autorespond/!thinking noise filtering
 
-CHANGES v2.1.0: (prior version — no changelog entry found, preserved as-is)
+CHANGES v2.2.1: Fix create_user_message() backward compatibility
 """
 from config import HISTORY_LINE_PREFIX
 from utils.logging_utils import get_logger
@@ -62,6 +57,7 @@ def is_history_output(message_text):
         logger.debug("Not filtering 'System prompt updated for' message")
         return False
 
+    # Core patterns from original commands (pre-v2.13.0)
     is_output = (
         "**Conversation History**" in message_text or          # !history header
         HISTORY_LINE_PREFIX in message_text or                  # history line marker
@@ -70,12 +66,35 @@ def is_history_output(message_text):
         (("Loaded " in message_text) and
          (" messages from channel history" in message_text)) or  # !history reload response
         "Cleaned history: removed " in message_text or           # !history clean response
-        "Auto-response is now " in message_text or               # !autorespond write response
-        "Auto-response is currently " in message_text or         # !autorespond no-arg response
+        
+        # New patterns from v2.13.0 command redesign
+        "**Bot Status for" in message_text or                   # !status output block
+        "Usage: !history" in message_text or                    # !history usage hint
+        "Options: on, off" in message_text or                   # !autorespond / !thinking options
+        "Available providers:" in message_text or               # !ai options line
+        "DeepSeek thinking display is currently" in message_text or  # !thinking status
+        "DeepSeek thinking display is already" in message_text or    # !thinking no-change
+        "Auto-response is currently " in message_text or        # !autorespond status
+        "Auto-response is already" in message_text or           # !autorespond no-change
+        "is already set to" in message_text or                  # !ai no-change
+        "is already using the default" in message_text or       # !ai reset no-change
         ("System prompt for" in message_text and
-         "reset to default" in message_text) or                  # !prompt reset response
-        "AI provider for" in message_text                        # !ai responses
+         "is already" in message_text) or                        # !prompt reset no-change
+        "Current system prompt for" in message_text or          # !prompt no-arg display
+        "You need administrator permissions" in message_text or  # permission denied
+        "Invalid setting:" in message_text or                    # bad !autorespond/!thinking arg
+        "Invalid AI provider:" in message_text or               # bad !ai arg
+        "Unknown history command:" in message_text or           # bad !history subcommand
+        "No Category:" in message_text or                        # !help output (top level)
+        ("Manage the" in message_text and "provider" in message_text)  # !help <command> output
     )
+    
+    # CRITICAL: Do NOT add patterns that match settings persistence messages
+    # These MUST remain in history for realtime_settings_parser.py:
+    # - "Auto-response is now" (without "currently" or "already")
+    # - "DeepSeek thinking display **enabled/disabled**" (action, not status)
+    # - "AI provider for #channel changed from ... to"
+    # - "AI provider for #channel reset from ... to"
 
     return is_output
 
