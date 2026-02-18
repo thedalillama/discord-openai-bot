@@ -1,26 +1,17 @@
 # utils/history/api_imports.py
-# Version 1.2.0
+# Version 1.3.0
 """
 API imports coordination for history package.
 
+CHANGES v1.3.0: Dead code cleanup (SOW v2.16.0)
+- REMOVED: fetch_recent_messages_new import (dead code)
+- REMOVED: fetch_recent_messages re-export via fetch_recent_messages_compat (dead code)
+- REMOVED: settings_coordinator imports (file deleted)
+
 CHANGES v1.2.0: Removed obsolete coordination imports
-- Removed settings_parser.py imports (deleted in refactoring)
-- Added settings_coordinator.py imports for simplified architecture
-- Updated to support single-method settings persistence
-
 CHANGES v1.1.0: Removed obsolete settings_parser imports
-- Removed settings_parser.py imports (deleted in refactoring)
-- Maintained all other imports for backward compatibility
-- Updated to support simplified architecture with realtime parsing only
-
-This module groups related imports for better organization and maintainability.
-Created during refactoring to reduce utils/history/__init__.py from 263 to under 250 lines
-while maintaining 100% backward compatibility.
-
-All imports here are re-exported through __init__.py to maintain the existing public API.
 """
 
-# Storage imports - Core data structures and basic operations
 from .storage import (
     channel_history,
     loaded_history_channels,
@@ -37,7 +28,6 @@ from .storage import (
     filter_channel_history
 )
 
-# Message processing imports - Filtering, formatting, API preparation
 from .message_processing import (
     is_bot_command,
     is_history_output,
@@ -49,7 +39,6 @@ from .message_processing import (
     extract_system_prompt_updates
 )
 
-# Prompt and AI provider management imports
 from .prompts import (
     get_system_prompt,
     set_system_prompt,
@@ -59,7 +48,6 @@ from .prompts import (
     remove_system_prompt
 )
 
-# History loading functionality imports
 from .loading import (
     load_channel_history,
     get_loading_status,
@@ -67,10 +55,8 @@ from .loading import (
     get_history_statistics
 )
 
-# Discord module imports - Refactored modules (v2.2.0)
 from .discord_fetcher import (
     fetch_messages_from_discord as fetch_messages_from_discord_new,
-    fetch_recent_messages as fetch_recent_messages_new
 )
 
 from .discord_converter import (
@@ -86,16 +72,13 @@ from .realtime_settings_parser import (
     extract_prompt_from_update_message as extract_prompt_from_update_message_new
 )
 
-# Discord loader coordination imports - Main coordination functions
 from .discord_loader import (
     load_messages_from_discord,
     process_discord_messages,
     extract_prompt_from_update_message,
     count_processable_messages,
-    fetch_recent_messages_compat as fetch_recent_messages
 )
 
-# Settings management imports (backup functions removed in v1.1.0)
 from .settings_manager import (
     apply_restored_settings,
     validate_parsed_settings,
@@ -103,7 +86,6 @@ from .settings_manager import (
     apply_individual_setting
 )
 
-# Management utilities imports (extracted in v1.1.0)
 from .management_utilities import (
     clear_channel_settings,
     get_settings_statistics,
