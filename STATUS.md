@@ -1,8 +1,15 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.13.0
+# Version 2.14.0
 
 ## Current Version Features
+
+### Version 2.14.0 - History Noise Cleanup
+- **FIXED**: Bot command responses and housekeeping messages no longer sent to AI API
+- **EXPANDED**: cleanup_coordinator.py now filters assistant-side noise during reload
+- **ADDED**: Comprehensive is_history_output() patterns for all v2.13.0 command outputs
+- **UNIFIED**: Manual !history reload now runs same full clean pass as startup reload
+- **RESULT**: Clean conversation context sent to AI - only real messages, no administrative noise
 
 ### Version 2.13.0 - Command Interface Redesign
 - **REDESIGNED**: 15 commands consolidated into 6 unified base commands
@@ -12,8 +19,6 @@
 - **UNIFIED**: `!thinking` — fixed permissions, removed `!thinkingstatus`
 - **UNIFIED**: `!history` — merged `!cleanhistory` and `!loadhistory` as subcommands
 - **FIXED**: Read operations (status/show) now open to all users; write operations admin-only
-- **FIXED**: `!prompt reset` now checks if already at default before resetting
-- **ADDED**: Available options shown in no-arg responses for `!ai`, `!autorespond`, `!thinking`
 - **CONSISTENT**: All commands follow unified Pattern A (toggle) or Pattern B (value) design
 
 ### Version 2.12.0 - BaseTen Legacy Cleanup
@@ -69,13 +74,13 @@
 ├── main.py                    # Entry point (minimal)
 ├── bot.py                     # Core Discord events (185 lines)
 ├── config.py                  # Configuration management (v1.4.0)
-├── commands/                  # Modular command system (v2.0.0)
-│   ├── __init__.py
-│   ├── history_commands.py    # History management
-│   ├── prompt_commands.py     # System prompt controls
-│   ├── ai_provider_commands.py # Provider switching
-│   ├── auto_respond_commands.py # Auto-response controls
-│   ├── thinking_commands.py   # DeepSeek thinking controls
+├── commands/                  # Modular command system (v2.0.0+)
+│   ├── __init__.py            # v2.0.0
+│   ├── history_commands.py    # History management (v2.0.1)
+│   ├── prompt_commands.py     # System prompt controls (v2.0.0)
+│   ├── ai_provider_commands.py # Provider switching (v2.0.0)
+│   ├── auto_respond_commands.py # Auto-response controls (v2.0.0)
+│   ├── thinking_commands.py   # DeepSeek thinking controls (v2.0.0)
 │   └── status_commands.py     # Enhanced status display (v1.1.1)
 ├── ai_providers/              # AI provider implementations
 │   ├── __init__.py            # Provider factory (v1.2.0)
@@ -92,11 +97,12 @@
         ├── __init__.py
         ├── storage.py
         ├── prompts.py
-        ├── message_processing.py  # v2.2.1
+        ├── message_processing.py  # v2.2.3
         ├── discord_loader.py
         ├── discord_converter.py
         ├── realtime_settings_parser.py # v2.1.0
         ├── settings_manager.py
+        ├── cleanup_coordinator.py # v2.1.0
         └── diagnostics.py
 ```
 
@@ -111,16 +117,13 @@
 
 ## Current Priority Issues
 
-#### 1. History Filter Review (MEDIUM PRIORITY)
-**Status**: Identified during v2.13.0 testing
-**Issue**: `!history clean` and the `is_history_output()` filter may not catch all
-bot housekeeping messages that should be excluded from AI context, including:
-- `!prompt` user command messages (the command itself, not the confirmation)
-- Permission denied / error responses from the bot
-- Options lines appended to status responses (e.g. "Options: on, off")
-- `!status` output block
-**Files to review**: `utils/history/message_processing.py`
-**Impact**: Low — noise in history context rather than functional breakage
+#### 1. Settings Persistence Investigation (HIGH PRIORITY)
+**Status**: Bug identified during v2.14.0 testing
+**Issue**: AI provider setting not persisting across bot restarts despite confirmation 
+message appearing in history. realtime_settings_parser may not be correctly parsing 
+the "AI provider for #channel changed from X to Y" confirmation messages.
+**Files to investigate**: `utils/history/realtime_settings_parser.py`
+**Impact**: Medium — settings commands appear to work but don't persist after restart
 
 #### 2. Enhanced Error Handling (MEDIUM PRIORITY)
 **Status**: Ready for implementation
@@ -135,6 +138,7 @@ bot housekeeping messages that should be excluded from AI context, including:
 **Impact**: Low — feature works correctly when tags are present; model selection issue only
 
 ### Resolved Issues
+- ✅ History noise pollution — resolved in v2.14.0
 - ✅ Command interface inconsistencies — resolved in v2.13.0
 - ✅ Permission model errors (read ops requiring admin) — resolved in v2.13.0
 - ✅ Duplicate commands (autostatus, thinkingstatus) — resolved in v2.13.0
