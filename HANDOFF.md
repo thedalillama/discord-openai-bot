@@ -1,102 +1,115 @@
 # HANDOFF.md
-# Version 2.17.0
+# Version 2.19.0
 # Agent Development Handoff Document
 
-## Project Status Summary
+## Current Status
 
-**Current Version**: 2.17.0  
-**Status**: ✅ Production-ready, stable, no active work in progress  
-**Branch**: development (clean, ahead of main by documentation commits)
-
----
-
-## Recent Work Completed
-
-### SOW v2.17.0 — History Trim After Load
-- **FIXED**: channel_history now trimmed to MAX_HISTORY after every channel load
-- **WHERE**: _trim_to_max_history() added to cleanup_coordinator.py as Step 2
-- **RESULT**: API context always bounded; memory usage predictable
-- **FILE**: utils/history/cleanup_coordinator.py → v2.2.0
-
-### SOW v2.16.0 — Dead Code Cleanup
-- **REMOVED**: INITIAL_HISTORY_LOAD config variable and all references
-- **REMOVED**: fetch_recent_messages() function family (dead code chain)
-- **DELETED**: settings_coordinator.py (verified no active callers)
-- **REMOVED**: Backward compatibility aliases in loading.py and loading_utils.py
-- **FILES**: config.py, bot.py, discord_fetcher.py, discord_loader.py,
-  api_imports.py, api_exports.py, loading.py, loading_utils.py, README_ENV.md
-
-### SOW v2.15.0 — Settings Persistence Fix
-- **FIXED**: fetch_messages_from_discord() now uses limit=None (was 50)
-- **RESULT**: Settings parser can find confirmed settings anywhere in history
-- **FILE**: utils/history/discord_fetcher.py → v1.1.0
+**Branch**: development (in sync with main at v2.19.0)  
+**Bot**: Running in production on GCP (synthergy-development-2)  
+**State**: Stable — all tests passing
 
 ---
 
-## Current Architecture
+## Recent Work (This Session)
 
-### History Pipeline (load order)
-1. **fetch_messages_from_discord()** — fetches ALL messages (limit=None)
-2. **parse_settings_during_load()** — applies confirmed settings from history
-3. **convert_discord_messages()** — converts to history format
-4. **_filter_conversation_history()** — removes noise/commands
-5. **_trim_to_max_history()** — trims to MAX_HISTORY ← added in v2.17.0
-6. **_perform_final_validation()** — validates result
+### v2.18.0 — Continuous Context Accumulation
+Regular messages were not added to channel_history when auto-respond was
+disabled. Bot now always listens and accumulates context regardless of
+auto-respond state. When addressed directly after a silent period, the bot
+has full awareness of the intervening conversation.
 
-### Key Design Decisions
-- Full history fetched so settings parser finds confirmed settings anywhere
-- Trim happens AFTER settings applied — no settings data lost
-- prepare_messages_for_api() sends all of channel_history with no slicing
-- channel_history is always MAX_HISTORY or fewer messages after load
+**File**: bot.py → v2.9.0
 
-### Current File Versions
+### v2.19.0 — Runtime History Noise Filtering
+Bot confirmation messages, error messages, and settings persistence messages
+were appearing in the API context. Fixed across three paths:
+
+1. **Runtime**: add_response_to_history() filters noise before storing
+2. **Load time**: discord_converter.py filters noise before storing bot messages
+3. **API payload**: prepare_messages_for_api() filters is_history_output() and
+   is_settings_persistence_message() — settings persistence messages stay in
+   channel_history for the parser but never reach the AI
+
+Error messages use a standard prefix (`I'm sorry an API error occurred when
+attempting to respond: `) so users see them in Discord but they never enter
+channel_history.
+
+**Files**: response_handler.py → v1.1.1, message_processing.py → v2.2.5,
+discord_converter.py → v1.0.1
+
+---
+
+## Pending Items (Todo)
+
+### 1. Provider Singleton Caching (MEDIUM)
+**Problem**: get_provider() in ai_providers/__init__.py creates a new provider
+instance on every API call. The garbage collected httpx client causes a
+reentrant stdout flush RuntimeError visible in production logs.
+**Fix**: Cache provider instances as singletons keyed by provider name.
+**File**: ai_providers/__init__.py
+**Needs SOW**: Yes
+
+### 2. README.md Pricing Table (LOW)
+**Problem**: Pricing table is stale — OpenAI and Anthropic figures are outdated.
+**Fix**: Update with current API pricing from provider docs.
+**Needs SOW**: No — documentation only
+
+### 3. Token-Based Context Trimming (MEDIUM)
+**Problem**: MAX_HISTORY limits message count but not token count. A verbose
+channel can exceed provider token limits even at low message counts.
+**Fix**: Token estimation before API calls, trim to MAX_CONTEXT_TOKENS budget.
+**Needs SOW**: Yes
+
+---
+
+## Architecture Notes
+
+### Settings Persistence — How It Works
+Settings (provider, system prompt, auto-respond, thinking) are persisted by
+storing confirmation messages in Discord channel history. On restart, the
+realtime_settings_parser reads these messages back and restores settings.
+
+**Critical**: The following message patterns must never be filtered from
+channel_history as they carry settings data:
+- `"Auto-response is now **enabled/disabled**"`
+- `"AI provider for #channel changed from X to Y"`
+- `"AI provider for #channel reset from X to Y"`
+- `"DeepSeek thinking display **enabled/disabled**"`
+- `"System prompt updated for #channel"`
+
+They ARE filtered from the API payload in prepare_messages_for_api() via
+is_settings_persistence_message() so the AI never sees them.
+
+### History Filtering — Three Layers
+1. **discord_converter.py**: Filters noise at load time before storing
+2. **response_handler.py**: Filters noise at runtime before storing
+3. **message_processing.py prepare_messages_for_api()**: Filters settings
+   persistence messages from API payload without removing from channel_history
+
+### File Size Limit
+250 lines mandatory. Check with `wc -l` or nano before committing.
+
+---
+
+## Development Process
+
+- Always follow AGENT.md
+- Get approval before any code changes
+- Use development branch, merge to main after testing
+- Two-branch strategy: development → main
+- Separate commits per SOW
+- All changed files need version bumps
+
+---
+
+## Key File Versions (current)
+
 | File | Version |
 |------|---------|
-| bot.py | 2.8.0 |
-| config.py | 1.5.0 |
+| bot.py | 2.9.0 |
+| utils/response_handler.py | 1.1.1 |
+| utils/history/message_processing.py | 2.2.5 |
+| utils/history/discord_converter.py | 1.0.1 |
 | utils/history/cleanup_coordinator.py | 2.2.0 |
-| utils/history/discord_fetcher.py | 1.2.0 |
-| utils/history/discord_loader.py | 2.1.0 |
-| utils/history/loading.py | 2.4.0 |
-| utils/history/loading_utils.py | 1.2.0 |
-| utils/history/api_imports.py | 1.3.0 |
-| utils/history/api_exports.py | 1.3.0 |
-| utils/history/message_processing.py | 2.2.3 |
-| README_ENV.md | 2.16.0 |
-| STATUS.md | 2.17.0 |
-
----
-
-## Pending Items
-
-### README.md — Pricing Table Outdated
-During testing the OpenClaw bot researched current AI provider pricing and found
-the comparison table in README.md is stale. Needs updating before next release.
-Current table shows ~$15/1M (OpenAI) and ~$18/1M (Anthropic) — both outdated.
-Recommend updating with model-specific pricing and separate input/output costs.
-
-### Merge to Main
-development branch is ahead of main. All SOWs v2.15.0 through v2.17.0 are
-tested and ready. Merge to main when ready.
-
----
-
-## Development Guidelines
-
-### AGENT.md Compliance (Critical)
-- **NO CODE CHANGES WITHOUT APPROVAL** — always get approval first
-- **Discussion-first approach** — explain before implementing
-- **Version tracking mandatory** — update versions for all changes
-- **Development branch workflow** — test before committing
-- **Documentation consistency** — update all relevant docs
-
-### Code Quality Standards
-- 250-line file limit — mandatory for all files
-- Single responsibility — each module serves one clear purpose
-- Comprehensive documentation — detailed docstrings and inline comments
-- Module-specific logging — structured logging with appropriate levels
-- Version tracking — proper version numbers and changelogs in all files
-
-### SOW Document Location
-All SOW files are in docs/sow/ — reference these for history of decisions
-and rationale behind architectural choices.
+| ai_providers/__init__.py | 1.2.0 |
+| config.py | 1.5.0 |
