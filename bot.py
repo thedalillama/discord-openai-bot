@@ -1,10 +1,16 @@
 # bot.py
-# Version 2.8.0
+# Version 2.9.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
 
+CHANGES v2.9.0: Continuous context accumulation (SOW v2.18.0)
+- FIXED: Regular messages now added to channel_history even when auto-respond
+  is disabled. Bot always listens and accumulates context regardless of whether
+  it is responding. When addressed directly after a silent period, the bot has
+  full awareness of the intervening conversation.
+
 CHANGES v2.8.0: Dead code cleanup (SOW v2.16.0)
-- REMOVED: INITIAL_HISTORY_LOAD import and on_ready() log line (variable removed)
+- REMOVED: INITIAL_HISTORY_LOAD import and on_ready() log line
 
 CHANGES v2.7.0: Refactored AI response handling into separate module
 CHANGES v2.6.0: Fixed missing import for parse_provider_override function
@@ -89,21 +95,16 @@ def create_bot():
 
         provider_override, clean_message_content = parse_provider_override(message.content)
 
+        # Load history on first message in channel
         if channel_id not in loaded_history_channels:
             logger.debug(f"Channel #{message.channel.name} not in loaded_history_channels, loading history...")
-
             try:
                 async with message.channel.typing():
                     await load_channel_history(message.channel, is_automatic=True)
-
                     if len(channel_history[channel_id]) > 0:
                         logger.info(f"Auto-loaded {len(channel_history[channel_id])} messages for channel #{message.channel.name}")
-
                 loaded_history_channels[channel_id] = datetime.datetime.now()
-
                 logger.debug(f"Added channel #{message.channel.name} to loaded_history_channels")
-                logger.debug(f"Current loaded_history_channels: {list(loaded_history_channels.keys())}")
-
             except Exception as e:
                 logger.error(f"Failed to load history for channel #{message.channel.name}: {str(e)}")
         else:
@@ -112,14 +113,13 @@ def create_bot():
         is_prefix_message = message.content.lower().startswith(BOT_PREFIX.lower())
         is_provider_addressed = provider_override is not None
 
+        # Handle direct addressing (bot prefix OR provider override)
         if is_prefix_message or is_provider_addressed:
             if is_prefix_message:
                 logger.debug(f"Detected bot prefix message: {message.content}")
-                question = message.content[len(BOT_PREFIX):].strip()
                 content_for_history = message.content
             else:
                 logger.debug(f"Detected provider override: {provider_override}")
-                question = clean_message_content
                 content_for_history = clean_message_content
 
             user_message = format_user_message_for_history(
@@ -129,24 +129,39 @@ def create_bot():
             )
             channel_history[channel_id].append(user_message)
 
+            # Trim to MAX_HISTORY
+            if len(channel_history[channel_id]) > MAX_HISTORY:
+                channel_history[channel_id] = channel_history[channel_id][-MAX_HISTORY:]
+
             messages = prepare_messages_for_api(channel_id)
             await handle_ai_response(message, channel_id, messages, provider_override)
-
             await bot.process_commands(message)
             return
 
+        # Skip commands — do not add to history
         if message.content.startswith('!'):
             await bot.process_commands(message)
             return
 
-        if channel_id in auto_respond_channels:
-            user_message = format_user_message_for_history(
-                message.author.display_name,
-                message.content,
-                len(channel_history[channel_id])
-            )
-            channel_history[channel_id].append(user_message)
+        # All other messages: always add to history regardless of auto-respond state.
+        # The bot always listens and accumulates context even when not responding,
+        # so it has full awareness when addressed directly after a silent period.
+        user_message = format_user_message_for_history(
+            message.author.display_name,
+            message.content,
+            len(channel_history[channel_id])
+        )
+        channel_history[channel_id].append(user_message)
 
+        # Trim to MAX_HISTORY
+        if len(channel_history[channel_id]) > MAX_HISTORY:
+            channel_history[channel_id] = channel_history[channel_id][-MAX_HISTORY:]
+
+        logger.debug(f"Added message to history. New length: {len(channel_history[channel_id])}")
+
+        # Respond only if auto-respond is enabled
+        if channel_id in auto_respond_channels:
+            logger.debug(f"Auto-responding to message in #{message.channel.name}")
             messages = prepare_messages_for_api(channel_id)
             await handle_ai_response(message, channel_id, messages)
 
