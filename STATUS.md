@@ -1,52 +1,55 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.19.0
+# Version 2.20.0
 
 ## Current Version Features
+
+### Version 2.20.0 - DeepSeek Reasoning Content Display
+- **FIXED**: DeepSeek reasoner `reasoning_content` now correctly extracted and
+  displayed — previously silently discarded
+- **ADDED**: `[DEEPSEEK_REASONING]:` prefix pattern filters reasoning from
+  channel_history at runtime, load time, and API payload
+- **BEHAVIOR**: `!thinking on` — full reasoning shown in Discord before answer,
+  logged at INFO. `!thinking off` — answer only, reasoning logged at DEBUG
+- **REMOVED**: Dead `<think>` tag logic (`filter_thinking_tags()`) from
+  thinking_commands.py — irrelevant for DeepSeek official API
+- **FILES**: openai_compatible_provider.py → v1.1.0, response_handler.py →
+  v1.1.2, message_processing.py → v2.2.6, thinking_commands.py → v2.1.0,
+  ai_utils.py → v1.0.0
 
 ### Version 2.19.0 - Runtime History Noise Filtering
 - **FIXED**: Bot confirmation messages and error messages no longer appear in
   API context in any path — runtime, load-time, or API payload build
-- **RUNTIME**: add_response_to_history() checks is_history_output() before
-  storing; error messages use standard prefix and are never stored
+- **RUNTIME**: add_response_to_history() checks is_history_output() before storing
 - **LOAD TIME**: discord_converter.py checks is_history_output() before storing
-  bot messages loaded from Discord history
 - **API PAYLOAD**: prepare_messages_for_api() filters both is_history_output()
-  and is_settings_persistence_message() — settings persistence messages stay in
-  channel_history for the parser but never reach the AI
-- **FILES**: utils/response_handler.py → v1.1.1, utils/history/message_processing.py
-  → v2.2.5, utils/history/discord_converter.py → v1.0.1
+  and is_settings_persistence_message()
+- **FILES**: response_handler.py → v1.1.1, message_processing.py → v2.2.5,
+  discord_converter.py → v1.0.1
 
 ### Version 2.18.0 - Continuous Context Accumulation
 - **FIXED**: Regular messages now added to channel_history even when auto-respond
   is disabled
-- **RESULT**: Bot always listens and accumulates context regardless of auto-respond
-  state
 - **FILE**: bot.py → v2.9.0
 
 ### Version 2.17.0 - History Trim After Load
 - **FIXED**: channel_history now trimmed to MAX_HISTORY after every channel load
-- **WHERE**: _trim_to_max_history() added to cleanup_coordinator.py as Step 2
-- **RESULT**: API context always bounded; memory usage predictable
 - **FILE**: utils/history/cleanup_coordinator.py → v2.2.0
 
 ### Version 2.16.0 - Dead Code Cleanup
-- **REMOVED**: INITIAL_HISTORY_LOAD config variable and all references
-- **REMOVED**: fetch_recent_messages() function family (dead code chain)
-- **DELETED**: settings_coordinator.py (verified no active callers)
-- **REMOVED**: Backward compatibility aliases in loading.py and loading_utils.py
+- **REMOVED**: INITIAL_HISTORY_LOAD, fetch_recent_messages() chain,
+  settings_coordinator.py, backward compatibility aliases
 
 ### Version 2.15.0 - Settings Persistence Fix
 - **FIXED**: fetch_messages_from_discord() now uses limit=None (was 50)
-- **RESULT**: Settings parser finds confirmed settings anywhere in history
 
 ### Version 2.14.0 - History Noise Cleanup
-- **FIXED**: Bot command responses and housekeeping messages filtered at load time
-- **UNIFIED**: Manual !history reload runs same full clean pass as startup reload
+- **FIXED**: Bot command responses filtered at load time
+- **UNIFIED**: Manual !history reload runs same clean pass as startup
 
 ### Version 2.13.0 - Command Interface Redesign
 - **REDESIGNED**: 15 commands consolidated into 6 unified base commands
-- **FIXED**: Read operations open to all users; write operations admin-only
+- **FIXED**: Read operations open to all; write operations admin-only
 
 ### Version 2.12.0 - BaseTen Legacy Cleanup
 - **REMOVED**: ai_providers/baseten_provider.py and BaseTen config variables
@@ -65,17 +68,18 @@
 
 ### ✅ Achieved Metrics
 - **Functionality**: Multi-provider AI support with seamless switching
-- **Cost Optimization**: 74% cost reduction via DeepSeek Official API migration
+- **Cost Optimization**: 74% cost reduction via DeepSeek Official API
 - **Stability**: No heartbeat blocking with async executor architecture
-- **User Experience**: Consistent, intuitive command interface with permission model
-- **Provider Transparency**: Enhanced status display shows actual backend providers
+- **User Experience**: Consistent, intuitive command interface
+- **Provider Transparency**: Enhanced status display shows backend providers
 - **Code Quality**: All files under 250 lines, excellent maintainability
-- **Settings Persistence**: Complete automatic recovery from Discord message history
+- **Settings Persistence**: Complete automatic recovery from Discord history
 - **API Stability**: Thread-safe execution prevents Discord gateway timeouts
 - **Codebase Hygiene**: No dead code, unused variables, or stale references
-- **Bounded API Context**: channel_history always trimmed to MAX_HISTORY after load
+- **Bounded API Context**: channel_history always trimmed to MAX_HISTORY
 - **Continuous Context**: History accumulated regardless of auto-respond state
-- **Clean API Context**: Noise filtered at runtime, load time, and API payload build
+- **Clean API Context**: Noise filtered at runtime, load time, and API payload
+- **Reasoning Display**: DeepSeek reasoning_content correctly extracted and displayed
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Provider singleton caching (todo)
@@ -92,30 +96,30 @@
 ├── main.py                    # Entry point (minimal)
 ├── bot.py                     # Core Discord events (v2.9.0)
 ├── config.py                  # Configuration management (v1.5.0)
-├── commands/                  # Modular command system (v2.0.0+)
+├── commands/                  # Modular command system
 │   ├── __init__.py
 │   ├── history_commands.py
 │   ├── prompt_commands.py
 │   ├── ai_provider_commands.py
 │   ├── auto_respond_commands.py
-│   ├── thinking_commands.py
+│   ├── thinking_commands.py       # v2.1.0
 │   └── status_commands.py
 ├── ai_providers/              # AI provider implementations
 │   ├── __init__.py            # Provider factory (v1.2.0)
 │   ├── base.py
 │   ├── openai_provider.py
 │   ├── anthropic_provider.py
-│   └── openai_compatible_provider.py
+│   └── openai_compatible_provider.py  # v1.1.0
 └── utils/                     # Utility modules
-    ├── ai_utils.py
+    ├── ai_utils.py                # v1.0.0
     ├── logging_utils.py
     ├── message_utils.py
-    ├── response_handler.py        # v1.1.1
-    └── history/                   # History management (modular)
+    ├── response_handler.py        # v1.1.2
+    └── history/
         ├── __init__.py
         ├── storage.py
         ├── prompts.py
-        ├── message_processing.py  # v2.2.5
+        ├── message_processing.py  # v2.2.6
         ├── discord_loader.py      # v2.1.0
         ├── discord_converter.py   # v1.0.1
         ├── discord_fetcher.py     # v1.2.0
@@ -153,14 +157,12 @@ Garbage collected httpx client causes reentrant stdout flush RuntimeError.
 **Issue**: MAX_HISTORY limits message count but not token count
 **Fix**: Token estimation before API calls, trim to MAX_CONTEXT_TOKENS budget
 
-#### 3. Enhanced Error Handling (MEDIUM PRIORITY)
-**Status**: Ready for implementation
-**Files**: utils/ai_utils.py, utils/response_handler.py
-
-#### 4. DeepSeek Thinking Display Verification (LOW PRIORITY)
-**Status**: Pending model configuration review
+#### 3. README.md Pricing Table (LOW PRIORITY)
+**Status**: Stale — OpenAI and Anthropic figures outdated
+**Fix**: Update with current API pricing from provider docs
 
 ### Resolved Issues
+- ✅ DeepSeek reasoning_content display — resolved in v2.20.0
 - ✅ Runtime and load-time history noise filtering — resolved in v2.19.0
 - ✅ Continuous context accumulation — resolved in v2.18.0
 - ✅ Unbounded API context — resolved in v2.17.0
@@ -168,13 +170,7 @@ Garbage collected httpx client causes reentrant stdout flush RuntimeError.
 - ✅ Settings persistence (fetch limit) — resolved in v2.15.0
 - ✅ History noise at load time — resolved in v2.14.0
 - ✅ Command interface inconsistencies — resolved in v2.13.0
-- ✅ Permission model errors — resolved in v2.13.0
 - ✅ BaseTen legacy code — resolved in v2.12.0
 - ✅ Provider cost and rate limiting — resolved in v2.11.0
 - ✅ Discord heartbeat blocking — resolved in v2.10.1
 - ✅ Settings persistence (initial) — resolved in v2.10.0
-
-This project represents a mature, production-ready Discord AI bot with excellent
-architecture, comprehensive functionality, complete settings persistence, stable
-async operation, and outstanding maintainability. Version 2.19.0 ensures the API
-context is clean across all paths — runtime, load-time, and API payload build.

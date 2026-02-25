@@ -1,22 +1,24 @@
 # utils/response_handler.py
-# Version 1.1.1
+# Version 1.1.3
 """
 AI response handling utilities for Discord bot.
 
+CHANGES v1.1.3: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
+- CHANGED: Split on REASONING_SEPARATOR ([DEEPSEEK_ANSWER]:) instead of
+  first \n\n — prevents reasoning paragraphs from being mistaken for the
+  split point when reasoning_content contains blank lines
+
+CHANGES v1.1.2: Handle [DEEPSEEK_REASONING]: prefix (SOW v2.20.0)
+- MODIFIED: handle_ai_response_task() detects REASONING_PREFIX and splits
+  response into two separate Discord messages — reasoning first, answer second
+- ADDED: REASONING_PREFIX and REASONING_SEPARATOR constants
+
 CHANGES v1.1.1: User-friendly API error messages (SOW v2.19.0)
-- MODIFIED: handle_ai_response_task() sends standard-prefix error message to
-  Discord for user visibility but never stores it in channel_history
-- ADDED: API_ERROR_PREFIX constant for consistent error message formatting
-  and filtering coordination with message_processing.py
+- MODIFIED: Error messages sent to Discord with standard prefix, never stored
+- ADDED: API_ERROR_PREFIX constant
 
 CHANGES v1.1.0: Filter noise from runtime history storage (SOW v2.19.0)
-- ADDED: is_history_output import for runtime filtering
-- MODIFIED: add_response_to_history() now checks is_history_output() before storing
-- RESULT: Bot confirmation messages and error messages never enter channel_history
-  at runtime; load-time cleanup filter is now a safety net rather than primary defense
-
-Handles AI response processing, message splitting, image sending,
-and background task management.
+- MODIFIED: add_response_to_history() checks is_history_output() before storing
 """
 import asyncio
 import io
@@ -29,20 +31,21 @@ from utils.logging_utils import get_logger
 
 logger = get_logger('response_handler')
 
-# Standard prefix for API error messages sent to Discord.
-# This prefix is also used by is_history_output() to filter these messages
-# from channel_history at load time. Must match API_ERROR_PREFIX in
-# utils/history/message_processing.py exactly.
+# Must match API_ERROR_PREFIX in utils/history/message_processing.py exactly.
 API_ERROR_PREFIX = "I'm sorry an API error occurred when attempting to respond: "
+
+# Must match constants in ai_providers/openai_compatible_provider.py exactly.
+REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
+REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
 
 
 async def handle_ai_response_task(message, channel_id, messages, provider_override=None):
     """
-    Background task to handle AI response (both text and images).
-    Runs in the background to avoid blocking Discord's heartbeat.
+    Background task to handle AI response (text and optional images).
 
-    Error messages are sent to Discord with a standard prefix for user visibility
-    but are never stored in channel_history.
+    When response starts with REASONING_PREFIX, splits on REASONING_SEPARATOR
+    into two Discord messages: reasoning first (not stored in history),
+    answer second (stored normally).
 
     Args:
         message: Discord message object that triggered the response
@@ -57,15 +60,32 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             provider_override=provider_override
         )
 
-        if isinstance(bot_response, str):
-            # Legacy string format
+        if isinstance(bot_response, str) and bot_response.startswith(REASONING_PREFIX):
+            # Split on unambiguous separator — not \n\n which may appear in reasoning
+            parts = bot_response.split(REASONING_SEPARATOR, 1)
+            reasoning_block = parts[0]
+            answer = parts[1] if len(parts) > 1 else ""
+
+            # Send reasoning as separate message(s) — not stored in history
+            if reasoning_block.strip():
+                reasoning_chunks = split_message(reasoning_block)
+                for chunk in reasoning_chunks:
+                    await message.channel.send(chunk)
+
+            # Send answer and store in history
+            if answer.strip():
+                answer_chunks = split_message(answer)
+                for chunk in answer_chunks:
+                    await message.channel.send(chunk)
+                add_response_to_history(channel_id, answer)
+
+        elif isinstance(bot_response, str):
             text_chunks = split_message(bot_response)
             for chunk in text_chunks:
                 await message.channel.send(chunk)
             add_response_to_history(channel_id, bot_response)
 
         elif isinstance(bot_response, dict):
-            # Structured format with optional images
             text_content = bot_response.get("text", "")
             images = bot_response.get("images", [])
 
@@ -77,7 +97,9 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             for i, image in enumerate(images):
                 try:
                     image_buffer = io.BytesIO(image["data"])
-                    discord_file = discord.File(image_buffer, filename=f"generated_image_{i+1}.png")
+                    discord_file = discord.File(
+                        image_buffer, filename=f"generated_image_{i+1}.png"
+                    )
                     await message.channel.send(file=discord_file)
                     logger.debug(f"Sent generated image {i+1}")
                 except Exception as e:
@@ -87,9 +109,6 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             add_response_to_history(channel_id, text_content, len(images))
 
     except Exception as e:
-        # Send user-friendly error message to Discord so users know something
-        # went wrong, but do NOT store it in channel_history — it is noise
-        # for the AI context and filtered by is_history_output() at load time.
         error_msg = f"{API_ERROR_PREFIX}{str(e)}"
         await message.channel.send(error_msg)
         logger.error(f"Error processing AI response: {e}")
@@ -117,51 +136,32 @@ async def handle_ai_response(message, channel_id, messages, provider_override=No
 
 
 async def send_text_response(channel, text_content):
-    """
-    Send text response to Discord channel with automatic message splitting.
-
-    Args:
-        channel: Discord channel object
-        text_content: Text content to send
-
-    Returns:
-        int: Number of message chunks sent
-    """
+    """Send text response to Discord channel with automatic message splitting."""
     if not text_content or not text_content.strip():
         logger.debug("No text content to send")
         return 0
-
     text_chunks = split_message(text_content)
     for i, chunk in enumerate(text_chunks):
         await channel.send(chunk)
         logger.debug(f"Sent text chunk {i+1}/{len(text_chunks)}")
-
     return len(text_chunks)
 
 
 async def send_image_response(channel, images):
-    """
-    Send image response(s) to Discord channel.
-
-    Args:
-        channel: Discord channel object
-        images: List of image dictionaries with 'data' and optional metadata
-
-    Returns:
-        int: Number of images successfully sent
-    """
+    """Send image response(s) to Discord channel."""
     sent_count = 0
     for i, image in enumerate(images):
         try:
             image_buffer = io.BytesIO(image["data"])
-            discord_file = discord.File(image_buffer, filename=f"generated_image_{i+1}.png")
+            discord_file = discord.File(
+                image_buffer, filename=f"generated_image_{i+1}.png"
+            )
             await channel.send(file=discord_file)
             logger.debug(f"Sent generated image {i+1}")
             sent_count += 1
         except Exception as e:
             logger.error(f"Error sending generated image {i+1}: {e}")
             await channel.send("⚠️ I generated an image but couldn't send it.")
-
     return sent_count
 
 
@@ -169,9 +169,7 @@ def add_response_to_history(channel_id, text_content, images_count=0):
     """
     Add AI response to channel conversation history.
 
-    Filters out noise messages (command confirmations, housekeeping, error messages)
-    using is_history_output() before storing. This ensures bot-generated noise
-    never enters channel_history at runtime.
+    Filters noise messages via is_history_output() before storing.
 
     Args:
         channel_id: Discord channel ID
@@ -179,19 +177,16 @@ def add_response_to_history(channel_id, text_content, images_count=0):
         images_count: Number of images generated (default: 0)
 
     Returns:
-        bool: True if response was added to history, False if skipped
+        bool: True if added, False if skipped
     """
     history_content = create_history_content_for_bot_response(text_content, images_count)
 
     if not history_content.strip():
-        logger.debug(f"Skipped adding empty response to history for channel {channel_id}")
+        logger.debug(f"Skipped empty response for channel {channel_id}")
         return False
 
     if is_history_output(history_content):
-        logger.debug(
-            f"Skipped adding noise message to history for channel {channel_id}: "
-            f"{history_content[:50]}..."
-        )
+        logger.debug(f"Skipped noise message for channel {channel_id}: {history_content[:50]}...")
         return False
 
     channel_history[channel_id].append({

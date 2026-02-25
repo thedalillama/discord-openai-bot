@@ -1,19 +1,19 @@
 # utils/history/message_processing.py
-# Version 2.2.5
+# Version 2.2.6
 """
 Message processing and filtering for Discord bot history.
+
+CHANGES v2.2.6: Add DEEPSEEK_REASONING noise pattern (SOW v2.20.0)
+- ADDED: REASONING_PREFIX constant matching openai_compatible_provider.py
+- ADDED: REASONING_PREFIX pattern to is_history_output() so reasoning messages
+  are filtered from channel_history at runtime, load time, and API payload
 
 CHANGES v2.2.5: Filter settings persistence messages from API payload (SOW v2.19.0)
 - MODIFIED: prepare_messages_for_api() filters both is_history_output() and
   is_settings_persistence_message() before building the API payload
-- ADDED: is_settings_persistence_message() — identifies admin messages that must
-  stay in channel_history for the settings parser but are noise for the AI
-- RESULT: Settings persistence messages stay in channel_history but never reach API
+- ADDED: is_settings_persistence_message()
 
 CHANGES v2.2.4: Add API error message filter pattern (SOW v2.19.0)
-- ADDED: API_ERROR_PREFIX constant matching response_handler.py
-- ADDED: message_text.startswith(API_ERROR_PREFIX) pattern to is_history_output()
-
 CHANGES v2.2.3: Complete help output filtering (SOW v2.14.0)
 CHANGES v2.2.2: Add v2.13.0 command noise patterns (SOW v2.14.0)
 CHANGES v2.2.1: Fix create_user_message() backward compatibility
@@ -27,6 +27,9 @@ logger = get_logger('history.message_processing')
 
 # Must match API_ERROR_PREFIX in utils/response_handler.py exactly.
 API_ERROR_PREFIX = "I'm sorry an API error occurred when attempting to respond: "
+
+# Must match REASONING_PREFIX in ai_providers/openai_compatible_provider.py exactly.
+REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
 
 
 def is_bot_command(message_text):
@@ -50,7 +53,13 @@ def is_history_output(message_text):
         return False
 
     return (
+        # DeepSeek reasoning content (filtered as noise — never store in history)
+        message_text.startswith(REASONING_PREFIX) or
+
+        # API error messages from response_handler.py
         message_text.startswith(API_ERROR_PREFIX) or
+
+        # Core history command output
         "**Conversation History**" in message_text or
         HISTORY_LINE_PREFIX in message_text or
         message_text.startswith("**1.") or
@@ -58,6 +67,8 @@ def is_history_output(message_text):
         (("Loaded " in message_text) and
          (" messages from channel history" in message_text)) or
         "Cleaned history: removed " in message_text or
+
+        # v2.13.0 command output patterns
         "**Bot Status for" in message_text or
         "Usage: !history" in message_text or
         "Options: on, off" in message_text or
@@ -77,6 +88,15 @@ def is_history_output(message_text):
         "No Category:" in message_text or
         ("Manage the" in message_text and "provider" in message_text)
     )
+
+    # CRITICAL: Do NOT add patterns that match settings persistence messages.
+    # These MUST remain in channel_history for realtime_settings_parser.py but
+    # are filtered from the API payload in prepare_messages_for_api() via
+    # is_settings_persistence_message():
+    # - "Auto-response is now" (without "currently" or "already")
+    # - "DeepSeek thinking display **enabled/disabled**" (action, not status)
+    # - "AI provider for #channel changed from ... to"
+    # - "AI provider for #channel reset from ... to"
 
 
 def is_settings_persistence_message(message_text):
