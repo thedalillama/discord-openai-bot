@@ -1,42 +1,63 @@
 # ai_providers/openai_compatible_provider.py
-# Version 1.0.0
+# Version 1.1.1
 """
 Generic OpenAI-compatible provider implementation.
 Works with any API that follows the OpenAI client interface (DeepSeek, OpenRouter, etc.).
+
+CHANGES v1.1.1: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
+- CHANGED: REASONING_SEPARATOR added as explicit boundary between reasoning
+  block and answer — prevents reasoning paragraphs from being mistaken for
+  the split point when reasoning_content contains blank lines
+
+CHANGES v1.1.0: DeepSeek reasoning_content display (SOW v2.20.0)
+- REMOVED: filter_thinking_tags() / <think> tag logic — dead code for DeepSeek official API
+- ADDED: reasoning_content extraction from DeepSeek reasoner responses
+- ADDED: [DEEPSEEK_REASONING]: prefixed message prepended to content when thinking enabled
+- ADDED: Full reasoning_content logged at INFO when thinking on, DEBUG when off
+- ADDED: _build_reasoning_response() helper
 
 FEATURES:
 - Configurable base URL and API key via environment variables
 - Supports any OpenAI-compatible model
 - Async-safe execution with thread pool executor
 - Comprehensive logging and error handling
-- Thinking tag filtering for DeepSeek models
+- DeepSeek reasoning_content extraction and display
 """
 import asyncio
 import concurrent.futures
 from openai import OpenAI
 from .base import AIProvider
 from config import (
-    OPENAI_COMPATIBLE_API_KEY, OPENAI_COMPATIBLE_BASE_URL, 
+    OPENAI_COMPATIBLE_API_KEY, OPENAI_COMPATIBLE_BASE_URL,
     OPENAI_COMPATIBLE_MODEL, DEFAULT_TEMPERATURE,
     OPENAI_COMPATIBLE_CONTEXT_LENGTH, OPENAI_COMPATIBLE_MAX_TOKENS
 )
 from utils.logging_utils import get_logger
 
+# Prefix for reasoning content messages — unique enough to never appear in
+# normal conversation. Used by is_history_output() to filter reasoning from
+# channel_history at runtime, load time, and API payload build.
+REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
+
+# Separator between reasoning block and answer. Must be unique enough to
+# never appear in reasoning content or normal conversation.
+REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
+
+
 class OpenAICompatibleProvider(AIProvider):
     """Generic OpenAI-compatible provider for any API following OpenAI standard"""
-    
+
     def __init__(self):
         super().__init__()
         self.name = "openai_compatible"
-        
-        # Validate configuration
+
         if not OPENAI_COMPATIBLE_API_KEY:
             raise ValueError("OPENAI_COMPATIBLE_API_KEY environment variable is required")
         if not OPENAI_COMPATIBLE_BASE_URL:
-            raise ValueError("OPENAI_COMPATIBLE_BASE_URL environment variable is required") 
+            raise ValueError("OPENAI_COMPATIBLE_BASE_URL environment variable is required")
         if not OPENAI_COMPATIBLE_MODEL:
             raise ValueError("OPENAI_COMPATIBLE_MODEL environment variable is required")
-            
+
         self.client = OpenAI(
             api_key=OPENAI_COMPATIBLE_API_KEY,
             base_url=OPENAI_COMPATIBLE_BASE_URL
@@ -44,68 +65,57 @@ class OpenAICompatibleProvider(AIProvider):
         self.model = OPENAI_COMPATIBLE_MODEL
         self.max_context_length = OPENAI_COMPATIBLE_CONTEXT_LENGTH
         self.max_response_tokens = OPENAI_COMPATIBLE_MAX_TOKENS
-        self.supports_images = False  # Generic provider assumes text-only
+        self.supports_images = False
         self.logger = get_logger('openai_compatible')
-        
-        # Log provider configuration (without sensitive API key)
+
         self.logger.info(f"Initialized OpenAI-compatible provider:")
         self.logger.info(f"  Base URL: {OPENAI_COMPATIBLE_BASE_URL}")
         self.logger.info(f"  Model: {OPENAI_COMPATIBLE_MODEL}")
         self.logger.info(f"  Max tokens: {OPENAI_COMPATIBLE_MAX_TOKENS}")
-    
+
     async def generate_ai_response(self, messages, max_tokens=None, temperature=None, channel_id=None):
         """
         Generate an AI response using the configured OpenAI-compatible API.
-        
+
+        For DeepSeek reasoner models, extracts reasoning_content and prepends
+        it as a [DEEPSEEK_REASONING]: prefixed block when thinking is enabled.
+        Reasoning is always logged regardless of thinking display setting.
+
         Args:
-            messages: List of message objects with role and content
-            max_tokens: Maximum number of tokens in the response
-            temperature: Creativity of the response (0.0-1.0)
-            channel_id: Optional Discord channel ID for thinking display control
-            
+            messages: List of message dicts with role and content
+            max_tokens: Maximum tokens in response
+            temperature: Creativity (0.0-1.0)
+            channel_id: Discord channel ID for thinking display control
+
         Returns:
-            str: The generated response text, with thinking tags filtered if applicable
+            str: Response text, with reasoning block prepended if thinking enabled
         """
-        self.logger.debug(f"Using OpenAI-compatible provider (model: {self.model}) for API call")
+        self.logger.debug(f"Using OpenAI-compatible provider (model: {self.model})")
         self.logger.debug(f"Base URL: {OPENAI_COMPATIBLE_BASE_URL}")
-        self.logger.debug(f"Max tokens being used: {max_tokens}")
-        
+        self.logger.debug(f"Max tokens: {max_tokens}")
+
         try:
-            # Use default values if not specified
             if max_tokens is None:
                 max_tokens = self.max_response_tokens
             if temperature is None:
                 temperature = DEFAULT_TEMPERATURE
-            
-            # Log the system prompt being sent to API
-            system_prompt = None
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_prompt = msg["content"]
-                    break
-            
+
+            system_prompt = next(
+                (m["content"] for m in messages if m["role"] == "system"), None
+            )
             if system_prompt:
-                self.logger.debug(f"Sending system prompt to API: '{system_prompt}'")
-            
+                self.logger.debug(f"System prompt: '{system_prompt[:80]}...'")
             self.logger.debug(f"Number of messages: {len(messages)}")
-            
-            # Convert messages to standard OpenAI format
+
             api_messages = []
             for msg in messages:
                 if msg["role"] in ["system", "user", "assistant"]:
-                    # For user messages, include the name info in content if it exists
                     content = msg["content"]
                     if msg["role"] == "user" and "name" in msg:
-                        # Embed name in content if not already there
                         if not content.startswith(msg["name"]):
                             content = f"{msg['name']}: {content}"
-                    
-                    api_messages.append({
-                        "role": msg["role"],
-                        "content": content
-                    })
-            
-            # Use async executor to prevent Discord heartbeat blocking
+                    api_messages.append({"role": msg["role"], "content": content})
+
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 response = await loop.run_in_executor(
@@ -121,44 +131,65 @@ class OpenAICompatibleProvider(AIProvider):
                         stop=[]
                     )
                 )
-            
-            # Extract the response text
-            raw_response = response.choices[0].message.content.strip()
-            
-            # Log completion reason for debugging
+
+            message_obj = response.choices[0].message
+            content = message_obj.content.strip()
             finish_reason = response.choices[0].finish_reason
             self.logger.debug(f"API response finished with reason: {finish_reason}")
-            
-            # Filter thinking tags if this appears to be a DeepSeek model
-            filtered_response = raw_response
-            if channel_id is not None and self._is_deepseek_model():
-                # Import here to avoid circular imports
-                from commands.thinking_commands import get_thinking_enabled, filter_thinking_tags
-                
-                show_thinking = get_thinking_enabled(channel_id)
-                filtered_response = filter_thinking_tags(raw_response, show_thinking)
-                
-                self.logger.debug(f"Applied thinking filter for channel {channel_id}: show_thinking={show_thinking}")
-                self.logger.debug(f"Raw response contained <think> tags: {'<think>' in raw_response}")
-                self.logger.debug(f"Response length: raw={len(raw_response)}, filtered={len(filtered_response)}")
-                
-                if not show_thinking and '<think>' in raw_response:
-                    self.logger.info(f"Filtered thinking content from response (channel {channel_id})")
-            elif self._is_deepseek_model():
-                self.logger.warning(f"No channel_id provided to DeepSeek-like model - thinking filter not applied")
-            
-            self.logger.debug(f"API response received successfully")
-            return filtered_response
-            
+
+            # Extract reasoning_content if present (deepseek-reasoner)
+            reasoning_content = getattr(message_obj, 'reasoning_content', None)
+            if reasoning_content and self._is_deepseek_model():
+                return self._build_reasoning_response(content, reasoning_content, channel_id)
+
+            self.logger.debug(f"Response received: {len(content)} chars")
+            return content
+
         except Exception as e:
-            self.logger.error(f"Error generating AI response from OpenAI-compatible API: {e}")
+            self.logger.error(f"Error generating AI response: {e}")
             self.logger.error(f"Model: {self.model}, Base URL: {OPENAI_COMPATIBLE_BASE_URL}")
             raise e
-    
+
+    def _build_reasoning_response(self, content, reasoning_content, channel_id):
+        """
+        Build response string with reasoning block when reasoning_content present.
+
+        Uses REASONING_SEPARATOR as an unambiguous boundary between the reasoning
+        block and the answer, preventing false splits on blank lines within
+        reasoning_content.
+
+        Args:
+            content: Final answer text from API
+            reasoning_content: Full reasoning/CoT text from API
+            channel_id: Discord channel ID for thinking display check
+
+        Returns:
+            str: Combined string with reasoning block + separator + content,
+                 or content only if thinking disabled
+        """
+        show_thinking = False
+        if channel_id is not None:
+            try:
+                from commands.thinking_commands import get_thinking_enabled
+                show_thinking = get_thinking_enabled(channel_id)
+            except ImportError:
+                self.logger.warning("Could not import thinking_commands")
+
+        reasoning_len = len(reasoning_content)
+
+        if show_thinking:
+            self.logger.info(
+                f"DeepSeek reasoning for channel {channel_id} "
+                f"({reasoning_len} chars): {reasoning_content}"
+            )
+            return f"{REASONING_PREFIX}\n{reasoning_content}{REASONING_SEPARATOR}{content}"
+        else:
+            self.logger.debug(
+                f"DeepSeek reasoning present ({reasoning_len} chars), "
+                f"thinking display disabled for channel {channel_id}"
+            )
+            return content
+
     def _is_deepseek_model(self):
-        """Check if the configured model appears to be a DeepSeek model based on naming patterns"""
-        model_lower = self.model.lower()
-        return ('deepseek' in model_lower or 
-                'deepseek-reasoner' in model_lower or 
-                'deepseek-chat' in model_lower or
-                'deepseek-ai' in model_lower)
+        """Return True if configured model appears to be a DeepSeek model."""
+        return 'deepseek' in self.model.lower()
