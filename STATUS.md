@@ -1,8 +1,18 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.20.0
+# Version 2.21.0
 
 ## Current Version Features
+
+### Version 2.21.0 - Async Executor Safety
+- **FIXED**: Anthropic provider missing executor wrapper — synchronous API call
+  now wrapped in run_in_executor(), preventing heartbeat blocking under slow
+  or large responses
+- **ADDED**: Critical warning comments on all executor blocks explaining why
+  they must not be removed
+- **PATTERN**: All three providers now follow identical async safety pattern
+- **FILES**: anthropic_provider.py → v1.0.0,
+  openai_compatible_provider.py → v1.1.2
 
 ### Version 2.20.0 - DeepSeek Reasoning Content Display
 - **FIXED**: DeepSeek reasoner `reasoning_content` now correctly extracted and
@@ -13,8 +23,10 @@
   logged at INFO. `!thinking off` — answer only, reasoning logged at DEBUG
 - **REMOVED**: Dead `<think>` tag logic (`filter_thinking_tags()`) from
   thinking_commands.py — irrelevant for DeepSeek official API
-- **FILES**: openai_compatible_provider.py → v1.1.0, response_handler.py →
-  v1.1.2, message_processing.py → v2.2.6, thinking_commands.py → v2.1.0,
+- **SPLIT FIX**: Uses `[DEEPSEEK_ANSWER]:` separator to reliably split
+  reasoning and answer — handles multi-paragraph reasoning correctly
+- **FILES**: openai_compatible_provider.py → v1.1.1, response_handler.py →
+  v1.1.3, message_processing.py → v2.2.6, thinking_commands.py → v2.1.0,
   ai_utils.py → v1.0.0
 
 ### Version 2.19.0 - Runtime History Noise Filtering
@@ -28,8 +40,8 @@
   discord_converter.py → v1.0.1
 
 ### Version 2.18.0 - Continuous Context Accumulation
-- **FIXED**: Regular messages now added to channel_history even when auto-respond
-  is disabled
+- **FIXED**: Regular messages now added to channel_history even when
+  auto-respond is disabled
 - **FILE**: bot.py → v2.9.0
 
 ### Version 2.17.0 - History Trim After Load
@@ -64,12 +76,14 @@
 ### Version 2.10.0 - Settings Persistence and Enhanced Commands
 - **COMPLETED**: Full settings recovery from Discord message history
 
+---
+
 ## Success Metrics
 
 ### ✅ Achieved Metrics
 - **Functionality**: Multi-provider AI support with seamless switching
 - **Cost Optimization**: 74% cost reduction via DeepSeek Official API
-- **Stability**: No heartbeat blocking with async executor architecture
+- **Stability**: No heartbeat blocking — all three providers use executor wrapper
 - **User Experience**: Consistent, intuitive command interface
 - **Provider Transparency**: Enhanced status display shows backend providers
 - **Code Quality**: All files under 250 lines, excellent maintainability
@@ -80,6 +94,7 @@
 - **Continuous Context**: History accumulated regardless of auto-respond state
 - **Clean API Context**: Noise filtered at runtime, load time, and API payload
 - **Reasoning Display**: DeepSeek reasoning_content correctly extracted and displayed
+- **Async Safety**: All providers protected with executor wrappers and warning comments
 
 ### 🔄 In Progress Metrics
 - **Resource Management**: Provider singleton caching (todo)
@@ -88,6 +103,8 @@
 - **Cost Management**: Token-based context trimming
 - **Performance**: Response time optimization
 - **Scalability**: Multi-server deployment capabilities
+
+---
 
 ## Architecture Status
 
@@ -105,16 +122,16 @@
 │   ├── thinking_commands.py       # v2.1.0
 │   └── status_commands.py
 ├── ai_providers/              # AI provider implementations
-│   ├── __init__.py            # Provider factory (v1.2.0)
+│   ├── __init__.py                # Provider factory (v1.2.0)
 │   ├── base.py
-│   ├── openai_provider.py
-│   ├── anthropic_provider.py
-│   └── openai_compatible_provider.py  # v1.1.0
+│   ├── openai_provider.py         # v1.2.0
+│   ├── anthropic_provider.py      # v1.0.0 — executor wrapper added
+│   └── openai_compatible_provider.py  # v1.1.2
 └── utils/                     # Utility modules
     ├── ai_utils.py                # v1.0.0
     ├── logging_utils.py
     ├── message_utils.py
-    ├── response_handler.py        # v1.1.2
+    ├── response_handler.py        # v1.1.3
     └── history/
         ├── __init__.py
         ├── storage.py
@@ -142,26 +159,29 @@
 4. **Module-specific logging** - Structured logging with appropriate levels
 5. **Error handling** - Graceful degradation and proper error recovery
 6. **Version tracking** - Proper version numbers and changelogs in all files
-7. **Async safety** - Proper async/await usage and thread-safe operations
+7. **Async safety** - All provider API calls wrapped in run_in_executor()
+
+---
 
 ## Current Priority Issues
 
-#### 1. Provider Singleton Caching (MEDIUM PRIORITY)
+### 1. Provider Singleton Caching (MEDIUM PRIORITY)
 **Status**: Identified, pending SOW
 **Issue**: get_provider() creates a new provider instance on every API call.
 Garbage collected httpx client causes reentrant stdout flush RuntimeError.
 **Fix**: Cache provider instances as singletons in ai_providers/__init__.py
 
-#### 2. Token-Based Context Trimming (MEDIUM PRIORITY)
+### 2. Token-Based Context Trimming (MEDIUM PRIORITY)
 **Status**: Design discussed, not yet implemented
 **Issue**: MAX_HISTORY limits message count but not token count
 **Fix**: Token estimation before API calls, trim to MAX_CONTEXT_TOKENS budget
 
-#### 3. README.md Pricing Table (LOW PRIORITY)
+### 3. README.md Pricing Table (LOW PRIORITY)
 **Status**: Stale — OpenAI and Anthropic figures outdated
 **Fix**: Update with current API pricing from provider docs
 
 ### Resolved Issues
+- ✅ Anthropic heartbeat blocking risk — resolved in v2.21.0
 - ✅ DeepSeek reasoning_content display — resolved in v2.20.0
 - ✅ Runtime and load-time history noise filtering — resolved in v2.19.0
 - ✅ Continuous context accumulation — resolved in v2.18.0
@@ -172,5 +192,5 @@ Garbage collected httpx client causes reentrant stdout flush RuntimeError.
 - ✅ Command interface inconsistencies — resolved in v2.13.0
 - ✅ BaseTen legacy code — resolved in v2.12.0
 - ✅ Provider cost and rate limiting — resolved in v2.11.0
-- ✅ Discord heartbeat blocking — resolved in v2.10.1
+- ✅ Discord heartbeat blocking (OpenAI) — resolved in v2.10.1
 - ✅ Settings persistence (initial) — resolved in v2.10.0

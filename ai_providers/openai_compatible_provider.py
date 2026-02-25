@@ -1,8 +1,11 @@
 # ai_providers/openai_compatible_provider.py
-# Version 1.1.1
+# Version 1.1.2
 """
 Generic OpenAI-compatible provider implementation.
 Works with any API that follows the OpenAI client interface (DeepSeek, OpenRouter, etc.).
+
+CHANGES v1.1.2: Add critical executor wrapper warning comment (SOW v2.21.0)
+- ADDED: Warning comment on executor block explaining why it must not be removed
 
 CHANGES v1.1.1: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
 - CHANGED: REASONING_SEPARATOR added as explicit boundary between reasoning
@@ -116,6 +119,13 @@ class OpenAICompatibleProvider(AIProvider):
                             content = f"{msg['name']}: {content}"
                     api_messages.append({"role": msg["role"], "content": content})
 
+            # CRITICAL: Do NOT remove this executor wrapper.
+            # deepseek-reasoner generates up to 32K reasoning tokens before
+            # responding, causing API calls that can take 60+ seconds. Without
+            # run_in_executor(), the synchronous API call blocks the Discord
+            # event loop, causing heartbeat failures, WebSocket disconnection,
+            # and bot crashes. Confirmed via production crash during v2.20.0
+            # development. See HANDOFF.md for details.
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 response = await loop.run_in_executor(
