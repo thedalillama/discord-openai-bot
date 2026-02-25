@@ -1,16 +1,26 @@
 # HANDOFF.md
-# Version 2.20.0
+# Version 2.21.0
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: development (ahead of main — v2.20.0 not yet merged)
+**Branch**: development (ahead of main — v2.20.0 and v2.21.0 not yet merged)
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v2.20.0 — DeepSeek reasoning_content display
+**Last completed**: v2.21.0 — Async Executor Safety
 
 ---
 
 ## Recent Completed Work
+
+### v2.21.0 — Async Executor Safety
+- **FIXED**: Anthropic provider was making synchronous API calls directly in
+  async method — heartbeat blocking risk under slow or large responses
+- **ADDED**: run_in_executor() / ThreadPoolExecutor wrapper to anthropic_provider.py
+- **ADDED**: Critical warning comments on all executor blocks in all three providers
+- **PATTERN**: All providers now consistent — OpenAI, Anthropic, OpenAI-compatible
+  all use identical async safety pattern
+- **Files**: anthropic_provider.py → v1.0.0,
+  openai_compatible_provider.py → v1.1.2
 
 ### v2.20.0 — DeepSeek Reasoning Content Display
 - **FIXED**: DeepSeek reasoner `reasoning_content` now correctly extracted
@@ -43,8 +53,8 @@
 ## Pending Items
 
 ### 1. Merge development → main (IMMEDIATE)
-v2.20.0 is tested and stable on development branch. Awaiting user decision
-to merge to main and tag v2.20.0.
+v2.20.0 and v2.21.0 are tested and stable on development branch.
+Awaiting user decision to merge to main and tag.
 
 ### 2. Provider Singleton Caching (MEDIUM PRIORITY)
 **Issue**: get_provider() creates a new provider instance on every API call.
