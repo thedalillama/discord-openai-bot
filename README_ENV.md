@@ -1,17 +1,11 @@
 # README_ENV.md
-# Version 2.16.0
+# Version 2.22.0
 # Environment Variables Configuration Guide
 
-CHANGES v2.16.0: Removed INITIAL_HISTORY_LOAD (SOW v2.16.0)
-- REMOVED: INITIAL_HISTORY_LOAD variable — bot now fetches full channel history
-  unconditionally; this variable is no longer read or used anywhere in the codebase
-
-This document provides comprehensive documentation for all environment variables
-used by the Discord AI Bot.
+This document provides comprehensive documentation for all environment
+variables used by the Discord AI Bot.
 
 ## Required Variables
-
-These variables **must** be set for the bot to function:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -40,10 +34,10 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `MAX_HISTORY` | Messages to keep in conversation context for API calls | `10` | Any positive integer |
+| `MAX_HISTORY` | Messages to keep in conversation context | `10` | Any positive integer |
+| `INITIAL_HISTORY_LOAD` | Messages to load when starting in a channel | `50` | Any positive integer |
 | `MAX_RESPONSE_TOKENS` | Maximum tokens per AI response | `800` | Any positive integer |
 | `HISTORY_LINE_PREFIX` | Prefix for history display messages | `➤ ` | Any string |
-| `CHANNEL_LOCK_TIMEOUT` | Seconds to wait for channel lock during history load | `30` | Any positive integer |
 
 ## OpenAI Configuration
 
@@ -58,7 +52,7 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `ANTHROPIC_MODEL` | Claude model to use | `claude-3-haiku-20240307` | Any valid Claude model |
+| `ANTHROPIC_MODEL` | Claude model to use | `claude-haiku-4-5-20251001` | Any valid Claude model |
 | `ANTHROPIC_CONTEXT_LENGTH` | Maximum context length for Claude | `200000` | Model-dependent |
 | `ANTHROPIC_MAX_TOKENS` | Maximum tokens per Claude response | `2000` | Model-dependent |
 
@@ -66,9 +60,8 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `OPENAI_COMPATIBLE_API_KEY` | API key for compatible provider | — | Provider API key |
-| `OPENAI_COMPATIBLE_BASE_URL` | Base URL of compatible provider | — | Any valid URL |
-| `OPENAI_COMPATIBLE_MODEL` | Model name at compatible provider | `deepseek-chat` | Provider-dependent |
+| `OPENAI_COMPATIBLE_BASE_URL` | API base URL | None | `https://api.deepseek.com`, `https://openrouter.ai/api/v1`, etc. |
+| `OPENAI_COMPATIBLE_MODEL` | Model to use | `deepseek-chat` | Provider-dependent |
 | `OPENAI_COMPATIBLE_CONTEXT_LENGTH` | Maximum context length | `128000` | Model-dependent |
 | `OPENAI_COMPATIBLE_MAX_TOKENS` | Maximum tokens per response | `8000` | Model-dependent |
 
@@ -76,42 +69,139 @@ Set only the API keys for providers you plan to use:
 
 | Variable | Description | Default | Valid Options |
 |----------|-------------|---------|---------------|
-| `LOG_LEVEL` | Logging verbosity | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_LEVEL` | Logging verbosity level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | Log output destination | `stdout` | `stdout` or file path |
-| `LOG_FORMAT` | Log message format string | Standard format | Any valid Python log format |
+| `LOG_FORMAT` | Log message format | Standard format | Custom format string |
 
-## Example Configurations
+## System Prompt Configuration
 
-### Minimal (DeepSeek)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEFAULT_SYSTEM_PROMPT` | Default system prompt for AI responses | `"You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies."` |
+
+---
+
+## Example Configuration Files
+
+### Basic Setup (.env)
 ```bash
+# Required
 DISCORD_TOKEN=your_discord_bot_token
+
+# Choose your primary provider
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-chat
+
+# Optional customization
+AUTO_RESPOND=false
+MAX_HISTORY=15
+LOG_LEVEL=INFO
 ```
 
-### Full Production
+### Multi-Provider Setup (.env)
 ```bash
+# Required
+DISCORD_TOKEN=your_discord_bot_token
+
+# All providers available
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+
+# Configuration
+AI_PROVIDER=deepseek
+AUTO_RESPOND=false
+MAX_HISTORY=20
+MAX_RESPONSE_TOKENS=1200
+LOG_LEVEL=DEBUG
+LOG_FILE=/var/log/discord-bot.log
+```
+
+### Production Setup (.env)
+```bash
+# Core Configuration
 DISCORD_TOKEN=your_discord_bot_token
 AI_PROVIDER=deepseek
+
+# API Keys (set only what you use)
 OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-chat
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
+OPENAI_API_KEY=your_openai_key  # For image generation only
+
+# Production Settings
 AUTO_RESPOND=false
 MAX_HISTORY=10
 MAX_RESPONSE_TOKENS=800
 LOG_LEVEL=INFO
 LOG_FILE=stdout
+
+# Cost Optimization
+OPENAI_MAX_TOKENS=1000
+ANTHROPIC_MAX_TOKENS=1500
+OPENAI_COMPATIBLE_MAX_TOKENS=8000
 ```
 
-## Configuration Priority
+### DeepSeek Reasoner Setup (.env)
+```bash
+# Use deepseek-reasoner for chain-of-thought reasoning display
+DISCORD_TOKEN=your_discord_bot_token
+AI_PROVIDER=deepseek
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
+OPENAI_COMPATIBLE_MAX_TOKENS=8000
+
+# Then in Discord: !thinking on
+# Bot will display full reasoning_content before each answer
+```
+
+---
+
+## Provider-Specific Notes
+
+### OpenAI
+- Supports both text generation and image creation via DALL-E
+- Uses Responses API with integrated image generation tools
+- Set `ENABLE_IMAGE_GENERATION=false` to disable image generation and
+  reduce costs
+
+### Anthropic (Claude)
+- Text-only responses with large context windows (200K tokens)
+- Excellent for complex reasoning and long document analysis
+- Recommended model: `claude-haiku-4-5-20251001` (fast, cost-effective)
+
+### DeepSeek (via OpenAI-Compatible Provider)
+- **Most cost-effective option** for text generation
+- Use `OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com`
+- Two models available:
+  - `deepseek-chat` — General purpose, fast, lowest cost. Recommended
+    for most Discord use cases.
+  - `deepseek-reasoner` — Chain-of-thought reasoning model. Returns
+    `reasoning_content` alongside the answer. Use `!thinking on` in
+    Discord to display the full reasoning process as a separate message
+    before the answer. Reasoning is always logged regardless of
+    `!thinking` setting.
+- Reasoning content is never stored in conversation history or sent
+  to the API — only the final answer is kept in context
+
+### Other OpenAI-Compatible Providers
+- **OpenRouter**: `OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1`
+- **LocalAI / Ollama / LM Studio**: Use your local endpoint URL
+- Any provider following OpenAI chat completions API standard
+
+---
+
+## Environment Variable Priority
 
 1. **Environment variables** (highest priority)
 2. **`.env` file values**
 3. **Default values in config.py** (lowest priority)
+
+---
 
 ## Security Considerations
 
@@ -120,6 +210,8 @@ LOG_FILE=stdout
 - **Use environment variables** in production deployment
 - **Rotate API keys** regularly
 - **Limit API key permissions** when possible
+
+---
 
 ## Troubleshooting
 
@@ -138,9 +230,14 @@ LOG_FILE=stdout
 - Check that `ENABLE_IMAGE_GENERATION=true`
 
 **High costs:**
-- Use DeepSeek via OpenAI-compatible provider for cost savings
+- Switch to DeepSeek `deepseek-chat` for lowest cost
 - Reduce `MAX_HISTORY` to limit context size
-- Lower `MAX_RESPONSE_TOKENS` for shorter responses
+- Lower `OPENAI_COMPATIBLE_MAX_TOKENS` for shorter responses
+
+**Reasoning not displaying:**
+- Confirm `OPENAI_COMPATIBLE_MODEL=deepseek-reasoner` (not deepseek-chat)
+- Run `!thinking on` in the Discord channel
+- Check logs for `DeepSeek reasoning for channel` at INFO level
 
 **DeepSeek/OpenAI-Compatible Issues:**
 - Verify `OPENAI_COMPATIBLE_BASE_URL` is correct for your provider
@@ -149,14 +246,15 @@ LOG_FILE=stdout
 
 ### Log Analysis
 
-Enable debug logging to troubleshoot configuration issues:
+Enable debug logging to troubleshoot issues:
 ```bash
 LOG_LEVEL=DEBUG
 LOG_FILE=debug.log
 ```
 
 Check the logs for:
-- Configuration loading messages
-- API authentication status
-- Provider selection decisions
-- Token usage information
+- `Instantiating XProvider (first use)` — provider initialized (once per type)
+- `Returning cached X provider instance` — singleton reuse confirmed
+- `DeepSeek reasoning for channel` — reasoning_content received (INFO)
+- `DeepSeek reasoning present, thinking display disabled` — thinking off (DEBUG)
+- `API response finished with reason: stop` — successful API call
