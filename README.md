@@ -1,31 +1,22 @@
 # README.md
-# Version 2.17.0
+# Version 2.22.0
 # Discord AI Bot
 
-A production-ready Discord bot supporting multiple AI providers with
-per-channel configuration, conversation history, and settings persistence.
-
-## Features
-
-- **Multi-provider AI**: OpenAI, Anthropic Claude, DeepSeek via per-channel selection
-- **Conversation history**: Automatic loading and persistence across restarts
-- **Settings persistence**: Provider and prompt settings recovered from Discord history
-- **Direct addressing**: Address specific providers without changing channel defaults
-- **Image generation**: OpenAI DALL-E integration via Responses API
-- **DeepSeek reasoning**: Optional display of DeepSeek R1 thinking process
-- **Auto-response mode**: Per-channel automatic response to all messages
+A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic,
+DeepSeek) to provide intelligent responses and brainstorming support in
+Discord channels.
 
 ## Quick Start
 
 1. **Clone and install dependencies**:
-```bash
+   ```bash
    git clone <repository>
    cd discord-ai-bot
    pip install -r requirements.txt
-```
+   ```
 
 2. **Configure environment** (create `.env` file):
-```bash
+   ```bash
    # Required
    DISCORD_TOKEN=your_discord_bot_token
 
@@ -34,14 +25,30 @@ per-channel configuration, conversation history, and settings persistence.
    OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
    OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
    OPENAI_COMPATIBLE_MODEL=deepseek-chat
-```
+   ```
 
 3. **Run the bot**:
-```bash
+   ```bash
    python main.py
-```
+   ```
+
+---
 
 ## AI Providers
+
+### DeepSeek (Recommended — Cost-Effective)
+```bash
+AI_PROVIDER=deepseek
+OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+OPENAI_COMPATIBLE_MODEL=deepseek-chat        # Fast, cost-effective
+# OPENAI_COMPATIBLE_MODEL=deepseek-reasoner  # Reasoning model with CoT display
+```
+
+**DeepSeek models:**
+- `deepseek-chat` — General purpose, fast responses, lowest cost
+- `deepseek-reasoner` — Chain-of-thought reasoning model; use with
+  `!thinking on` to display full reasoning process in Discord
 
 ### OpenAI (GPT Models + Image Generation)
 ```bash
@@ -55,15 +62,7 @@ ENABLE_IMAGE_GENERATION=true
 ```bash
 AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=your_anthropic_key
-ANTHROPIC_MODEL=claude-3-haiku-20240307
-```
-
-### DeepSeek (Cost-Effective Option)
-```bash
-AI_PROVIDER=deepseek
-OPENAI_COMPATIBLE_API_KEY=your_deepseek_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-OPENAI_COMPATIBLE_MODEL=deepseek-chat
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 ```
 
 ### Other OpenAI-Compatible Providers
@@ -71,9 +70,21 @@ OPENAI_COMPATIBLE_MODEL=deepseek-chat
 # OpenRouter
 OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1
 
-# Local APIs
+# Local APIs (Ollama, LM Studio, etc.)
 OPENAI_COMPATIBLE_BASE_URL=http://localhost:8000
 ```
+
+### Provider Cost Comparison
+| Provider | Model | Cost per 1M tokens |
+|----------|-------|--------------------|
+| DeepSeek | deepseek-chat | ~$0.27 input / $1.10 output |
+| DeepSeek | deepseek-reasoner | ~$0.55 input / $2.19 output |
+| Anthropic | claude-haiku-4-5 | ~$0.80 input / $4.00 output |
+| OpenAI | gpt-4o-mini | ~$0.15 input / $0.60 output |
+
+*Prices approximate — check provider docs for current rates.*
+
+---
 
 ## Commands
 
@@ -100,12 +111,19 @@ OPENAI_COMPATIBLE_BASE_URL=http://localhost:8000
 | `!autorespond on` | Enable auto-response to all messages | 🔒 Admin |
 | `!autorespond off` | Disable auto-response | 🔒 Admin |
 
-### `!thinking` — DeepSeek Thinking Display
+### `!thinking` — DeepSeek Reasoning Display
 | Usage | Description | Permission |
 |-------|-------------|------------|
 | `!thinking` | Show current status and options | All users |
-| `!thinking on` | Show DeepSeek reasoning process | 🔒 Admin |
-| `!thinking off` | Hide DeepSeek reasoning process | 🔒 Admin |
+| `!thinking on` | Display full reasoning in Discord + log at INFO | 🔒 Admin |
+| `!thinking off` | Answer only in Discord, reasoning logged at DEBUG | 🔒 Admin |
+
+**Notes:**
+- Only applies to `deepseek-reasoner` model which returns `reasoning_content`
+- Reasoning content is always logged (INFO when on, DEBUG when off)
+- Reasoning never stored in conversation history or sent to API
+- Displayed as a separate message before the answer, prefixed with
+  `[DEEPSEEK_REASONING]:`
 
 ### `!history` — History Management
 | Usage | Description | Permission |
@@ -128,94 +146,40 @@ anthropic, explain quantum physics
 deepseek, solve this math problem
 ```
 
+---
+
 ## Configuration
 
-See [README_ENV.md](README_ENV.md) for comprehensive environment variable documentation.
+See [README_ENV.md](README_ENV.md) for comprehensive environment variable
+documentation.
 
-### Essential Configuration
-```bash
-# Bot Requirements
-DISCORD_TOKEN=your_discord_bot_token
-
-# Primary AI Provider
-AI_PROVIDER=deepseek
-OPENAI_COMPATIBLE_API_KEY=your_api_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-
-# Optional Settings
-AUTO_RESPOND=false
-MAX_HISTORY=10
-MAX_RESPONSE_TOKENS=800
-LOG_LEVEL=INFO
-```
+---
 
 ## Architecture
 
-### File Structure
-```
-├── main.py                    # Entry point
-├── bot.py                     # Core Discord events
-├── config.py                  # Configuration management
-├── commands/                  # Modular command system
-│   ├── history_commands.py
-│   ├── prompt_commands.py
-│   ├── ai_provider_commands.py
-│   ├── auto_respond_commands.py
-│   ├── thinking_commands.py
-│   └── status_commands.py
-├── ai_providers/              # AI provider implementations
-│   ├── openai_provider.py
-│   ├── anthropic_provider.py
-│   └── openai_compatible_provider.py
-└── utils/                     # Utility modules
-    ├── ai_utils.py
-    ├── logging_utils.py
-    ├── message_utils.py
-    └── history/               # History management
-```
+### Provider Architecture
+- **OpenAI Provider** — Responses API with optional image generation
+- **Anthropic Provider** — Claude models via messages API
+- **OpenAI-Compatible Provider** — Generic provider for DeepSeek, OpenRouter,
+  local APIs, or any OpenAI-compatible endpoint
 
-### Design Principles
-- **Modular Architecture**: All files under 250 lines for maintainability
-- **Single Responsibility**: Each module serves one clear purpose
-- **Comprehensive Documentation**: Detailed docstrings and inline comments
-- **Async Safety**: Thread-safe operations prevent Discord event loop blocking
-- **Settings Persistence**: Automatic recovery from Discord message history
-- **Bounded Context**: History trimmed to MAX_HISTORY after load; API context
-  always predictable and cost-controlled
+All providers use async executor wrappers to prevent Discord heartbeat
+blocking during slow API calls. Provider instances are cached as singletons
+for the lifetime of the bot.
 
-## Provider Comparison
+### Settings Persistence
+All channel settings (system prompt, AI provider, auto-respond, thinking
+display) are automatically restored after bot restart by parsing Discord
+message history. No external database required.
 
-| Provider | Strengths | Image Generation |
-|----------|-----------|-----------------|
-| **DeepSeek** | Most cost-effective, reasoning display | No |
-| **OpenAI** | Image generation, latest models | Yes (DALL-E) |
-| **Anthropic** | Large context, excellent reasoning | No |
+### History Management
+- Per-channel conversation history with configurable `MAX_HISTORY` limit
+- Noise filtering at three layers: runtime storage, load time, API payload
+- Bot administrative messages never reach AI context
+- Settings persistence messages kept in history for parser but filtered
+  from API payload
 
-For current pricing, refer to each provider's official pricing page.
-Pricing changes frequently — check before making provider decisions.
-
-## Deployment
-
-### Production Considerations
-1. Set `LOG_FILE=stdout` for service logging or specify a file path
-2. Use process managers like systemd, Docker, or PM2
-3. Monitor logs for structured output with module-specific logging
-4. Configure appropriate AI model limits for your use case
-
-**Environment variables for production:**
-```bash
-DISCORD_TOKEN=your_discord_bot_token
-AI_PROVIDER=deepseek
-OPENAI_COMPATIBLE_API_KEY=your_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
-AUTO_RESPOND=false
-MAX_HISTORY=20
-LOG_LEVEL=INFO
-```
-
-## Contributing
-
-When adding new features:
+### Contributing
 1. Follow the 250-line limit for all new files
 2. Create focused modules for new functionality
 3. Follow the existing provider pattern for new AI integrations
@@ -223,16 +187,23 @@ When adding new features:
 5. Include comprehensive logging with appropriate log levels
 6. Update documentation and version numbers properly
 
-## License
-
-MIT
+---
 
 ## Development Status
 
-**Current Version**: 2.17.0  
-**Current State**: Production-ready with bounded API context, complete settings
-persistence, unified command interface, stable async operation, and flexible
-provider architecture  
-**Architecture**: All files under 250 lines, modular design, comprehensive documentation  
-**Recent Features**: History trim after load, dead code cleanup, settings persistence fix  
-**Maintainability**: Excellent - clean separation of concerns and focused modules
+**Current Version**: 2.22.0
+**Branch**: development (stable, pending merge to main)
+**State**: Production-ready
+
+**Recent improvements:**
+- Provider singleton caching — prevents httpx RuntimeError (v2.22.0)
+- Async executor safety for all providers (v2.21.0)
+- DeepSeek reasoning_content display with `!thinking` (v2.20.0)
+- Three-layer history noise filtering (v2.19.0)
+- Continuous context accumulation (v2.18.0)
+
+---
+
+## License
+
+MIT
