@@ -1,115 +1,146 @@
 # HANDOFF.md
-# Version 2.19.0
+# Version 2.20.0
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: development (in sync with main at v2.19.0)  
-**Bot**: Running in production on GCP (synthergy-development-2)  
-**State**: Stable — all tests passing
+**Branch**: development (ahead of main — v2.20.0 not yet merged)
+**Bot**: Running on systemd, stable, using deepseek-reasoner model
+**Last completed**: v2.20.0 — DeepSeek reasoning_content display
 
 ---
 
-## Recent Work (This Session)
+## Recent Completed Work
 
-### v2.18.0 — Continuous Context Accumulation
-Regular messages were not added to channel_history when auto-respond was
-disabled. Bot now always listens and accumulates context regardless of
-auto-respond state. When addressed directly after a silent period, the bot
-has full awareness of the intervening conversation.
-
-**File**: bot.py → v2.9.0
+### v2.20.0 — DeepSeek Reasoning Content Display
+- **FIXED**: DeepSeek reasoner `reasoning_content` now correctly extracted
+  and displayed — was previously silently discarded
+- **REMOVED**: Dead `<think>` tag logic (`filter_thinking_tags()`) from
+  thinking_commands.py — irrelevant for DeepSeek official API
+- **BEHAVIOR**:
+  - `!thinking on` — full reasoning shown in Discord as separate message
+    before answer, logged at INFO
+  - `!thinking off` — answer only in Discord, reasoning logged at DEBUG
+- **NOISE FILTERING**: `[DEEPSEEK_REASONING]:` prefix filters reasoning
+  from channel_history at runtime, load time, and API payload
+- **SPLIT FIX**: Uses `[DEEPSEEK_ANSWER]:` separator (not `\n\n`) to
+  reliably split reasoning and answer — handles multi-paragraph reasoning
+- **Files**: openai_compatible_provider.py → v1.1.1, response_handler.py
+  → v1.1.3, message_processing.py → v2.2.6, thinking_commands.py → v2.1.0,
+  ai_utils.py → v1.0.0
 
 ### v2.19.0 — Runtime History Noise Filtering
-Bot confirmation messages, error messages, and settings persistence messages
-were appearing in the API context. Fixed across three paths:
+- Bot confirmation messages and error messages filtered from channel_history
+  at runtime, load time, and API payload build
+- Three-layer filtering: add_response_to_history(), discord_converter.py,
+  prepare_messages_for_api()
 
-1. **Runtime**: add_response_to_history() filters noise before storing
-2. **Load time**: discord_converter.py filters noise before storing bot messages
-3. **API payload**: prepare_messages_for_api() filters is_history_output() and
-   is_settings_persistence_message() — settings persistence messages stay in
-   channel_history for the parser but never reach the AI
-
-Error messages use a standard prefix (`I'm sorry an API error occurred when
-attempting to respond: `) so users see them in Discord but they never enter
-channel_history.
-
-**Files**: response_handler.py → v1.1.1, message_processing.py → v2.2.5,
-discord_converter.py → v1.0.1
+### v2.18.0 — Continuous Context Accumulation
+- Regular messages added to channel_history even when auto-respond disabled
 
 ---
 
-## Pending Items (Todo)
+## Pending Items
 
-### 1. Provider Singleton Caching (MEDIUM)
-**Problem**: get_provider() in ai_providers/__init__.py creates a new provider
-instance on every API call. The garbage collected httpx client causes a
-reentrant stdout flush RuntimeError visible in production logs.
-**Fix**: Cache provider instances as singletons keyed by provider name.
+### 1. Merge development → main (IMMEDIATE)
+v2.20.0 is tested and stable on development branch. Awaiting user decision
+to merge to main and tag v2.20.0.
+
+### 2. Provider Singleton Caching (MEDIUM PRIORITY)
+**Issue**: get_provider() creates a new provider instance on every API call.
+Garbage collected httpx client causes reentrant stdout flush RuntimeError.
+**Fix**: Cache provider instances as singletons in ai_providers/__init__.py
 **File**: ai_providers/__init__.py
-**Needs SOW**: Yes
 
-### 2. README.md Pricing Table (LOW)
-**Problem**: Pricing table is stale — OpenAI and Anthropic figures are outdated.
-**Fix**: Update with current API pricing from provider docs.
-**Needs SOW**: No — documentation only
+### 3. Token-Based Context Trimming (MEDIUM PRIORITY)
+**Issue**: MAX_HISTORY limits message count but not token count. Long messages
+can cause context window overflow on API calls.
+**Fix**: Token estimation before API calls, trim to MAX_CONTEXT_TOKENS budget
+**Design**: Discussed but not yet SOW'd
 
-### 3. Token-Based Context Trimming (MEDIUM)
-**Problem**: MAX_HISTORY limits message count but not token count. A verbose
-channel can exceed provider token limits even at low message counts.
-**Fix**: Token estimation before API calls, trim to MAX_CONTEXT_TOKENS budget.
-**Needs SOW**: Yes
+### 4. README.md Pricing Table (LOW PRIORITY)
+**Issue**: OpenAI and Anthropic pricing figures are stale
+**Fix**: Update with current API pricing from provider docs
 
 ---
 
 ## Architecture Notes
 
-### Settings Persistence — How It Works
-Settings (provider, system prompt, auto-respond, thinking) are persisted by
-storing confirmation messages in Discord channel history. On restart, the
-realtime_settings_parser reads these messages back and restores settings.
+### Noise Filtering Architecture (Three Layers)
+```
+Layer 1 — Runtime:   add_response_to_history() checks is_history_output()
+Layer 2 — Load time: discord_converter.py checks is_history_output()
+Layer 3 — API build: prepare_messages_for_api() checks is_history_output()
+                     AND is_settings_persistence_message()
+```
 
-**Critical**: The following message patterns must never be filtered from
-channel_history as they carry settings data:
-- `"Auto-response is now **enabled/disabled**"`
-- `"AI provider for #channel changed from X to Y"`
-- `"AI provider for #channel reset from X to Y"`
-- `"DeepSeek thinking display **enabled/disabled**"`
-- `"System prompt updated for #channel"`
+Settings persistence messages (auto-respond, provider change, thinking
+display confirmations) stay in channel_history for realtime_settings_parser.py
+but are filtered from the API payload at Layer 3.
 
-They ARE filtered from the API payload in prepare_messages_for_api() via
-is_settings_persistence_message() so the AI never sees them.
+### DeepSeek Reasoning Architecture
+```
+openai_compatible_provider.py:
+  reasoning_content present + thinking on:
+    → returns "[DEEPSEEK_REASONING]:\n{reasoning}\n[DEEPSEEK_ANSWER]:\n{answer}"
+  reasoning_content present + thinking off:
+    → returns "{answer}" only, reasoning logged at DEBUG
+  no reasoning_content:
+    → returns "{answer}" normally
 
-### History Filtering — Three Layers
-1. **discord_converter.py**: Filters noise at load time before storing
-2. **response_handler.py**: Filters noise at runtime before storing
-3. **message_processing.py prepare_messages_for_api()**: Filters settings
-   persistence messages from API payload without removing from channel_history
+response_handler.py:
+  detects REASONING_PREFIX → splits on REASONING_SEPARATOR
+  → sends reasoning as separate Discord message(s) (not stored in history)
+  → sends answer as separate Discord message(s) (stored in history)
 
-### File Size Limit
-250 lines mandatory. Check with `wc -l` or nano before committing.
+message_processing.py:
+  is_history_output() catches [DEEPSEEK_REASONING]: prefix
+  → filters reasoning from channel_history at all three layers
+```
+
+### Constants That Must Stay in Sync
+These constants are defined in two places and must match exactly:
+
+| Constant | File 1 | File 2 |
+|----------|--------|--------|
+| `API_ERROR_PREFIX` | response_handler.py | message_processing.py |
+| `REASONING_PREFIX` | openai_compatible_provider.py | response_handler.py + message_processing.py |
+| `REASONING_SEPARATOR` | openai_compatible_provider.py | response_handler.py |
+
+### Settings Persistence Message Strings
+These exact strings are required by realtime_settings_parser.py and must
+not be changed without updating the parser:
+- `"Auto-response is now **enabled**"`
+- `"Auto-response is now **disabled**"`
+- `"AI provider for #channel changed from ... to"`
+- `"AI provider for #channel reset from ... to"`
+- `"DeepSeek thinking display **enabled**"`
+- `"DeepSeek thinking display **disabled**"`
 
 ---
 
-## Development Process
+## Current .env Configuration
+```
+AI_PROVIDER=deepseek
+OPENAI_COMPATIBLE_API_KEY=sk-[key]
+OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
+OPENAI_COMPATIBLE_CONTEXT_LENGTH=128000
+OPENAI_COMPATIBLE_MAX_TOKENS=8000
+```
 
-- Always follow AGENT.md
-- Get approval before any code changes
-- Use development branch, merge to main after testing
-- Two-branch strategy: development → main
-- Separate commits per SOW
-- All changed files need version bumps
+Switch to `deepseek-chat` for faster/cheaper responses when reasoning
+display is not needed.
 
 ---
 
-## Key File Versions (current)
-
-| File | Version |
-|------|---------|
-| bot.py | 2.9.0 |
-| utils/response_handler.py | 1.1.1 |
-| utils/history/message_processing.py | 2.2.5 |
-| utils/history/discord_converter.py | 1.0.1 |
-| utils/history/cleanup_coordinator.py | 2.2.0 |
-| ai_providers/__init__.py | 1.2.0 |
-| config.py | 1.5.0 |
+## Development Rules (from AGENT.md)
+1. NO CODE CHANGES WITHOUT APPROVAL
+2. ALL DEVELOPMENT WORK IN development BRANCH
+3. main BRANCH IS FOR STABLE CODE ONLY
+4. DISCUSS FIRST, CODE SECOND
+5. ALWAYS provide full files — no partial patches
+6. INCREMENT version numbers in file heading comments
+7. Keep files under 250 lines
+8. Test in terminal AND service before committing
+9. Update STATUS.md and HANDOFF.md with every commit
