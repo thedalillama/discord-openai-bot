@@ -1,30 +1,30 @@
 # ai_providers/openai_compatible_provider.py
-# Version 1.1.2
+# Version 1.2.0
 """
 Generic OpenAI-compatible provider implementation.
 Works with any API that follows the OpenAI client interface (DeepSeek, OpenRouter, etc.).
 
+CHANGES v1.2.0: Token usage logging (SOW v2.23.0)
+- ADDED: Extract response.usage (prompt_tokens, completion_tokens) after API call
+- ADDED: Call record_usage() for per-channel token accumulation and INFO logging
+- NOTE: Usage extraction is best-effort — missing usage data logged at DEBUG
+
 CHANGES v1.1.2: Add critical executor wrapper warning comment (SOW v2.21.0)
-- ADDED: Warning comment on executor block explaining why it must not be removed
 
 CHANGES v1.1.1: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
 - CHANGED: REASONING_SEPARATOR added as explicit boundary between reasoning
-  block and answer — prevents reasoning paragraphs from being mistaken for
-  the split point when reasoning_content contains blank lines
+  block and answer
 
 CHANGES v1.1.0: DeepSeek reasoning_content display (SOW v2.20.0)
-- REMOVED: filter_thinking_tags() / <think> tag logic — dead code for DeepSeek official API
-- ADDED: reasoning_content extraction from DeepSeek reasoner responses
-- ADDED: [DEEPSEEK_REASONING]: prefixed message prepended to content when thinking enabled
-- ADDED: Full reasoning_content logged at INFO when thinking on, DEBUG when off
-- ADDED: _build_reasoning_response() helper
+- REMOVED: filter_thinking_tags() / <think> tag logic
+- ADDED: reasoning_content extraction, [DEEPSEEK_REASONING]: prefix
 
 FEATURES:
 - Configurable base URL and API key via environment variables
 - Supports any OpenAI-compatible model
 - Async-safe execution with thread pool executor
-- Comprehensive logging and error handling
 - DeepSeek reasoning_content extraction and display
+- Per-call token usage logging
 """
 import asyncio
 import concurrent.futures
@@ -36,6 +36,7 @@ from config import (
     OPENAI_COMPATIBLE_CONTEXT_LENGTH, OPENAI_COMPATIBLE_MAX_TOKENS
 )
 from utils.logging_utils import get_logger
+from utils.context_manager import record_usage
 
 # Prefix for reasoning content messages — unique enough to never appear in
 # normal conversation. Used by is_history_output() to filter reasoning from
@@ -82,7 +83,6 @@ class OpenAICompatibleProvider(AIProvider):
 
         For DeepSeek reasoner models, extracts reasoning_content and prepends
         it as a [DEEPSEEK_REASONING]: prefixed block when thinking is enabled.
-        Reasoning is always logged regardless of thinking display setting.
 
         Args:
             messages: List of message dicts with role and content
@@ -147,6 +147,9 @@ class OpenAICompatibleProvider(AIProvider):
             finish_reason = response.choices[0].finish_reason
             self.logger.debug(f"API response finished with reason: {finish_reason}")
 
+            # Log token usage from API response
+            self._log_usage(response, channel_id)
+
             # Extract reasoning_content if present (deepseek-reasoner)
             reasoning_content = getattr(message_obj, 'reasoning_content', None)
             if reasoning_content and self._is_deepseek_model():
@@ -160,13 +163,21 @@ class OpenAICompatibleProvider(AIProvider):
             self.logger.error(f"Model: {self.model}, Base URL: {OPENAI_COMPATIBLE_BASE_URL}")
             raise e
 
+    def _log_usage(self, response, channel_id):
+        """Extract and record token usage from Chat Completions response."""
+        usage = getattr(response, 'usage', None)
+        if usage:
+            record_usage(
+                channel_id, self.name,
+                getattr(usage, 'prompt_tokens', 0),
+                getattr(usage, 'completion_tokens', 0)
+            )
+        else:
+            self.logger.debug("No usage data in API response")
+
     def _build_reasoning_response(self, content, reasoning_content, channel_id):
         """
         Build response string with reasoning block when reasoning_content present.
-
-        Uses REASONING_SEPARATOR as an unambiguous boundary between the reasoning
-        block and the answer, preventing false splits on blank lines within
-        reasoning_content.
 
         Args:
             content: Final answer text from API
@@ -174,7 +185,7 @@ class OpenAICompatibleProvider(AIProvider):
             channel_id: Discord channel ID for thinking display check
 
         Returns:
-            str: Combined string with reasoning block + separator + content,
+            str: Combined string with reasoning + separator + content,
                  or content only if thinking disabled
         """
         show_thinking = False

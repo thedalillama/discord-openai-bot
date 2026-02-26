@@ -1,21 +1,23 @@
 # ai_providers/anthropic_provider.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Anthropic (Claude) provider implementation.
 
+CHANGES v1.1.0: Token usage logging (SOW v2.23.0)
+- ADDED: Extract response.usage (input_tokens, output_tokens) after API call
+- ADDED: Call record_usage() for per-channel token accumulation and INFO logging
+- NOTE: Usage extraction is best-effort — missing usage data logged at DEBUG
+
 CHANGES v1.0.0: Added async executor wrapper (SOW v2.21.0)
 - ADDED: run_in_executor() wrapper for synchronous Anthropic API call
-- ADDED: import asyncio and concurrent.futures
-- ADDED: Critical warning comment on executor block
-- FIXED: Heartbeat blocking risk — synchronous API call now runs in
-  thread pool executor, preventing Discord event loop blocking
-- NOTE: Removed artificial truncation logic in earlier unversioned change
+- FIXED: Heartbeat blocking risk
 
 FEATURES:
 - Anthropic Claude models via messages API
 - Async-safe execution with thread pool executor
 - Large context support
 - Vision/image support
+- Per-call token usage logging
 """
 import asyncio
 import concurrent.futures
@@ -24,6 +26,7 @@ from .base import AIProvider
 from config import (ANTHROPIC_API_KEY, DEFAULT_TEMPERATURE,
                     ANTHROPIC_MODEL, ANTHROPIC_CONTEXT_LENGTH, ANTHROPIC_MAX_TOKENS)
 from utils.logging_utils import get_logger
+from utils.context_manager import record_usage
 
 
 class AnthropicProvider(AIProvider):
@@ -47,7 +50,7 @@ class AnthropicProvider(AIProvider):
             messages: List of message dicts with role and content
             max_tokens: Maximum tokens in response
             temperature: Creativity (0.0-1.0)
-            channel_id: Optional Discord channel ID (not used by Anthropic provider)
+            channel_id: Optional Discord channel ID
 
         Returns:
             str: The generated response text
@@ -103,6 +106,18 @@ class AnthropicProvider(AIProvider):
             finish_reason = response.stop_reason
             self.logger.debug(f"Anthropic response finished with reason: {finish_reason}")
             self.logger.debug(f"Anthropic API response received successfully")
+
+            # Log token usage from API response
+            usage = getattr(response, 'usage', None)
+            if usage:
+                record_usage(
+                    channel_id, self.name,
+                    getattr(usage, 'input_tokens', 0),
+                    getattr(usage, 'output_tokens', 0)
+                )
+            else:
+                self.logger.debug("No usage data in Anthropic API response")
+
             return raw_response
 
         except Exception as e:

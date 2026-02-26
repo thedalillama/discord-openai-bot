@@ -1,19 +1,16 @@
 # ai_providers/openai_provider.py
-# Version 1.2.0
+# Version 1.3.0
 """
 OpenAI provider implementation with image generation support.
 
+CHANGES v1.3.0: Token usage logging (SOW v2.23.0)
+- ADDED: Extract response.usage (input_tokens, output_tokens) after API call
+- ADDED: Call record_usage() for per-channel token accumulation and INFO logging
+- NOTE: Usage extraction is best-effort — missing usage data logged at DEBUG
+
 CHANGES v1.2.0: Implemented ENABLE_IMAGE_GENERATION configuration
-- ADDED: Conditional image generation based on ENABLE_IMAGE_GENERATION setting
-- ENHANCED: Configurable tools array for OpenAI API calls
-- MAINTAINED: All existing functionality and response format
-- IMPROVED: Cost control through optional image generation
 
 CHANGES v1.1.0: Added async executor wrapper for API calls
-- ADDED: asyncio.run_in_executor() wrapper for synchronous OpenAI API calls
-- FIXED: Heartbeat blocking during both text and image generation
-- MAINTAINED: All existing functionality and response format
-- ENHANCED: Thread-safe API calls prevent Discord event loop blocking
 
 CHANGES v1.0.0: Fixed username duplication in Responses API message conversion
 """
@@ -27,6 +24,7 @@ from config import (OPENAI_API_KEY, DEFAULT_TEMPERATURE,
                     OPENAI_MODEL, OPENAI_CONTEXT_LENGTH, OPENAI_MAX_TOKENS,
                     ENABLE_IMAGE_GENERATION)
 from utils.logging_utils import get_logger
+from utils.context_manager import record_usage
 
 class OpenAIProvider(AIProvider):
     """OpenAI provider using responses API for both text and image generation"""
@@ -50,17 +48,15 @@ class OpenAIProvider(AIProvider):
             messages: List of message objects with role and content
             max_tokens: Maximum number of tokens in the response
             temperature: Creativity of the response (0.0-1.0)
-            channel_id: Optional Discord channel ID (not used by OpenAI provider)
+            channel_id: Optional Discord channel ID
         """
         self.logger.debug(f"Using OpenAI provider (model: {self.model}) for API call")
         
-        # Use default values if not specified
         if max_tokens is None:
             max_tokens = self.max_response_tokens
         if temperature is None:
             temperature = DEFAULT_TEMPERATURE
         
-        # Log the system prompt being sent to API
         system_prompt = None
         for msg in messages:
             if msg["role"] == "system":
@@ -72,16 +68,12 @@ class OpenAIProvider(AIProvider):
         
         self.logger.debug(f"Number of messages: {len(messages)}")
         
-        # Convert messages to input format for Responses API
         input_text = self._convert_messages_to_input(messages)
-        
         self.logger.debug(f"Converted {len(messages)} messages to input text for Responses API")
         
         try:
-            # Determine tools based on image generation setting
             tools = [{"type": "image_generation"}] if ENABLE_IMAGE_GENERATION else []
             
-            # Wrap synchronous API call in executor to prevent heartbeat blocking
             self.logger.debug(f"Starting async OpenAI API call using executor (image generation: {'enabled' if ENABLE_IMAGE_GENERATION else 'disabled'})")
             
             loop = asyncio.get_event_loop()
@@ -97,13 +89,22 @@ class OpenAIProvider(AIProvider):
             
             self.logger.debug(f"Responses API call completed successfully")
             
-            # Extract text response from output_text attribute
+            # Log token usage from API response
+            usage = getattr(response, 'usage', None)
+            if usage:
+                record_usage(
+                    channel_id, self.name,
+                    getattr(usage, 'input_tokens', 0),
+                    getattr(usage, 'output_tokens', 0)
+                )
+            else:
+                self.logger.debug("No usage data in OpenAI API response")
+            
             text_response = ""
             if hasattr(response, 'output_text') and response.output_text:
                 text_response = str(response.output_text).strip()
                 self.logger.debug(f"Extracted text response: {len(text_response)} characters")
             
-            # Extract any generated images from the output
             images = []
             
             if hasattr(response, 'output') and response.output:
@@ -112,7 +113,6 @@ class OpenAIProvider(AIProvider):
                     if hasattr(output, 'type') and output.type == "image_generation_call":
                         try:
                             if hasattr(output, 'result') and output.result:
-                                # Decode the base64 image data
                                 image_data = base64.b64decode(output.result)
                                 images.append({
                                     "data": image_data,
@@ -123,15 +123,12 @@ class OpenAIProvider(AIProvider):
                         except Exception as e:
                             self.logger.error(f"Error processing generated image {i+1}: {e}")
             
-            # Determine what tools were called
             tools_called = ["image_generation"] if images else []
             
-            # If we have images but no text, provide a helpful default message
             if images and not text_response:
                 text_response = "Here's the image you requested!"
                 self.logger.debug("Added default text for image-only response")
             
-            # If we have neither text nor images, this might be an error
             if not text_response and not images:
                 self.logger.warning("No text or images found in Responses API response")
                 text_response = "I apologize, but I wasn't able to generate a response. Please try again."
@@ -154,7 +151,6 @@ class OpenAIProvider(AIProvider):
     def _convert_messages_to_input(self, messages):
         """
         Convert OpenAI chat messages format to single input string for Responses API
-        CHANGES: Fixed username duplication and assistant prefix issues
         """
         input_parts = []
         
@@ -165,10 +161,8 @@ class OpenAIProvider(AIProvider):
             if role == "system":
                 input_parts.append(f"System: {content}")
             elif role == "user":
-                # Content already includes username from bot.py, so use it directly
                 input_parts.append(content)
             elif role == "assistant":
-                # Assistant content is clean, use it directly without prefix
                 input_parts.append(content)
         
         return "\n\n".join(input_parts)

@@ -1,5 +1,5 @@
 # README.md
-# Version 2.22.0
+# Version 2.23.0
 # Discord AI Bot
 
 A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic,
@@ -74,15 +74,44 @@ OPENAI_COMPATIBLE_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_COMPATIBLE_BASE_URL=http://localhost:8000
 ```
 
-### Provider Cost Comparison
-| Provider | Model | Cost per 1M tokens |
-|----------|-------|--------------------|
-| DeepSeek | deepseek-chat | ~$0.27 input / $1.10 output |
-| DeepSeek | deepseek-reasoner | ~$0.55 input / $2.19 output |
-| Anthropic | claude-haiku-4-5 | ~$0.80 input / $4.00 output |
-| OpenAI | gpt-4o-mini | ~$0.15 input / $0.60 output |
+### Provider Specifications (verified 2025-02-26)
+| Provider | Model | Context Window | Max Output | Cost per 1M tokens |
+|----------|-------|---------------|------------|---------------------|
+| OpenAI | gpt-4o-mini | 128K | 16,384 | ~$0.15 input / $0.60 output |
+| DeepSeek | deepseek-chat | 64K | 8,000 | ~$0.27 input / $1.10 output |
+| DeepSeek | deepseek-reasoner | 64K | 8,000 (+32K CoT) | ~$0.55 input / $2.19 output |
+| Anthropic | claude-haiku-4-5 | 200K | 64,000 | ~$0.80 input / $4.00 output |
 
 *Prices approximate — check provider docs for current rates.*
+
+---
+
+## Context Management
+
+The bot uses a two-layer context management system to ensure every API call
+fits within the provider's context window:
+
+1. **Message-count trim** (`MAX_HISTORY`, default 10) — bounds in-memory
+   storage after every message append
+2. **Token-budget trim** (`CONTEXT_BUDGET_PERCENT`, default 80%) — at API
+   call time, ensures total tokens fit within the provider's context window
+
+The token budget uses `tiktoken` for accurate token counting. The budget
+formula is: `input_budget = (context_window × 80%) − max_output_tokens`.
+Messages are included newest-to-oldest until the budget is exhausted, with
+the system prompt always included.
+
+With `MAX_HISTORY=10`, the token budget acts as a safety net for oversized
+messages. Increase `MAX_HISTORY` (e.g., 50) to let the token budget be the
+primary decision-maker for which messages go to the API.
+
+### Token Usage Logging
+Every API call logs actual token consumption (input + output) at INFO level,
+extracted from each provider's response metadata — not estimates. Per-channel
+cumulative totals are tracked in memory and logged at DEBUG. This provides a
+cost baseline for comparing context management techniques.
+
+Set `LOG_LEVEL=DEBUG` to see full token budget and usage details on every call.
 
 ---
 
@@ -157,53 +186,30 @@ documentation.
 
 ## Architecture
 
-### Provider Architecture
-- **OpenAI Provider** — Responses API with optional image generation
-- **Anthropic Provider** — Claude models via messages API
-- **OpenAI-Compatible Provider** — Generic provider for DeepSeek, OpenRouter,
-  local APIs, or any OpenAI-compatible endpoint
+```
+├── main.py                    # Entry point
+├── bot.py                     # Core Discord events, message routing
+├── config.py                  # Environment variable configuration
+├── commands/                  # Modular command system (6 commands)
+├── ai_providers/              # Provider implementations + factory
+│   ├── openai_provider.py         # GPT models + image generation
+│   ├── anthropic_provider.py      # Claude models
+│   └── openai_compatible_provider.py  # DeepSeek + any compatible API
+└── utils/
+    ├── context_manager.py         # Token budget + usage accumulator
+    ├── response_handler.py        # AI response processing + Discord delivery
+    ├── provider_utils.py          # Provider override parsing
+    └── history/                   # History management subsystem
+        ├── message_processing.py      # Noise filtering + API payload builder
+        ├── cleanup_coordinator.py     # Post-load trim and cleanup
+        ├── realtime_settings_parser.py # Settings recovery from Discord history
+        └── ...                        # Loading, storage, diagnostics
+```
 
-All providers use async executor wrappers to prevent Discord heartbeat
-blocking during slow API calls. Provider instances are cached as singletons
-for the lifetime of the bot.
-
-### Settings Persistence
-All channel settings (system prompt, AI provider, auto-respond, thinking
-display) are automatically restored after bot restart by parsing Discord
-message history. No external database required.
-
-### History Management
-- Per-channel conversation history with configurable `MAX_HISTORY` limit
-- Noise filtering at three layers: runtime storage, load time, API payload
-- Bot administrative messages never reach AI context
-- Settings persistence messages kept in history for parser but filtered
-  from API payload
-
-### Contributing
-1. Follow the 250-line limit for all new files
-2. Create focused modules for new functionality
-3. Follow the existing provider pattern for new AI integrations
-4. Add commands to appropriate modules (or create new focused modules)
-5. Include comprehensive logging with appropriate log levels
-6. Update documentation and version numbers properly
-
----
-
-## Development Status
-
-**Current Version**: 2.22.0
-**Branch**: development (stable, pending merge to main)
-**State**: Production-ready
-
-**Recent improvements:**
-- Provider singleton caching — prevents httpx RuntimeError (v2.22.0)
-- Async executor safety for all providers (v2.21.0)
-- DeepSeek reasoning_content display with `!thinking` (v2.20.0)
-- Three-layer history noise filtering (v2.19.0)
-- Continuous context accumulation (v2.18.0)
-
----
-
-## License
-
-MIT
+### Key Patterns
+- **Provider singleton caching** — each provider instantiated once, reused
+- **Async executor wrapping** — all synchronous API calls in thread pool
+- **Three-layer noise filtering** — runtime, load-time, and API payload
+- **Token-budget context building** — provider-aware, percentage-based
+- **Token usage tracking** — actual API usage logged per-call and accumulated
+- **Settings persistence** — parsed from Discord message history on startup

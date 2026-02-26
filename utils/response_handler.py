@@ -1,7 +1,12 @@
 # utils/response_handler.py
-# Version 1.1.3
+# Version 1.1.4
 """
 AI response handling utilities for Discord bot.
+
+CHANGES v1.1.4: Post-assistant-append trim (SOW v2.23.0)
+- MODIFIED: add_response_to_history() now trims channel_history to MAX_HISTORY
+  after appending the assistant message, preventing temporary overshoot to
+  MAX_HISTORY + 1 between user/assistant append cycles
 
 CHANGES v1.1.3: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
 - CHANGED: Split on REASONING_SEPARATOR ([DEEPSEEK_ANSWER]:) instead of
@@ -28,6 +33,7 @@ from utils.message_utils import split_message, create_history_content_for_bot_re
 from utils.history import channel_history
 from utils.history.message_processing import is_history_output
 from utils.logging_utils import get_logger
+from config import MAX_HISTORY
 
 logger = get_logger('response_handler')
 
@@ -170,6 +176,7 @@ def add_response_to_history(channel_id, text_content, images_count=0):
     Add AI response to channel conversation history.
 
     Filters noise messages via is_history_output() before storing.
+    Trims to MAX_HISTORY after appending to prevent temporary overshoot.
 
     Args:
         channel_id: Discord channel ID
@@ -193,5 +200,12 @@ def add_response_to_history(channel_id, text_content, images_count=0):
         "role": "assistant",
         "content": history_content
     })
+
+    # Trim to MAX_HISTORY to prevent temporary overshoot between
+    # user append (in bot.py) and assistant append (here)
+    if len(channel_history[channel_id]) > MAX_HISTORY:
+        channel_history[channel_id] = channel_history[channel_id][-MAX_HISTORY:]
+        logger.debug(f"Trimmed history to {MAX_HISTORY} after assistant append for channel {channel_id}")
+
     logger.debug(f"Added AI response to history for channel {channel_id}")
     return True
