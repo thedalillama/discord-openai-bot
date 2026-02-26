@@ -1,7 +1,16 @@
 # bot.py
-# Version 2.9.0
+# Version 2.10.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+
+CHANGES v2.10.0: Token-budget context management (SOW v2.23.0)
+- MODIFIED: Direct addressing and auto-respond paths now resolve the provider
+  first, then call build_context_for_provider() instead of
+  prepare_messages_for_api() for API calls. This ensures every provider call
+  fits within the provider's context window regardless of message content size.
+- ADDED: Imports for build_context_for_provider and get_provider
+- NOTE: prepare_messages_for_api() remains available for diagnostics/history
+  commands but is no longer used on the API call path in this file.
 
 CHANGES v2.9.0: Continuous context accumulation (SOW v2.18.0)
 - FIXED: Regular messages now added to channel_history even when auto-respond
@@ -28,13 +37,14 @@ from config import (
 )
 from utils.history import (
     load_channel_history, is_bot_command,
-    channel_history, loaded_history_channels, channel_locks,
-    prepare_messages_for_api
+    channel_history, loaded_history_channels, channel_locks
 )
 from utils.logging_utils import get_logger
 from utils.message_utils import format_user_message_for_history
 from utils.provider_utils import parse_provider_override
 from utils.response_handler import handle_ai_response
+from utils.context_manager import build_context_for_provider
+from ai_providers import get_provider
 
 from commands import register_commands
 
@@ -133,7 +143,9 @@ def create_bot():
             if len(channel_history[channel_id]) > MAX_HISTORY:
                 channel_history[channel_id] = channel_history[channel_id][-MAX_HISTORY:]
 
-            messages = prepare_messages_for_api(channel_id)
+            # Resolve provider and build token-budget-aware context
+            provider = get_provider(provider_name=provider_override, channel_id=channel_id)
+            messages = build_context_for_provider(channel_id, provider)
             await handle_ai_response(message, channel_id, messages, provider_override)
             await bot.process_commands(message)
             return
@@ -162,7 +174,9 @@ def create_bot():
         # Respond only if auto-respond is enabled
         if channel_id in auto_respond_channels:
             logger.debug(f"Auto-responding to message in #{message.channel.name}")
-            messages = prepare_messages_for_api(channel_id)
+            # Resolve provider and build token-budget-aware context
+            provider = get_provider(channel_id=channel_id)
+            messages = build_context_for_provider(channel_id, provider)
             await handle_ai_response(message, channel_id, messages)
 
         await bot.process_commands(message)
