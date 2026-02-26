@@ -1,8 +1,20 @@
 # config.py
-# Version 1.5.0
+# Version 1.6.0
 """
-Configuration module for the Discord bot.
+Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.6.0: Token-budget context management (SOW v2.23.0)
+- ADDED: CONTEXT_BUDGET_PERCENT env var (default 80) — percentage of context
+  window to use for input token budget. The remaining headroom absorbs
+  tokenizer estimation variance and provider-side formatting overhead.
+- FIXED: OPENAI_COMPATIBLE_CONTEXT_LENGTH default 128000 → 64000. DeepSeek
+  pricing-details page shows 64K for deepseek-chat and deepseek-reasoner.
+  Their models page says "128K context limit" for V3.2 but API enforces 64K.
+  Override via env var if higher limit confirmed.
+- UPDATED: ANTHROPIC_MODEL default synced to current Haiku 4.5
+  (claude-haiku-4-5-20251001). Previous default claude-3-haiku-20240307 was
+  stale; README_ENV.md already referenced the new model.
 
 CHANGES v1.5.0: Dead code cleanup (SOW v2.16.0)
 - REMOVED: INITIAL_HISTORY_LOAD variable (no longer needed; full history fetch
@@ -32,6 +44,13 @@ CHANNEL_LOCK_TIMEOUT = int(os.environ.get('CHANNEL_LOCK_TIMEOUT', 30))
 AI_PROVIDER = os.environ.get('AI_PROVIDER', 'openai')
 DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 
+# Token budget configuration
+# Percentage of provider context window to use for input token budget.
+# The remaining headroom (default 20%) absorbs tiktoken estimation variance
+# (especially for Anthropic where tiktoken is approximate ~10-15%), per-message
+# formatting overhead, and provider-side hidden tokens.
+CONTEXT_BUDGET_PERCENT = int(os.environ.get('CONTEXT_BUDGET_PERCENT', 80))
+
 # OpenAI configuration
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
@@ -43,15 +62,19 @@ ENABLE_IMAGE_GENERATION = os.environ.get('ENABLE_IMAGE_GENERATION', 'true').lowe
 
 # Anthropic configuration
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
-ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-haiku-20240307')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001')
 ANTHROPIC_CONTEXT_LENGTH = int(os.environ.get('ANTHROPIC_CONTEXT_LENGTH', 200000))
 ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', 2000))
 
 # Generic OpenAI-compatible provider configuration
+# NOTE: OPENAI_COMPATIBLE_CONTEXT_LENGTH default is 64000 based on DeepSeek's
+# pricing-details page (verified 2025-02-26). Their models page claims "128K
+# context limit" for V3.2 but the API endpoint enforces 64K. Override via env
+# var if your provider supports a higher limit.
 OPENAI_COMPATIBLE_API_KEY = os.environ.get('OPENAI_COMPATIBLE_API_KEY')
 OPENAI_COMPATIBLE_BASE_URL = os.environ.get('OPENAI_COMPATIBLE_BASE_URL')
 OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-chat')
-OPENAI_COMPATIBLE_CONTEXT_LENGTH = int(os.environ.get('OPENAI_COMPATIBLE_CONTEXT_LENGTH', 128000))
+OPENAI_COMPATIBLE_CONTEXT_LENGTH = int(os.environ.get('OPENAI_COMPATIBLE_CONTEXT_LENGTH', 64000))
 OPENAI_COMPATIBLE_MAX_TOKENS = int(os.environ.get('OPENAI_COMPATIBLE_MAX_TOKENS', 8000))
 
 # Logging configuration
@@ -64,4 +87,6 @@ HISTORY_LINE_PREFIX = os.environ.get('HISTORY_LINE_PREFIX', '➤ ')
 
 # System prompts
 DEFAULT_SYSTEM_PROMPT = os.environ.get('DEFAULT_SYSTEM_PROMPT',
-    "You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. You have been listening to the conversation and can reference it in your replies.")
+    "You are a helpful assistant in a Discord server. Respond in a friendly, concise manner. "
+    "You have been listening to the conversation and can reference it in your replies."
+)
