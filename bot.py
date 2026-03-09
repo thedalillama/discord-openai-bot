@@ -1,7 +1,13 @@
 # bot.py
-# Version 2.10.0
+# Version 3.0.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+
+CHANGES v3.0.0: SQLite message persistence (SOW v3.0.0)
+- ADDED: Import and call setup_raw_events() to register SQLite persistence handlers
+- ADDED: Call startup_backfill() in on_ready() to catch missed messages on restart
+- NOTE: The raw event handlers in raw_events.py are INDEPENDENT of the on_message
+  pipeline below. The in-memory channel_history response path is unchanged.
 
 CHANGES v2.10.0: Token-budget context management (SOW v2.23.0)
 - MODIFIED: Direct addressing and auto-respond paths now resolve the provider
@@ -45,6 +51,7 @@ from utils.provider_utils import parse_provider_override
 from utils.response_handler import handle_ai_response
 from utils.context_manager import build_context_for_provider
 from ai_providers import get_provider
+from utils.raw_events import setup_raw_events, startup_backfill
 
 from commands import register_commands
 
@@ -58,6 +65,9 @@ def create_bot():
     intents.messages = True
     intents.message_content = True
     bot = commands.Bot(command_prefix='!', intents=intents)
+
+    # Initialize SQLite persistence and register raw event handlers
+    setup_raw_events(bot)
 
     @bot.event
     async def on_ready():
@@ -83,6 +93,9 @@ def create_bot():
         else:
             auto_respond_channels.clear()
             logger.info("Default auto-respond setting is disabled")
+
+        # Backfill any messages missed while the bot was offline
+        await startup_backfill(bot)
 
     @bot.event
     async def on_message(message):

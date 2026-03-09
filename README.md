@@ -1,5 +1,5 @@
 # README.md
-# Version 2.23.0
+# Version 3.0.0
 # Discord AI Bot
 
 A Discord bot that integrates with multiple AI providers (OpenAI, Anthropic,
@@ -98,11 +98,8 @@ fits within the provider's context window:
 
 The token budget uses `tiktoken` for accurate token counting. The budget
 formula is: `input_budget = (context_window × 80%) − max_output_tokens`.
-Messages are included newest-to-oldest until the budget is exhausted, with
-the system prompt always included.
 
-With `MAX_HISTORY=10`, the token budget acts as a safety net for oversized
-messages. Increase `MAX_HISTORY` (e.g., 50) to let the token budget be the
+Increase `MAX_HISTORY` (e.g., 50) to let the token budget be the
 primary decision-maker for which messages go to the API.
 
 ### Token Usage Logging
@@ -112,6 +109,22 @@ cumulative totals are tracked in memory and logged at DEBUG. This provides a
 cost baseline for comparing context management techniques.
 
 Set `LOG_LEVEL=DEBUG` to see full token budget and usage details on every call.
+
+### Message Persistence (v3.0.0)
+All messages are stored in a local SQLite database (`./data/messages.db`)
+in real-time as they arrive via Discord Gateway events. This includes both
+user messages and bot responses. The database:
+
+- **Survives restarts** — no need to refetch from Discord API on startup
+- **Tracks edits and deletions** — edits update content, deletes are soft
+  (flagged, not removed) to preserve conversational context
+- **Enables summarization** — the complete message history is available for
+  the planned fresh-from-source summarization subsystem (v3.1.0)
+- **Startup backfill** — on restart, fetches only messages missed while the
+  bot was offline (up to 10,000 per channel)
+
+The database uses WAL mode for concurrent read/write safety and requires
+no external dependencies (Python's built-in `sqlite3` module).
 
 ---
 
@@ -196,6 +209,9 @@ documentation.
 │   ├── anthropic_provider.py      # Claude models
 │   └── openai_compatible_provider.py  # DeepSeek + any compatible API
 └── utils/
+    ├── models.py                  # StoredMessage dataclass
+    ├── message_store.py           # SQLite persistence layer
+    ├── raw_events.py              # Real-time message capture + backfill
     ├── context_manager.py         # Token budget + usage accumulator
     ├── response_handler.py        # AI response processing + Discord delivery
     ├── provider_utils.py          # Provider override parsing
@@ -213,3 +229,4 @@ documentation.
 - **Token-budget context building** — provider-aware, percentage-based
 - **Token usage tracking** — actual API usage logged per-call and accumulated
 - **Settings persistence** — parsed from Discord message history on startup
+- **SQLite message persistence** — all messages stored durably via on_message listener
