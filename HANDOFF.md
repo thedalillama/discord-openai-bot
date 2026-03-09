@@ -1,30 +1,45 @@
 # HANDOFF.md
-# Version 2.23.0
+# Version 3.0.0
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: development (ahead of main — v2.20.0 through v2.23.0 not yet merged)
+**Branch**: development
+**Tag**: v2.23.0 on main (v3.0.0 not yet merged)
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v2.23.0 — Token-Budget Context Management + Usage Logging
+**Last completed**: v3.0.0 — SQLite Message Persistence Layer
+**Next**: v3.1.0 — Gemini Summarization Integration
 
 ---
 
 ## Recent Completed Work
 
+### v3.0.0 — SQLite Message Persistence Layer
+- **NEW**: `utils/models.py` v1.0.0 — StoredMessage dataclass (~350 bytes
+  per instance vs ~1,200 for discord.py Message objects)
+- **NEW**: `utils/message_store.py` v1.0.0 — SQLite with WAL mode, schema
+  creation, insert/update/soft-delete/query, channel state tracking
+- **NEW**: `utils/raw_events.py` v1.0.2 — on_message listener for real-time
+  capture (including bot messages), raw edit/delete handlers, startup backfill
+  with Semaphore(3) concurrency limit and 10K message cap per channel
+- **MODIFIED**: `bot.py` v3.0.0 — imports raw_events, calls setup_raw_events()
+  and startup_backfill() in on_ready()
+- **MODIFIED**: `config.py` v1.7.0 — added DATABASE_PATH env var
+- **MODIFIED**: `.gitignore` — added `data/`
+- **NEW**: `docs/sow/SOW_v3.0.0.md`
+- **VERIFIED**: Database creation, WAL mode, real-time capture (create/edit/
+  delete), startup backfill, restart recovery, no impact on existing response
+  pipeline. 3,200+ messages captured across 12 channels.
+
+**Key bug fixes during development:**
+- v1.0.0 → v1.0.1: `@bot.event` → `bot.add_listener()` for event registration
+- v1.0.1 → v1.0.2: `on_raw_message_create` not dispatched by `commands.Bot`
+  when `@bot.event on_message` is defined. Replaced with a second `on_message`
+  listener registered via `bot.add_listener(persistence_on_message, 'on_message')`.
+
 ### v2.23.0 — Token-Budget Context Management + Usage Logging
-- **ADDED**: `utils/context_manager.py` v1.0.0 — token counting via tiktoken,
-  budget-aware context builder, per-channel usage accumulator
-- **BUDGET**: `input_budget = (context_window * CONTEXT_BUDGET_PERCENT / 100) - max_output`
-  Default 80% — headroom absorbs tiktoken variance for Anthropic (~10-15%)
-- **USAGE**: All three providers extract actual token counts from API responses
-  and log at INFO level. Cumulative per-channel totals at DEBUG.
-- **FIXED**: DeepSeek context length default 128000 → 64000
-- **FIXED**: Response handler trims to MAX_HISTORY after assistant append
-- **UPDATED**: Anthropic model default to `claude-haiku-4-5-20251001`
-- **DEPENDENCY**: Added `tiktoken>=0.5.0` to requirements.txt
 - **Files**: bot.py → v2.10.0, config.py → v1.6.0,
-  response_handler.py → v1.1.4, context_manager.py → v1.0.0,
+  context_manager.py → v1.0.0, response_handler.py → v1.1.4,
   openai_provider.py → v1.3.0, anthropic_provider.py → v1.1.0,
   openai_compatible_provider.py → v1.2.0
 
@@ -32,73 +47,101 @@
 - **File**: ai_providers/__init__.py → v1.3.0
 
 ### v2.21.0 — Async Executor Safety
-- **Files**: anthropic_provider.py → v1.0.0, openai_compatible_provider.py → v1.1.2
-
 ### v2.20.0 — DeepSeek Reasoning Content Display
-- **Files**: openai_compatible_provider.py → v1.1.1, response_handler.py
-  → v1.1.3, message_processing.py → v2.2.6, thinking_commands.py → v2.1.0
 
 ---
 
-## Pending Items
+## v3.x Roadmap
 
-### 1. Merge development → main (IMMEDIATE)
-v2.20.0 through v2.23.0 tested and stable on development branch.
+### v3.1.0 — Gemini Summarization Integration (NEXT)
+- Add Gemini 2.5 Flash Lite as summarization-only provider
+- Incremental summarization: every 15-30 messages, Gemini generates
+  structured meeting-minutes-style summary from raw messages in SQLite
+- Fresh-from-source: send raw messages directly (no recursive summary-of-
+  summary), eliminating the 14% semantic drift per cycle documented in
+  research. Gemini's 1M token context fits ~25,000 raw messages.
+- Summary injected into response context between system prompt and recent
+  messages via existing build_context_for_provider() injection point
+- Estimated new files: summarizer.py, gemini_client.py
 
-### 2. Rolling Summary / Meeting Minutes (FUTURE — Phase 2)
-**Issue**: Long conversations lose older context when token budget trims
-**Injection point**: `build_context_for_provider()` — summary after system
-prompt, before conversation messages, consuming part of token budget
-**Baseline**: Token usage logs from v2.23.0 provide cost comparison data
-**Design**: Not yet SOW'd
+### v3.2.0 — Epoch Rollover + Fresh Recalibration
+- When channel exceeds ~25,000 messages, freeze current summary as an
+  archived epoch artifact and reset the active summarization window
+- Weekly fresh-from-source recalibration pass via Gemini Batch API (50%
+  discount) to reset any accumulated drift in incremental summaries
+- Archived epoch summaries are tiny (~800 tokens each) and stack in
+  the response context for long-term channel memory
+
+### v3.3.0 — Cost Optimization + Activity Tiering
+- Batch API integration for scheduled recalibration passes
+- Activity-based summarization frequency: hot channels every 50 messages,
+  warm every 100, cold every 200, dormant channels skip entirely
+- Implicit context caching optimization (stable prefix structure)
 
 ---
 
-## Architecture Notes
+## SQLite Persistence Architecture (v3.0.0)
 
-### Token Budget + Usage Architecture (v2.23.0)
+### Database Location
+Default: `./data/messages.db` (configurable via `DATABASE_PATH` env var)
+
+### Schema
+```sql
+messages: id (PK), channel_id, author_id, author_name, content,
+          created_at, message_type, is_deleted
+channel_state: channel_id (PK), last_processed_id, updated_at
+Indexes: idx_channel_time, idx_channel_id
 ```
-bot.py:
+
+### Event Flow
+```
+Discord Gateway → on_message listener (raw_events.py)
+                    → asyncio.to_thread(insert_message)
+                    → asyncio.to_thread(update_last_processed_id)
+
+Discord Gateway → on_raw_message_edit (raw_events.py)
+                    → asyncio.to_thread(update_message_content)
+
+Discord Gateway → on_raw_message_delete (raw_events.py)
+                    → asyncio.to_thread(soft_delete_message)
+
+Bot startup → on_ready() → startup_backfill()
+                → per-channel: fetch after last_processed_id
+                → Semaphore(3) concurrency, 10K cap per channel
+```
+
+### Key Design Decisions
+- **on_message listener** (not on_raw_message_create): `commands.Bot` does
+  not dispatch `on_raw_message_create` when `@bot.event on_message` is
+  defined. The persistence listener is a second `on_message` registered
+  via `bot.add_listener()` which coexists with bot.py's primary handler.
+- **Bot messages stored**: Unlike bot.py's `on_message` which skips bot
+  messages, the persistence listener captures them — they are conversation
+  context needed for summarization.
+- **Soft delete**: Deleted messages set `is_deleted = 1`, never hard-deleted.
+  Removing messages creates conversational gaps that confuse summarization.
+- **WAL mode**: Enables concurrent reads during writes — critical for async
+  bot that receives messages while summarization reads the database.
+- **asyncio.to_thread()**: All SQLite operations run off the event loop to
+  prevent blocking Discord's heartbeat.
+
+---
+
+## Token Budget + Usage Architecture (v2.23.0)
+
+### Call Flow
+```
+bot.py on_message()
   → get_provider(provider_override, channel_id)
-  → build_context_for_provider(channel_id, provider)  # budget trim
-  → handle_ai_response(message, channel_id, messages)
-
-Each provider after API call:
-  → record_usage(channel_id, name, input_tokens, output_tokens)
-  → INFO log: "Token usage [deepseek] ch:123: 1961 in + 342 out = 2303"
-  → DEBUG log: "Cumulative [deepseek] ch:123: 24500 in + 8200 out (47 calls)"
-```
-
-Two trimming layers:
-- **MAX_HISTORY** (message count) — coarse memory bound in bot.py
-- **Token budget** (token count) — precise API safety in context_manager.py
-
-Usage accumulator: `_channel_usage` dict in context_manager.py, resets on
-restart. Providers write via `record_usage()`, read via `get_channel_usage()`.
-
-### Provider Usage Field Mapping
-
-| Provider | API | Input field | Output field |
-|----------|-----|------------|-------------|
-| DeepSeek | Chat Completions | `usage.prompt_tokens` | `usage.completion_tokens` |
-| Anthropic | Messages | `usage.input_tokens` | `usage.output_tokens` |
-| OpenAI | Responses | `usage.input_tokens` | `usage.output_tokens` |
-
-### Provider Singleton Pattern
-```python
-_provider_cache = {}
-def get_provider(provider_name=None, channel_id=None):
-    if provider_name not in _provider_cache:
-        _provider_cache[provider_name] = XProvider()
-    return _provider_cache[provider_name]
-```
-
-### Async Safety Pattern (All Three Providers)
-```python
-# CRITICAL: Do NOT remove this executor wrapper.
-loop = asyncio.get_event_loop()
-with concurrent.futures.ThreadPoolExecutor() as executor:
-    response = await loop.run_in_executor(executor, lambda: ...)
+  → build_context_for_provider(channel_id, provider)
+      → prepare_messages_for_api(channel_id)
+      → estimate_tokens() per message
+      → newest-to-oldest until budget exhausted
+      → return [system_msg] + selected
+  → handle_ai_response(message, channel_id, messages, provider_override)
+      → generate_ai_response(messages, ...)
+      → provider._log_usage(response, channel_id) OR inline extraction
+      → record_usage(channel_id, provider, in, out)
 ```
 
 ### Noise Filtering Architecture (Three Layers)
@@ -117,15 +160,6 @@ Layer 3 — API build: prepare_messages_for_api() checks is_history_output()
 | `REASONING_PREFIX` | openai_compatible_provider.py, response_handler.py, message_processing.py |
 | `REASONING_SEPARATOR` | openai_compatible_provider.py, response_handler.py |
 
-### Verified Provider Specifications (2025-02-26)
-
-| Provider | Model | Context Window | Max Output |
-|----------|-------|---------------|------------|
-| OpenAI | gpt-4o-mini | 128,000 | 16,384 |
-| DeepSeek | deepseek-chat | 64,000 | 8,000 |
-| DeepSeek | deepseek-reasoner | 64,000 | 8,000 (+32K CoT) |
-| Anthropic | claude-haiku-4-5-20251001 | 200,000 | 64,000 |
-
 ---
 
 ## Current .env Configuration
@@ -136,6 +170,7 @@ OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
 OPENAI_COMPATIBLE_CONTEXT_LENGTH=64000
 OPENAI_COMPATIBLE_MAX_TOKENS=8000
+CONTEXT_BUDGET_PERCENT=80
 ```
 
 ---

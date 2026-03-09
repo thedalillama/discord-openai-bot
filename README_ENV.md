@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 2.23.0
+# Version 3.0.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -40,6 +40,16 @@ The 20% default headroom absorbs tiktoken variance for Anthropic (~10-15%),
 per-message formatting overhead, and provider-side hidden tokens. With
 `MAX_HISTORY=10`, the budget is a safety net. Increase MAX_HISTORY (e.g., 50)
 to let the token budget be the primary context decision-maker.
+
+## Database Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_PATH` | Path to SQLite database file | `./data/messages.db` |
+
+The `data/` directory is created automatically on first run. The database
+stores all messages in real-time for persistence across restarts and future
+summarization. No `.env` change needed unless overriding the default location.
 
 ## OpenAI Configuration
 
@@ -163,11 +173,6 @@ your provider (DeepSeek=64K). Lower CONTEXT_BUDGET_PERCENT for more headroom.
 **Reasoning not showing** — Need OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
 and `!thinking on` in Discord.
 
-### Key Log Messages (LOG_LEVEL=DEBUG)
-- `Instantiating XProvider (first use)` — provider init (once per type)
-- `Context budget for <provider>` — token budget calculation
-- `Context built: N tokens, M/T messages` — context stats
-- `Token budget trim: dropped N oldest` — budget enforcement (INFO)
-- `Token usage [provider] ch:ID: N in + N out` — per-call usage (INFO)
-- `Cumulative [provider] ch:ID: N in + N out (N calls)` — running total
-- `DeepSeek reasoning for channel` — reasoning received (INFO)
+**Database issues** — Check `data/messages.db` exists. Verify with
+`python3 -c "from utils.message_store import init_database, _get_conn; init_database(); print(_get_conn().execute('SELECT COUNT(*) FROM messages').fetchone()[0])"`.
+Delete `data/messages.db` to reset (messages will be re-backfilled on restart).
