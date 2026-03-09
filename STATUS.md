@@ -1,8 +1,23 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 2.23.0
+# Version 3.0.0
 
 ## Current Version Features
+
+### Version 3.0.0 - SQLite Message Persistence Layer
+- **ADDED**: `utils/models.py` v1.0.0 — StoredMessage dataclass for lightweight
+  message representation (~350 bytes vs ~1,200 for discord.py Message objects)
+- **ADDED**: `utils/message_store.py` v1.0.0 — SQLite database with WAL mode,
+  insert/update/soft-delete/query operations, channel state tracking
+- **ADDED**: `utils/raw_events.py` v1.0.2 — real-time message capture via
+  on_message listener, raw edit/delete handlers, startup backfill
+- **ADDED**: `DATABASE_PATH` env var (default `./data/messages.db`)
+- **ADDED**: `data/` directory to .gitignore
+- **FOUNDATION**: All messages persisted to SQLite in real-time, surviving
+  restarts without API refetch. Enables fresh-from-source summarization
+  in v3.1.0 via Gemini 2.5 Flash Lite's 1M-token context window.
+- **FILES**: bot.py → v3.0.0, config.py → v1.7.0, models.py → v1.0.0,
+  message_store.py → v1.0.0, raw_events.py → v1.0.2
 
 ### Version 2.23.0 - Token-Budget Context Management + Usage Logging
 - **ADDED**: Provider-aware token budget ensures every API call fits within
@@ -70,11 +85,12 @@
 - **Bounded API Context**: Token-budget ensures context window compliance
 - **Clean API Context**: Noise filtered at runtime, load time, and API payload
 - **Token Safety**: Every API call guaranteed to fit provider context window
+- **Message Persistence**: All messages stored in SQLite, survives restarts
 
 ### 📈 Future Metrics
-- **Context Continuity**: Rolling summary / meeting minutes (Phase 2)
-- **Performance**: Response time optimization
-- **Scalability**: Multi-server deployment capabilities
+- **Context Continuity**: Fresh-from-source summarization via Gemini (v3.1.0)
+- **Epoch Management**: Rollover for channels exceeding 25K messages (v3.2.0)
+- **Cost Optimization**: Batch API + activity tiering (v3.3.0)
 
 ---
 
@@ -83,8 +99,8 @@
 ### Current File Structure
 ```
 ├── main.py                    # Entry point (minimal)
-├── bot.py                     # Core Discord events (v2.10.0)
-├── config.py                  # Configuration management (v1.6.0)
+├── bot.py                     # Core Discord events (v3.0.0)
+├── config.py                  # Configuration management (v1.7.0)
 ├── commands/                  # Modular command system
 │   ├── __init__.py
 │   ├── history_commands.py
@@ -100,8 +116,11 @@
 │   ├── anthropic_provider.py      # v1.1.0
 │   └── openai_compatible_provider.py  # v1.2.0
 └── utils/                     # Utility modules
+    ├── models.py                  # v1.0.0 (NEW — StoredMessage dataclass)
+    ├── message_store.py           # v1.0.0 (NEW — SQLite persistence)
+    ├── raw_events.py              # v1.0.2 (NEW — message capture + backfill)
     ├── ai_utils.py                # v1.0.0
-    ├── context_manager.py         # v1.0.0 (NEW)
+    ├── context_manager.py         # v1.0.0
     ├── logging_utils.py
     ├── message_utils.py
     ├── provider_utils.py
@@ -136,19 +155,18 @@
 7. **Async safety** - All provider API calls wrapped in run_in_executor()
 8. **Provider efficiency** - Singleton caching prevents unnecessary instantiation
 9. **Token safety** - Every API call budget-checked against provider context window
+10. **Message persistence** - All messages stored in SQLite via on_message listener
 
 ---
 
 ## Current Priority Issues
 
-### 1. Merge development → main (IMMEDIATE)
-v2.20.0 through v2.23.0 tested and stable on development branch.
-
-### 2. Rolling Summary / Meeting Minutes (FUTURE — Phase 2)
-**Status**: Architecture ready — injection point in build_context_for_provider()
-**Design**: Not yet SOW'd — depends on Phase 1 production data
+### 1. v3.1.0 — Gemini Summarization Integration (NEXT)
+**Status**: Design phase — depends on v3.0.0 persistence layer
+**Design**: Fresh-from-source summarization using Gemini 2.5 Flash Lite
 
 ### Resolved Issues
+- ✅ Message persistence — resolved in v3.0.0
 - ✅ Token-based context trimming — resolved in v2.23.0
 - ✅ Token usage visibility — resolved in v2.23.0
 - ✅ DeepSeek context length default wrong — resolved in v2.23.0

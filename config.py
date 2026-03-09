@@ -1,8 +1,13 @@
 # config.py
-# Version 1.6.0
+# Version 1.7.0
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.7.0: SQLite message persistence (SOW v3.0.0)
+- ADDED: DATABASE_PATH env var (default ./data/messages.db) — path to SQLite
+  database file for message persistence. Directory created automatically on
+  first run. No .env change needed unless overriding the default location.
 
 CHANGES v1.6.0: Token-budget context management (SOW v2.23.0)
 - ADDED: CONTEXT_BUDGET_PERCENT env var (default 80) — percentage of context
@@ -50,6 +55,12 @@ DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', 0.7))
 # (especially for Anthropic where tiktoken is approximate ~10-15%), per-message
 # formatting overhead, and provider-side hidden tokens.
 CONTEXT_BUDGET_PERCENT = int(os.environ.get('CONTEXT_BUDGET_PERCENT', 80))
+
+# Database configuration
+# Path to SQLite database file for message persistence. The data/ directory
+# is created automatically on first run. Override via env var or .env if you
+# prefer a different location (e.g., /var/lib/discord-bot/messages.db).
+DATABASE_PATH = os.environ.get('DATABASE_PATH', './data/messages.db')
 
 # OpenAI configuration
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
