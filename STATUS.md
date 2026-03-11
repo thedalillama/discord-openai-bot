@@ -14,8 +14,7 @@
 - **ADDED**: `DATABASE_PATH` env var (default `./data/messages.db`)
 - **ADDED**: `data/` directory to .gitignore
 - **FOUNDATION**: All messages persisted to SQLite in real-time, surviving
-  restarts without API refetch. Enables fresh-from-source summarization
-  in v3.1.0 via Gemini 2.5 Flash Lite's 1M-token context window.
+  restarts without API refetch. Foundation for future summarization subsystem.
 - **FILES**: bot.py → v3.0.0, config.py → v1.7.0, models.py → v1.0.0,
   message_store.py → v1.0.0, raw_events.py → v1.0.2
 

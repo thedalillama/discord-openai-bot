@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 1.1.0
+# Version 1.2.0
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -103,9 +103,23 @@ Bot settings (system prompt, AI provider, auto-respond, thinking mode) are **par
 
 - **250-line file limit** — mandatory for all files; split into focused modules if exceeded
 - **Single responsibility** — each module has one clear purpose
-- **Async safety** — never block the Discord event loop; use `loop.run_in_executor()` with `ThreadPoolExecutor` for provider API calls
+- **Async safety** — never block the Discord event loop. Two patterns are in use; use the right one for the context:
+  - `loop.run_in_executor()` with `ThreadPoolExecutor` — for AI provider API calls (all three providers)
+  - `asyncio.to_thread()` — for SQLite writes in `utils/raw_events.py`
 - **Version tracking** — every file has a version header and changelog in its docstring; bump both on every change
 - Each new file must include module-level logging via `get_logger('module_name')` from `utils/logging_utils.py`
+
+## Known Pitfalls
+
+### bot.add_listener() vs @bot.event for on_message
+
+`commands.Bot` does **not** dispatch `on_raw_message_create` when `@bot.event on_message` is defined. The v3.0.0 persistence layer hit this bug — the fix was registering the SQLite capture handler as a second `on_message` listener via `bot.add_listener()`, which coexists with the primary `@bot.event` handler in `bot.py`.
+
+**Do not:**
+- Replace the `bot.add_listener(persistence_on_message, 'on_message')` call in `raw_events.py` with `@bot.event`
+- Switch the persistence capture to `on_raw_message_create`
+
+Both will silently break message capture. The `@bot.event` decorator sets the **primary** handler (only one allowed); `bot.add_listener()` registers **additional** listeners that fire alongside it.
 
 ## SOW Convention
 
