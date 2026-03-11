@@ -1,8 +1,11 @@
 # commands/__init__.py
-# Version 2.0.0
+# Version 2.1.0
 """
 Commands package initialization.
 Registers all command modules with the bot.
+
+CHANGES v2.1.0: Summary commands (SOW v3.2.0)
+- ADDED: register_summary_commands for !summarize and !summary commands
 
 CHANGES v2.0.0: Command interface redesign (SOW v2.13.0)
 - REDESIGNED: !prompt replaces !setprompt, !getprompt, !resetprompt
@@ -23,6 +26,7 @@ from .prompt_commands import register_prompt_commands
 from .ai_provider_commands import register_ai_provider_commands
 from .thinking_commands import register_thinking_commands
 from .status_commands import register_status_commands
+from .summary_commands import register_summary_commands
 
 def register_commands(bot, auto_respond_channels):
     """Register all commands with the bot"""
@@ -32,3 +36,4 @@ def register_commands(bot, auto_respond_channels):
     register_ai_provider_commands(bot)
     register_thinking_commands(bot)
     register_status_commands(bot, auto_respond_channels)
+    register_summary_commands(bot)

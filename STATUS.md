@@ -1,8 +1,24 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.1.1
+# Version 3.2.0
 
 ## Current Version Features
+
+### Version 3.2.0 - Structured Summary Generation (Roadmap M2)
+- **ADDED**: `utils/summary_schema.py` v1.0.0 — schema factory, hash utilities,
+  update application, hash verification, source verification
+- **ADDED**: `utils/summary_store.py` v1.0.0 — SQLite read/write for
+  channel_summaries (placed here rather than message_store.py to stay under
+  the 250-line limit)
+- **ADDED**: `utils/summarizer.py` v1.0.0 — summarization engine: prompt
+  building, LLM call, update application, integrity verification, persistence
+- **ADDED**: `commands/summary_commands.py` v1.0.0 — !summarize (admin only)
+  and !summary (all users) commands
+- **MODIFIED**: `config.py` v1.8.0 — SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
+- **MODIFIED**: `commands/__init__.py` v2.1.0 — registers summary_commands
+- **UNCHANGED**: message_store.py, bot.py, raw_events.py, all history modules,
+  all existing providers — in-memory response pipeline untouched (M3 injects
+  summary into prompts)
 
 ### Version 3.1.1 - Code Quality: realtime_settings_parser.py split
 - **ADDED**: `utils/history/settings_appliers.py` v1.0.0 — individual setting
@@ -164,6 +180,12 @@
         ├── discord_fetcher.py     # v1.2.0
         ├── realtime_settings_parser.py  # v2.2.0
         ├── settings_appliers.py         # v1.0.0 (NEW v3.1.1)
+├── utils/                     # Utility modules (continued)
+│   ├── summary_schema.py          # v1.0.0 (NEW v3.2.0)
+│   ├── summary_store.py           # v1.0.0 (NEW v3.2.0)
+│   └── summarizer.py              # v1.0.0 (NEW v3.2.0)
+└── commands/                  # (continued)
+    └── summary_commands.py        # v1.0.0 (NEW v3.2.0)
         ├── settings_manager.py
         ├── cleanup_coordinator.py # v2.2.0
         ├── channel_coordinator.py
