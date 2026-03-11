@@ -1,8 +1,17 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.1.0
+# Version 3.1.1
 
 ## Current Version Features
+
+### Version 3.1.1 - Code Quality: realtime_settings_parser.py split
+- **ADDED**: `utils/history/settings_appliers.py` v1.0.0 — individual setting
+  applier functions extracted from realtime_settings_parser.py
+- **MODIFIED**: `utils/history/realtime_settings_parser.py` v2.2.0 — now a thin
+  orchestrator; imports helpers from settings_appliers.py; re-exports
+  extract_prompt_from_update_message for backwards compatibility; 335→122 lines
+- **FIXED**: HANDOFF.md branch/merge status corrected (development is at v3.1.0)
+- **REASON**: realtime_settings_parser.py exceeded 250-line mandatory limit
 
 ### Version 3.1.0 - Schema Extension & Enhanced Capture
 - **ADDED**: `schema/` directory with versioned SQL migration files
@@ -153,7 +162,8 @@
         ├── discord_loader.py      # v2.1.0
         ├── discord_converter.py   # v1.0.1
         ├── discord_fetcher.py     # v1.2.0
-        ├── realtime_settings_parser.py
+        ├── realtime_settings_parser.py  # v2.2.0
+        ├── settings_appliers.py         # v1.0.0 (NEW v3.1.1)
         ├── settings_manager.py
         ├── cleanup_coordinator.py # v2.2.0
         ├── channel_coordinator.py
