@@ -1,8 +1,25 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.0.0
+# Version 3.1.0
 
 ## Current Version Features
+
+### Version 3.1.0 - Schema Extension & Enhanced Capture
+- **ADDED**: `schema/` directory with versioned SQL migration files
+- **ADDED**: `schema/001.sql` — v3.0.0 baseline schema (extracted from message_store.py)
+- **ADDED**: `schema/002.sql` — 5 new message columns, 2 new empty tables
+- **ADDED**: `utils/db_migration.py` v1.0.0 — migration runner: scans schema/,
+  applies unapplied migrations, tracks versions in schema_version table
+- **MODIFIED**: `utils/models.py` v1.1.0 — StoredMessage gains 5 optional fields:
+  reply_to_message_id, thread_id, edited_at, deleted_at, attachments_metadata
+- **MODIFIED**: `utils/message_store.py` v1.1.0 — removed inline SCHEMA_SQL,
+  calls run_migrations(), updated INSERT/SELECT for new columns,
+  update_message_content() replaced by update_message_content_and_edit_time(),
+  soft_delete_message() now sets deleted_at timestamp
+- **MODIFIED**: `utils/raw_events.py` v1.1.0 — captures reply_to_message_id,
+  thread_id, attachments_metadata on create and backfill; sets edited_at on edit
+- **ADDED**: `channel_summaries` and `response_context_receipts` empty tables
+  (populated by future milestones)
 
 ### Version 3.0.0 - SQLite Message Persistence Layer
 - **ADDED**: `utils/models.py` v1.0.0 — StoredMessage dataclass for lightweight
@@ -87,9 +104,9 @@
 - **Message Persistence**: All messages stored in SQLite, survives restarts
 
 ### 📈 Future Metrics
-- **Context Continuity**: Fresh-from-source summarization via Gemini (v3.1.0)
-- **Epoch Management**: Rollover for channels exceeding 25K messages (v3.2.0)
-- **Cost Optimization**: Batch API + activity tiering (v3.3.0)
+- **Context Continuity**: Fresh-from-source summarization via Gemini
+- **Epoch Management**: Rollover for channels exceeding 25K messages
+- **Cost Optimization**: Batch API + activity tiering
 
 ---
 
@@ -100,6 +117,9 @@
 ├── main.py                    # Entry point (minimal)
 ├── bot.py                     # Core Discord events (v3.0.0)
 ├── config.py                  # Configuration management (v1.7.0)
+├── schema/                    # Versioned SQL migration files (NEW v3.1.0)
+│   ├── 001.sql                    # v3.0.0 baseline schema
+│   └── 002.sql                    # v3.1.0 extensions
 ├── commands/                  # Modular command system
 │   ├── __init__.py
 │   ├── history_commands.py
@@ -115,9 +135,10 @@
 │   ├── anthropic_provider.py      # v1.1.0
 │   └── openai_compatible_provider.py  # v1.2.0
 └── utils/                     # Utility modules
-    ├── models.py                  # v1.0.0 (NEW — StoredMessage dataclass)
-    ├── message_store.py           # v1.0.0 (NEW — SQLite persistence)
-    ├── raw_events.py              # v1.0.2 (NEW — message capture + backfill)
+    ├── models.py                  # v1.1.0 — StoredMessage dataclass
+    ├── message_store.py           # v1.1.0 — SQLite persistence
+    ├── raw_events.py              # v1.1.0 — message capture + backfill
+    ├── db_migration.py            # v1.0.0 (NEW — migration runner)
     ├── ai_utils.py                # v1.0.0
     ├── context_manager.py         # v1.0.0
     ├── logging_utils.py
@@ -160,11 +181,13 @@
 
 ## Current Priority Issues
 
-### 1. v3.1.0 — Gemini Summarization Integration (NEXT)
-**Status**: Design phase — depends on v3.0.0 persistence layer
+### 1. Next — Gemini Summarization Integration
+**Status**: Design phase — depends on v3.1.0 schema layer
 **Design**: Fresh-from-source summarization using Gemini 2.5 Flash Lite
 
 ### Resolved Issues
+- ✅ Schema migration infrastructure — resolved in v3.1.0
+- ✅ Enhanced message capture (replies, threads, attachments) — resolved in v3.1.0
 - ✅ Message persistence — resolved in v3.0.0
 - ✅ Token-based context trimming — resolved in v2.23.0
 - ✅ Token usage visibility — resolved in v2.23.0
