@@ -1,19 +1,27 @@
 # HANDOFF.md
-# Version 3.1.0
+# Version 3.1.1
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: claude-code (v3.1.0 not yet merged to development)
+**Branch**: development
 **Main**: v3.0.0 (untagged)
-**Development**: v3.0.0 (in sync with main)
+**Development**: v3.1.0 (ahead of main, not yet merged)
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v3.1.0 — Schema Extension & Enhanced Capture
+**Last completed**: v3.1.1 — Code Quality: realtime_settings_parser.py split
 **Next**: Gemini Summarization Integration
 
 ---
 
 ## Recent Completed Work
+
+### v3.1.1 — Code Quality: realtime_settings_parser.py split
+- **NEW**: `utils/history/settings_appliers.py` v1.0.0 — extracted 5 helper
+  functions (_parse_and_apply_* × 4 + extract_prompt_from_update_message)
+- **MODIFIED**: `utils/history/realtime_settings_parser.py` v2.2.0 — thin
+  orchestrator only; imports from settings_appliers; re-exports
+  extract_prompt_from_update_message for backwards compatibility; 335→122 lines
+- **FIXED**: HANDOFF.md corrected to show development is at v3.1.0
 
 ### v3.1.0 — Schema Extension & Enhanced Capture
 - **NEW**: `schema/001.sql` — v3.0.0 baseline schema extracted from message_store.py
