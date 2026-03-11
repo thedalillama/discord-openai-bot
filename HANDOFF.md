@@ -4,8 +4,9 @@
 
 ## Current Status
 
-**Branch**: development
-**Tag**: v2.23.0 on main (v3.0.0 and v3.1.0 not yet merged)
+**Branch**: claude-code (v3.1.0 not yet merged to development)
+**Main**: v3.0.0 (untagged)
+**Development**: v3.0.0 (in sync with main)
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
 **Last completed**: v3.1.0 — Schema Extension & Enhanced Capture
 **Next**: Gemini Summarization Integration
