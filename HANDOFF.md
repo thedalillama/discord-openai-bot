@@ -1,19 +1,35 @@
 # HANDOFF.md
-# Version 3.1.1
+# Version 3.2.0
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: development
+**Branch**: claude-code (v3.2.0 not yet merged to development)
 **Main**: v3.0.0 (untagged)
-**Development**: v3.1.0 (ahead of main, not yet merged)
+**Development**: v3.1.1
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v3.1.1 — Code Quality: realtime_settings_parser.py split
-**Next**: Gemini Summarization Integration
+**Last completed**: v3.2.0 — Structured Summary Generation (Roadmap M2)
+**Next**: M3 — Inject summary into response context (build_context_for_provider)
 
 ---
 
 ## Recent Completed Work
+
+### v3.2.0 — Structured Summary Generation (Roadmap M2)
+- **NEW**: `utils/summary_schema.py` v1.0.0 — schema factory, compute_hash,
+  apply_updates, verify_protected_hashes, run_source_verification
+- **NEW**: `utils/summary_store.py` v1.0.0 — save_channel_summary,
+  get_channel_summary (placed here rather than message_store.py due to 250-line
+  limit; imports _get_conn from message_store via deferred import)
+- **NEW**: `utils/summarizer.py` v1.0.0 — summarize_channel() orchestrator;
+  M-label system for source tracing; loop.run_in_executor() via provider;
+  asyncio.to_thread() for SQLite; capped at 500 messages per call
+- **NEW**: `commands/summary_commands.py` v1.0.0 — !summarize (admin) and
+  !summary (all users)
+- **MODIFIED**: `config.py` v1.8.0 — SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
+- **MODIFIED**: `commands/__init__.py` v2.1.0 — registers summary_commands
+- **NOTE**: SUMMARIZER_MODEL is meta-only in v1.0.0; provider uses its
+  configured model (per-call model override requires provider refactor, deferred)
 
 ### v3.1.1 — Code Quality: realtime_settings_parser.py split
 - **NEW**: `utils/history/settings_appliers.py` v1.0.0 — extracted 5 helper

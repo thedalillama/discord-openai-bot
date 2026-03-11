@@ -1,8 +1,14 @@
 # config.py
-# Version 1.7.0
+# Version 1.8.0
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.8.0: Summarizer provider configuration (SOW v3.2.0)
+- ADDED: SUMMARIZER_PROVIDER env var (default: AI_PROVIDER) — provider used
+  for summarization calls; independent of per-channel conversation providers
+- ADDED: SUMMARIZER_MODEL env var (default: deepseek-chat) — stored in summary
+  meta for reference; actual model is determined by provider initialisation
 
 CHANGES v1.7.0: SQLite message persistence (SOW v3.0.0)
 - ADDED: DATABASE_PATH env var (default ./data/messages.db) — path to SQLite
@@ -87,6 +93,15 @@ OPENAI_COMPATIBLE_BASE_URL = os.environ.get('OPENAI_COMPATIBLE_BASE_URL')
 OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-chat')
 OPENAI_COMPATIBLE_CONTEXT_LENGTH = int(os.environ.get('OPENAI_COMPATIBLE_CONTEXT_LENGTH', 64000))
 OPENAI_COMPATIBLE_MAX_TOKENS = int(os.environ.get('OPENAI_COMPATIBLE_MAX_TOKENS', 8000))
+
+# Summarizer configuration
+# SUMMARIZER_PROVIDER selects the provider for summarization calls. Defaults
+# to AI_PROVIDER if not set. If both conversation and summarization use the
+# same provider type (e.g. both 'deepseek'), they share the singleton instance
+# and therefore the same model. Use a different provider type to get a separate
+# instance with a different model.
+SUMMARIZER_PROVIDER = os.environ.get('SUMMARIZER_PROVIDER', AI_PROVIDER)
+SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'deepseek-chat')
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
