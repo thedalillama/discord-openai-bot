@@ -1,12 +1,15 @@
 # CLAUDE.md
+# Version 1.1.0
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Workflow Rules
 
-- **NO CODE CHANGES WITHOUT APPROVAL** — Discuss proposed changes, rationale, and impact before implementing.
-- **All development in `development` branch** — `main` is production-only and must always be deployable.
-- Merge to `main` only when code is fully tested and stable. Tag releases in `main`.
+- **NO CODE CHANGES WITHOUT APPROVAL** — Discuss proposed changes, rationale, and impact before implementing. Wait for explicit approval before writing any code.
+- **Always present complete files** — Never show partial diffs or snippets when delivering code changes. Always present the full file contents.
+- **Increment version numbers before committing** — Every file has a version header (e.g., `# Version 1.2.0`). Bump the version in the file header as part of the change, and update the changelog block in the docstring.
+- **Update STATUS.md and HANDOFF.md alongside code changes** — Any version bump must be reflected in STATUS.md (version history) and HANDOFF.md (current state). These are not optional.
+- **All development in `development` branch** — `main` is production-only and must always be deployable. Merge only when fully tested and stable. Tag releases in `main`.
 
 ## Running the Bot
 
@@ -35,6 +38,8 @@ OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-chat
 ```
 
+Optional but notable: `DATABASE_PATH` (default `./data/messages.db`) — override to store the SQLite database at a different location. The `data/` directory is created automatically.
+
 Priority order: shell env vars > `.env` file > `config.py` defaults.
 
 ## Architecture
@@ -54,7 +59,7 @@ The codebase maintains **two separate, independent history systems**:
 | System | Location | Purpose |
 |--------|----------|---------|
 | **In-memory** (`channel_history`) | `utils/history/` | AI conversation context; used for API calls |
-| **SQLite persistence** | `utils/message_store.py` + `utils/raw_events.py` | Durable storage for all messages; foundation for future summarization (v3.1.0) |
+| **SQLite persistence** | `utils/message_store.py` + `utils/raw_events.py` | Durable storage for all messages; foundation for future summarization |
 
 These do not share code. Changes to one do not affect the other.
 
@@ -68,7 +73,20 @@ Token budget formula: `input_budget = (context_window × CONTEXT_BUDGET_PERCENT 
 
 - `ai_providers/__init__.py` — `get_provider()` factory with singleton cache (one instance per provider type for the bot's lifetime)
 - Each provider (`openai_provider.py`, `anthropic_provider.py`, `openai_compatible_provider.py`) extends `base.py`
-- **All synchronous API calls must be wrapped in `asyncio.to_thread()` or `run_in_executor()`** to prevent Discord heartbeat blocking
+- **All synchronous provider API calls must use `loop.run_in_executor()` with `ThreadPoolExecutor`** — this is the established pattern across all three providers. Do not use `asyncio.to_thread()` for provider calls; it will break the established convention and risks heartbeat blocking.
+
+```python
+import asyncio
+import concurrent.futures
+
+loop = asyncio.get_event_loop()
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    result = await loop.run_in_executor(
+        executor,
+        lambda: synchronous_api_call(params)
+    )
+```
+
 - Provider selection order: explicit override (e.g., `openai, tell me...`) → channel setting → `AI_PROVIDER` env var
 
 ### Settings Persistence
@@ -85,14 +103,23 @@ Bot settings (system prompt, AI provider, auto-respond, thinking mode) are **par
 
 - **250-line file limit** — mandatory for all files; split into focused modules if exceeded
 - **Single responsibility** — each module has one clear purpose
-- **Async safety** — never block the Discord event loop; wrap all synchronous I/O in `asyncio.to_thread()`
-- **Version tracking** — every file has a version header and changelog in its docstring
+- **Async safety** — never block the Discord event loop; use `loop.run_in_executor()` with `ThreadPoolExecutor` for provider API calls
+- **Version tracking** — every file has a version header and changelog in its docstring; bump both on every change
 - Each new file must include module-level logging via `get_logger('module_name')` from `utils/logging_utils.py`
+
+## SOW Convention
+
+Every version has a Statement of Work document in `docs/sow/` (e.g., `SOW_v3.0.0.md`). When implementing a new version, create the corresponding SOW before writing code. SOW documents define the problem statement, objective, and implementation plan for that version.
 
 ## Verifying the SQLite Database
 
 ```bash
-python3 -c "from utils.message_store import init_database, _get_conn; init_database(); print(_get_conn().execute('SELECT COUNT(*) FROM messages').fetchone()[0])"
+python3 -c "
+from utils.message_store import init_database, get_database_stats
+init_database()
+stats = get_database_stats()
+print(stats)
+"
 ```
 
 Delete `data/messages.db` to reset; messages will be re-backfilled on restart (up to 10,000 per channel).
