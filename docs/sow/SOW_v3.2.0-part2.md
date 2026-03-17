@@ -1,221 +1,224 @@
 # SOW v3.2.0 — Structured Summary Generation (Roadmap M2)
-# Part 2 of 2: Prompt Design, Commands, and Implementation Plan
+# Part 2 of 2: Prompts, Commands, and Implementation Plan
 
-*Continued from Part 1: Schema, Verification, and Architecture*
+*Continued from Part 1: Schema, Structured Output Enforcement, and
+Architecture*
 
-### Summarizer Prompt Design
+### System Instruction (Gemini systemInstruction)
 
-The prompt instructs the LLM to return a JSON object containing only
-the incremental updates, not the full summary. This is the Chain-of-Key
-approach — targeted updates on specific fields rather than full
-regeneration.
-
-The prompt includes:
+Passed via Gemini's `systemInstruction` parameter. Contains invariant
+rules that apply to every summarization call. Adapted from the Forced
+JSON report's strict system instruction template.
 
 ```
-You are a conversation summarizer. You receive a current summary JSON
-and a batch of new messages. Return ONLY a JSON object with the
-changes to apply.
+You are a summarizer that emits ONLY JSON conforming to the provided
+JSON Schema.
 
-RULES:
-- Return incremental updates only: ADD, SUPERSEDE, CLOSE, or UPDATE
-  operations on specific items.
-- Never modify the protected field of any existing decision, key_fact,
-  action_item, or pinned_memory item.
-- To change a decision, SUPERSEDE it: set old status to "superseded"
-  and create a new decision with a "supersedes" back-reference.
+Output rules:
+- Output must be a single JSON object and nothing else.
+- Do not output markdown, code fences, comments, or explanations.
+- Do not add keys not in the schema.
+- Do not rename fields. Use EXACT field names from the schema.
+- Return ONLY incremental delta operations in ops[].
+- If nothing to update, return:
+  {"schema_version":"delta.v1","mode":"incremental","ops":[{"op":"noop","id":"noop"}]}
+
+Protection rules:
+- Protected text must never be modified in-place. If evidence implies
+  a change, emit supersede_decision with supersedes_id pointing at the
+  prior decision ID plus new text.
+- Do not fabricate sources. Every new item must include
+  source_message_ids from the provided message labels.
+- If unsure, omit the op rather than guessing.
 - Preserve filenames, paths, URLs, version numbers, and numerical
   values exactly as they appear in the source messages.
-- Use source_message_ids to reference the message labels (M1, M2...)
-  provided in the context.
-- Only promote durable information. Skip casual filler.
-- Keep the overview to 1-3 sentences.
-- Temperature is 0. Be precise, not creative.
+
+Promotion rules:
+- Promote: decisions, preferences, commitments, recurring facts, open
+  questions, action items, filenames, paths, URLs, config values.
+- Skip: casual filler, acknowledgments, jokes, small talk.
 ```
 
-The response format:
+### User Prompt Template (per-request contents)
 
-```json
-{
-  "overview_update": "Updated overview text or null if unchanged",
-  "new_participants": [...],
-  "topic_updates": [
-    {"action": "add|update|close", "item": {...}}
-  ],
-  "decision_updates": [
-    {"action": "add|supersede", "item": {...}}
-  ],
-  "fact_updates": [
-    {"action": "add", "item": {...}}
-  ],
-  "action_item_updates": [
-    {"action": "add|complete|close", "item": {...}}
-  ],
-  "question_updates": [
-    {"action": "add|answer|close", "item": {...}}
-  ],
-  "pinned_memory_updates": [
-    {"action": "add", "item": {...}}
-  ]
-}
-```
-
-The Python code applies these updates to the existing summary, computes
-hashes for new items, verifies hashes on existing items, and stores
-the result.
-
-### Duplicate Item ID Handling
-
-When applying incremental updates, if the LLM returns an ADD operation
-for an item ID that already exists in the current summary, the update
-is rejected and logged as a warning. The existing item is preserved
-unchanged.
-
-If the LLM intended to modify an existing item, it must use the
-appropriate lifecycle operation (UPDATE, SUPERSEDE, COMPLETE, CLOSE) —
-not ADD. Rejecting duplicate ADDs catches a class of LLM errors where
-it re-extracts content already present in the summary.
-
-This check runs before hash verification, during the update application
-step.
-
-### Message Labeling
-
-When building the summarizer prompt, messages from SQLite are labeled
-with short sequential IDs:
+Passed as the user message in the Gemini call. Contains the current
+state snapshot and new messages.
 
 ```
+TASK:
+Given CURRENT_STATE and NEW_MESSAGES, output ONLY delta ops.
+
+CURRENT_STATE (read-only snapshot):
+- overview: "..."
+- decisions: [{id, text_hash, status}, ...]
+- facts: [{id, text_hash, category, status}, ...]
+- action_items: [{id, text_hash, status}, ...]
+- open_questions: [{id, status}, ...]
+- active_topics: [{id, title, status}, ...]
+- participants: [{id, display_name}, ...]
+
+NEW_MESSAGES:
 [M1] Alice (2026-03-10 14:30): We should use SQLite for this.
 [M2] Bob (2026-03-10 14:32): Agreed, Redis is overkill.
 [M3] Alice (2026-03-10 14:35): I'll write the schema tonight.
+
+RULES:
+- Only add/close/complete/supersede where NEW_MESSAGES provide evidence.
+- Every op that adds content must cite source_message_ids using
+  M-labels present above.
+- Do not restate CURRENT_STATE unless emitting an op about it.
 ```
 
-The label-to-message-ID mapping is maintained so that `source_message_ids`
-in the summary can reference the actual Discord snowflake IDs, not the
-short labels. The LLM sees M1/M2/M3; the stored summary uses real IDs.
+The label-to-message-ID mapping is maintained in Python so that
+`source_message_ids` M-labels in delta ops can be resolved to actual
+Discord snowflake IDs when applying ops to the persistent summary.
+
+### Repair Prompt (one retry on validation failure)
+
+If domain validation or schema validation fails, re-prompt Gemini with
+the specific errors. One retry only — if the repair also fails, log
+the error and skip the update. The pre-update summary remains intact.
+
+```
+Your previous output failed validation.
+
+VALIDATION_ERRORS:
+- <specific JSON parsing or schema validation errors>
+- <domain errors: rejected protected rewrite, missing source IDs, etc.>
+
+Return ONLY corrected JSON conforming to the schema.
+Do not include any other text.
+```
+
+### Normalization Fallback (full-summary recovery)
+
+If the response is detected as a full summary (contains `overview`,
+`decisions`, etc. at the top level instead of `ops`), the normalization
+layer converts it to delta ops:
+
+1. **Canonicalize fields**: `name` → `title`, `source_message_id` →
+   `source_message_ids` (coerce string to array), ensure arrays are
+   arrays not strings.
+2. **Diff against pre-update snapshot**: identify new items (ADD ops),
+   status changes (status transition ops), and protected-field changes
+   (reject or detect supersession pattern).
+3. **Output delta ops**: feed into the same domain validation pipeline
+   as a native delta response.
+
+See `Forced_JSON_deep-research-report.md` sections "Normalization
+algorithm sketch" and "Domain-aware diffing" for the full algorithm
+including `canonicalize_full_summary()` and `diff_full_to_ops()`.
 
 ### !summarize Command
 
-New command in `commands/summary_commands.py`:
-
-```
-!summarize          — Run summarization for this channel (admin only)
-```
-
-Workflow:
+`commands/summary_commands.py` (admin only):
 
 1. Check admin permissions.
 2. Show typing indicator.
 3. Call `summarize_channel(channel_id)` from `utils/summarizer.py`.
-4. Report result: number of messages processed, verification results,
-   token count of the summary.
+4. Report: messages processed, ops applied, verification results,
+   summary token count.
 
 ### !summary Command
 
-```
-!summary            — Show current channel summary (all users)
-```
+All users. Reads from `channel_summaries` table:
 
-Workflow:
-
-1. Read summary from `channel_summaries` table.
-2. If none exists, report "No summary available. An admin can run
-   !summarize to generate one."
-3. Format key sections for Discord display: overview, active topics,
-   recent decisions, open action items, open questions.
-4. Truncate for Discord's 2000-char limit if needed.
+1. If none exists: "No summary available. Run !summarize to generate."
+2. Format key sections for Discord: overview, active topics, recent
+   decisions, open action items, open questions.
+3. Truncate for Discord's 2000-char limit if needed.
 
 ### Summary Storage
 
-The `channel_summaries` table (created in v3.1.0) stores:
-
-- `channel_id` (PK): Discord channel ID
-- `summary_json`: Full JSON summary string
-- `updated_at`: ISO 8601 timestamp
-- `message_count`: Number of messages summarized
-- `last_message_id`: Snowflake ID of the last message included
-
-New functions in `message_store.py`:
+`channel_summaries` table (exists from v3.1.0). Functions in
+`summary_store.py` (Claude Code's deviation from SOW — accepted):
 
 ```python
-def save_channel_summary(channel_id, summary_json, message_count, last_message_id):
-    """Insert or update the summary for a channel."""
-
+def save_channel_summary(channel_id, summary_json, message_count,
+                         last_message_id):
 def get_channel_summary(channel_id):
-    """Return the summary JSON string for a channel, or None."""
 ```
 
 ## New Files
 
 | File | Version | Description |
 |------|---------|-------------|
-| `utils/summarizer.py` | v1.0.0 | Summarization engine: prompt building, LLM call, update application, verification |
-| `utils/summary_schema.py` | v1.0.0 | Schema definition, empty summary factory, hash utilities, verification functions |
+| `ai_providers/gemini_provider.py` | v1.0.0 | Gemini provider with structured output support |
+| `utils/summarizer.py` | v1.0.0 | Pipeline: prompt build, Gemini call, classify response, normalize, validate, apply, verify |
+| `utils/summary_schema.py` | v1.0.0 | Persistent summary schema, empty factory, hash utilities, delta schema definition |
+| `utils/summary_normalization.py` | v1.0.0 | Field canonicalization, full-to-delta diffing, response classification |
+| `utils/summary_validation.py` | v1.0.0 | Domain validation: source IDs, protected rewrites, duplicate IDs, status transitions |
 | `commands/summary_commands.py` | v1.0.0 | !summarize and !summary commands |
 | `docs/sow/SOW_v3.2.0.md` | — | This document (both parts) |
 
-No new schema migration file — the `channel_summaries` table already
-exists from `schema/002.sql` (v3.1.0). The next `schema/NNN.sql` file
-is reserved for whichever future milestone needs schema changes.
+No new schema migration file — `channel_summaries` exists from v3.1.0.
 
 ## Modified Files
 
 | File | Old Version | New Version | Changes |
 |------|------------|-------------|---------|
-| `utils/message_store.py` | v1.1.0 | v1.2.0 | Add save_channel_summary(), get_channel_summary() |
-| `config.py` | v1.7.0 | v1.8.0 | Add SUMMARIZER_PROVIDER, SUMMARIZER_MODEL env vars |
-| `commands/__init__.py` | current | +1 | Import and register summary_commands |
+| `ai_providers/__init__.py` | v1.3.0 | v1.4.0 | Add 'gemini' to factory |
+| `config.py` | v1.7.0 | v1.8.0 | Add GEMINI_* and SUMMARIZER_* vars |
+| `commands/__init__.py` | current | +1 | Register summary_commands |
+| `requirements.txt` | current | +1 | Add google-genai |
 | `STATUS.md` | v3.1.0 | v3.2.0 | Version history |
 | `HANDOFF.md` | v3.1.0 | v3.2.0 | Current state |
 
 ## Unchanged Files
 
 bot.py, raw_events.py, models.py, db_migration.py, context_manager.py,
-response_handler.py, all existing providers, all existing commands,
-and the entire `utils/history/` subsystem. The in-memory response
-pipeline is untouched — M3 wires the summary into prompts.
+response_handler.py, existing providers, existing commands, and the
+entire `utils/history/` subsystem.
 
 ## Risk Assessment
 
-**Medium.** This is the first milestone that calls an LLM for a purpose
-other than user-facing responses. Risks and mitigations:
+**Medium.** Risks and mitigations:
 
-- **LLM returns invalid JSON**: Parse in try/except, log error, skip
-  update. The previous summary remains intact in the database.
-- **LLM modifies protected content**: Hash verification detects and
-  rejects the modification, restoring from pre-update snapshot.
-- **LLM hallucinate facts**: Source verification flags items where
-  the extracted text doesn't appear in source messages.
-- **Summary exceeds 2,000 token target**: Log warning, but do not
-  truncate. The token budget in M3 will handle allocation.
-- **Summarizer provider unavailable**: Error logged, summary unchanged.
-  The bot continues operating normally without summarization.
-- **Cost**: Manual-only trigger means no runaway costs. Each call
-  processes only unsummarized messages, not the full history.
+- **Structured output not enforcing schema**: Layer 2 normalization
+  catches full-summary responses and converts to deltas. Layer 3
+  domain validation catches semantic errors regardless of format.
+- **Gemini SDK issues**: `google-genai` is a new dependency. If
+  unavailable, `!summarize` fails gracefully. Bot continues normally.
+- **Invalid JSON despite structured outputs**: Parse in try/except,
+  attempt one repair prompt, then skip. Pre-update summary intact.
+- **Protected-field rewrites**: Hash verification detects and rejects,
+  restoring from pre-update snapshot.
+- **Hallucinated source IDs**: Domain validation rejects ops with
+  source_message_ids not present in the provided context.
+- **First-run token cost**: ~160K input tokens at Gemini Flash Lite
+  pricing. Affordable for manual runs. No automated triggers in M2.
+- **Output token truncation**: Delta responses are small (ops only,
+  not full summary). Batching limits input size per call.
 
 ## Testing
 
-1. **First summarize**: Run `!summarize` in a channel with 50+ messages.
-   Verify summary JSON is valid, stored in `channel_summaries`, and
-   contains participants, topics, and any decisions from the conversation.
-2. **Incremental update**: Send 10 more messages including a decision.
-   Run `!summarize` again. Verify only new messages were processed and
-   the decision appears in the summary.
-3. **Hash verification**: Manually edit a decision's `decision` field
-   in the database. Run `!summarize`. Verify the verification layer
-   detects the mismatch and restores the original.
-4. **Source verification**: Check that pinned facts with category
-   `reference` or `metric` have `source_verified` flags.
-5. **Supersession**: Make a decision, summarize. Change the decision
-   in conversation, summarize again. Verify the old decision is
-   `superseded` and the new one has a `supersedes` back-reference.
-6. **!summary display**: Run `!summary`. Verify readable output
-   showing overview, topics, decisions, action items.
-7. **Empty channel**: Run `!summarize` on a channel with no messages.
-   Verify graceful handling.
-8. **Provider failure**: Set `SUMMARIZER_PROVIDER` to an invalid value.
-   Run `!summarize`. Verify error is caught and reported cleanly.
-9. **Token count**: Verify `meta.token_count` is populated and the
-   summary stays near the 2,000 token target.
-10. **No regression**: Address the bot normally, verify responses are
-    unaffected (summary is not yet injected into prompts — that's M3).
+1. **Gemini provider**: `get_provider('gemini')` returns cached
+   instance, structured output params accepted, usage logged.
+2. **Delta enforcement**: `!summarize` returns delta ops with
+   `schema_version: "delta.v1"`, not a full summary.
+3. **First summarize (100 msgs)**: Valid summary produced, stored in
+   `channel_summaries`, participants/topics/decisions populated.
+4. **Incremental update**: 10 new messages with a decision.
+   `!summarize` processes only new messages, decision appears.
+5. **Normalization fallback**: Manually bypass structured outputs and
+   send a full-summary response. Verify normalization converts it to
+   valid delta ops and applies correctly.
+6. **Hash verification**: Edit a decision's text in the DB. Run
+   `!summarize`. Verify mismatch detected, original restored.
+7. **Source verification**: Pinned facts with category `reference`
+   have `source_verified` flags set.
+8. **Supersession**: Decision made, summarized. Decision changed in
+   conversation, summarized again. Old decision `superseded`, new one
+   has `supersedes_id` back-reference.
+9. **Duplicate ID rejection**: Verify ADD op for existing ID is
+   rejected and logged.
+10. **Invalid source IDs**: Verify ops citing non-existent M-labels
+    are rejected by domain validation.
+11. **Repair prompt**: Force a validation error. Verify one retry
+    attempted with error details, then skip if retry fails.
+12. **!summary display**: Readable Discord output with overview,
+    topics, decisions, action items.
+13. **Empty channel**: `!summarize` with no messages. Graceful noop.
+14. **Provider failure**: Unset `GEMINI_API_KEY`. Error caught cleanly.
+15. **No regression**: Normal bot responses unaffected (summary not
+    yet in prompts — that's M3).

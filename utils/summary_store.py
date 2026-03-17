@@ -1,7 +1,10 @@
 # utils/summary_store.py
-# Version 1.0.0
+# Version 1.1.0
 """
 SQLite read/write operations for the channel_summaries table.
+
+CHANGES v1.1.0: Hard delete support
+- ADDED: delete_channel_summary() — remove row for a channel, returns True if deleted
 
 CREATED v1.0.0: Structured summary generation (SOW v3.2.0)
 - ADDED: save_channel_summary() — upsert summary for a channel
@@ -65,3 +68,17 @@ def get_channel_summary(channel_id):
         (str(channel_id),),
     ).fetchone()
     return (row[0], row[1]) if row else (None, None)
+
+
+def delete_channel_summary(channel_id):
+    """Hard delete the summary row for a channel. Returns True if a row was deleted."""
+    from utils.message_store import _get_conn
+    conn = _get_conn()
+    cursor = conn.execute(
+        "DELETE FROM channel_summaries WHERE channel_id = ?",
+        (str(channel_id),),
+    )
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    logger.debug(f"delete_channel_summary channel {channel_id}: deleted={deleted}")
+    return deleted

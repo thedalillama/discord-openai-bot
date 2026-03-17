@@ -1,24 +1,59 @@
 # utils/summarizer.py
-# Version 1.0.0
+# Version 1.8.0
 """
-Summarization engine: reads raw messages, calls LLM, applies updates,
-verifies integrity, and stores the result.
+Summarization pipeline orchestrator.
+
+Three-layer enforcement (SOW v3.2.0):
+  Layer 1 — Gemini Structured Outputs: response_mime_type + DELTA_SCHEMA
+  Layer 2 — Normalization: classify → canonicalize → diff_full_to_ops
+  Layer 3 — Domain validation: source IDs, duplicate IDs, status transitions
+
+CHANGES v1.8.0: Filter summary command output from summarizer input
+- ADDED: is_summary_output() filter in _get_unsummarized_messages() — excludes
+  !summary create results, !summary display, and !summary clear confirmations
+
+CHANGES v1.7.0: DEBUG-level pipeline tracing
+- ADDED: batch header log (batch N, message range, human/bot counts)
+- ADDED: full prompt logged at DEBUG before each API call
+- ADDED: full raw API response logged at DEBUG after each call
+- ADDED: classification and op counts logged at DEBUG in _process_response
+- ADDED: repair call logged at DEBUG with error reasons
+
+CHANGES v1.6.0: Include bot messages as [BOT]-labeled context
+- REMOVED: is_bot_author filter from _get_unsummarized_messages(); bot responses
+  are now passed to Gemini so it can see what questions were answered and what
+  facts were established; build_label_map() marks them with [BOT] suffix
+
+CHANGES v1.5.0: Filter bot-authored messages from summarization input (SOW v3.2.1)
+- ADDED: is_bot_author check in _get_unsummarized_messages(); bot responses
+  (AI-generated content) excluded — only human messages are summarized
+
+CHANGES v1.4.0: Filter "System prompt updated for" from summarization input
+- ADDED: "System prompt updated for" excluded in _get_unsummarized_messages();
+  kept in channel_history for realtime_settings_parser.py but noise for summarizer
+
+CHANGES v1.3.0: Housekeeping noise filter in _get_unsummarized_messages()
+- ADDED: is_history_output(), is_settings_persistence_message(), !-command filter
+
+CHANGES v1.2.0: Batch loop (SOW v3.2.0)
+- ADDED: summarize_channel() loops over SUMMARIZER_BATCH_SIZE chunks until all
+  unsummarized messages are processed; summary state reloaded from DB each
+  iteration so each batch builds on the previous result
+- ADDED: SUMMARIZER_BATCH_SIZE imported from config
+- CHANGED: returns total messages_processed across all batches; token_count and
+  verification reflect the final batch state
+
+CHANGES v1.1.0: Full SOW compliance
+- REPLACED: system prompt → SOW-specified strict instruction (summary_prompts.py)
+- ADDED: Gemini Structured Outputs (response_mime_type + DELTA_SCHEMA)
+- ADDED: Three-layer pipeline: classify → normalize → validate → apply_ops
+- ADDED: Repair prompt retry on parse/classify failure (one attempt)
+- UPDATED: _build_prompt() → SOW template; moved to summary_prompts.py
+- UPDATED: _translate_labels_to_ids() → iterates ops[] not legacy list keys
+- REPLACED: apply_updates() → apply_ops() from summary_schema
+- SPLIT: prompt helpers → summary_prompts.py; JSON parse → summary_normalization.py
 
 CREATED v1.0.0: Structured summary generation (SOW v3.2.0)
-- ADDED: summarize_channel() — main entry point
-- ADDED: _get_unsummarized_messages() — fetch messages after last_message_id
-- ADDED: _build_label_map() — assign M1/M2/M3 labels, return label→id mapping
-- ADDED: _build_prompt() — construct system+user message list for LLM
-- ADDED: _translate_labels_to_ids() — replace M-labels with real snowflake IDs
-- ADDED: _parse_json_response() — parse LLM output, strip markdown fences
-
-Provider calls go through provider.generate_ai_response() which handles
-loop.run_in_executor() internally — matching the established convention.
-SQLite reads/writes use asyncio.to_thread() — matching raw_events.py pattern.
-
-Note: SUMMARIZER_MODEL is stored in meta for reference. The provider singleton
-uses whatever model it was initialised with; per-call model overrides require
-a provider refactor (deferred to a future version).
 """
 import asyncio
 import json
@@ -28,201 +63,251 @@ from utils.context_manager import estimate_tokens
 
 logger = get_logger('summarizer')
 
-# Maximum messages processed per !summarize call to bound prompt size.
-_MAX_MESSAGES = 500
 
-_SYSTEM_PROMPT = (
-    "You are a conversation summarizer. You receive a current summary JSON "
-    "and a batch of new messages. Return ONLY a valid JSON object with the "
-    "changes to apply — no markdown, no explanation, just the JSON.\n\n"
-    "RULES:\n"
-    "- Return incremental updates only: ADD, SUPERSEDE, CLOSE, COMPLETE, "
-    "ANSWER, or UPDATE operations on specific items.\n"
-    "- Never modify the protected field of any existing decision, key_fact, "
-    "action_item, or pinned_memory item.\n"
-    "- To change a decision, SUPERSEDE it: set old status to 'superseded' "
-    "and create a new item with a 'supersedes' back-reference.\n"
-    "- Preserve filenames, paths, URLs, version numbers, and numerical values "
-    "exactly as they appear in the source messages.\n"
-    "- Use source_message_ids to reference the M-labels (e.g. 'M1', 'M2') "
-    "provided in the context.\n"
-    "- Only promote durable information. Skip casual filler and greetings.\n"
-    "- Keep the overview to 1-3 sentences."
-)
+async def summarize_channel(channel_id, batch_size=None):
+    """Generate or update the structured summary for a channel.
 
-
-async def summarize_channel(channel_id):
-    """
-    Generate or update the structured summary for a channel.
-
-    Returns:
-        dict: {messages_processed, token_count, verification, error}
-              error is None on success, or an error string on failure.
+    Loops in batches of SUMMARIZER_BATCH_SIZE until all unsummarized messages
+    are consumed. Returns {messages_processed, token_count, verification, error}.
     """
     from utils.summary_store import get_channel_summary, save_channel_summary
     from utils.summary_schema import (
-        make_empty_summary, apply_updates,
-        verify_protected_hashes, run_source_verification,
+        make_empty_summary, apply_ops, verify_protected_hashes,
+        run_source_verification, DELTA_SCHEMA,
     )
+    from utils.summary_prompts import build_label_map, build_prompt
     from ai_providers import get_provider
-    from config import SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
+    from config import SUMMARIZER_PROVIDER, SUMMARIZER_MODEL, SUMMARIZER_BATCH_SIZE
 
-    _empty = {"messages_processed": 0, "token_count": 0, "verification": {}, "error": None}
+    effective_batch = batch_size if batch_size is not None else SUMMARIZER_BATCH_SIZE
+    provider = get_provider(SUMMARIZER_PROVIDER)
+    total_processed = 0
+    last_token_count = 0
+    last_verification = {}
+    batch_num = 0
 
-    # Load or initialise summary
-    summary_json, last_message_id = await asyncio.to_thread(get_channel_summary, channel_id)
-    if summary_json:
-        try:
-            current = json.loads(summary_json)
-        except Exception as e:
-            logger.error(f"Failed to parse stored summary for channel {channel_id}: {e}")
+    while True:
+        # Reload fresh each iteration — picks up the save from the previous batch.
+        summary_json, last_message_id = await asyncio.to_thread(
+            get_channel_summary, channel_id
+        )
+        if summary_json:
+            try:
+                current = json.loads(summary_json)
+            except Exception as e:
+                logger.error(f"Failed to parse stored summary for channel {channel_id}: {e}")
+                current = make_empty_summary(channel_id)
+                last_message_id = None
+        else:
             current = make_empty_summary(channel_id)
             last_message_id = None
-    else:
-        current = make_empty_summary(channel_id)
-        last_message_id = None
 
-    # Fetch unsummarised messages
-    new_messages = await _get_unsummarized_messages(channel_id, last_message_id)
-    if not new_messages:
+        new_messages = await _get_unsummarized_messages(channel_id, last_message_id)
+        new_messages = new_messages[:effective_batch]
+        if not new_messages:
+            break
+
+        batch_num += 1
+        human_count = sum(1 for m in new_messages if not m.is_bot_author)
+        bot_count = len(new_messages) - human_count
+        logger.debug(
+            f"Batch {batch_num}: {len(new_messages)} messages "
+            f"({human_count} human, {bot_count} bot) — "
+            f"ids {new_messages[0].id}..{new_messages[-1].id}"
+        )
+
+        label_to_id, labeled_text = build_label_map(new_messages)
+        context_labels = set(label_to_id.keys())
+        prompt_messages = build_prompt(current, labeled_text)
+
+        logger.debug(
+            f"Batch {batch_num} — SYSTEM PROMPT:\n{prompt_messages[0]['content']}"
+        )
+        logger.debug(
+            f"Batch {batch_num} — USER MESSAGE:\n{prompt_messages[1]['content']}"
+        )
+
+        try:
+            response_text = await provider.generate_ai_response(
+                prompt_messages, temperature=0,
+                response_mime_type="application/json",
+                response_json_schema=DELTA_SCHEMA,
+            )
+        except Exception as e:
+            logger.error(f"Summarizer provider call failed for channel {channel_id}: {e}")
+            return _partial(total_processed, last_token_count, last_verification, str(e))
+
+        logger.debug(f"Batch {batch_num} — RAW RESPONSE:\n{response_text}")
+
+        delta, err = await _process_response(
+            response_text, current, context_labels,
+            channel_id, provider, prompt_messages, DELTA_SCHEMA,
+            batch_num=batch_num,
+        )
+        if err:
+            return _partial(total_processed, last_token_count, last_verification, err)
+
+        _translate_labels_to_ids(delta.get("ops", []), label_to_id)
+        updated = apply_ops(current, delta)
+        mismatches, verified = verify_protected_hashes(updated, current)
+        messages_by_id = {msg.id: msg.content for msg in new_messages}
+        src_passed, src_failed = run_source_verification(updated, messages_by_id)
+
+        token_count = estimate_tokens(json.dumps(updated))
+        updated["summary_token_count"] = token_count
+        last_id = new_messages[-1].id
+        protected_count = sum(
+            len(updated.get(k, []))
+            for k in ("decisions", "key_facts", "action_items", "pinned_memory")
+        )
+        verification = {
+            "protected_items_count": protected_count,
+            "hashes_verified": verified, "mismatches": mismatches,
+            "source_checks_passed": src_passed, "source_checks_failed": src_failed,
+        }
+        updated["meta"].update({
+            "model": f"{SUMMARIZER_PROVIDER}/{SUMMARIZER_MODEL}",
+            "summarized_at": datetime.now(timezone.utc).isoformat(),
+            "token_count": token_count,
+            "message_range": {
+                "first_id": new_messages[0].id,
+                "last_id": last_id,
+                "count": len(new_messages),
+            },
+            "verification": verification,
+        })
+
+        prior_count = current.get("meta", {}).get("message_range", {}).get("count", 0)
+        await asyncio.to_thread(
+            save_channel_summary, channel_id,
+            json.dumps(updated), prior_count + len(new_messages), last_id,
+        )
+
+        total_processed += len(new_messages)
+        last_token_count, last_verification = token_count, verification
+        if token_count > 2000:
+            logger.warning(f"Summary token count {token_count} exceeds 2000 target")
+        logger.info(
+            f"Batch {batch_num} saved for channel {channel_id}: "
+            f"{len(new_messages)} messages, {token_count} tokens, "
+            f"{mismatches} hash mismatches"
+        )
+
+    if total_processed == 0:
         logger.info(f"No new messages to summarize for channel {channel_id}")
-        return _empty
+    else:
+        logger.info(
+            f"Summarization complete for channel {channel_id}: "
+            f"{total_processed} messages across {batch_num} batch(es)"
+        )
+    return _partial(total_processed, last_token_count, last_verification, None)
 
-    label_to_id, labeled_text = _build_label_map(new_messages)
-    prompt_messages = _build_prompt(json.dumps(current, indent=2), labeled_text)
 
-    # Call LLM
+def _partial(processed, token_count, verification, error):
+    return {"messages_processed": processed, "token_count": token_count,
+            "verification": verification, "error": error}
+
+
+async def _process_response(response_text, pre_state, context_labels,
+                             channel_id, provider, prompt_messages, delta_schema,
+                             batch_num=0):
+    """Parse (Layer 2) and domain-validate (Layer 3). One repair retry on failure."""
+    from utils.summary_normalization import (
+        parse_json_response, classify_response, canonicalize_full_summary, diff_full_to_ops
+    )
+    from utils.summary_validation import validate_domain
+
+    errors = []
+    for attempt in range(2):
+        parsed = parse_json_response(response_text)
+        if parsed is None:
+            errors.append("Response is not valid JSON")
+            if attempt == 0:
+                logger.debug(f"Batch {batch_num} — parse failed, sending repair prompt")
+                response_text = await _repair_call(
+                    provider, prompt_messages, errors, delta_schema, channel_id
+                )
+                logger.debug(f"Batch {batch_num} — REPAIR RESPONSE:\n{response_text}")
+                continue
+            return None, "; ".join(errors)
+
+        kind = classify_response(parsed)
+        logger.debug(f"Batch {batch_num} — response classified as: {kind}")
+
+        if kind == "delta":
+            delta = parsed
+        elif kind == "full":
+            logger.info(f"Full summary response — normalizing to delta (channel {channel_id})")
+            ops = diff_full_to_ops(pre_state, canonicalize_full_summary(parsed))
+            delta = {"schema_version": "delta.v1", "mode": "incremental", "ops": ops}
+        else:
+            errors.append("Unknown response shape (not delta or full summary)")
+            if attempt == 0:
+                logger.debug(f"Batch {batch_num} — unknown shape, sending repair prompt")
+                response_text = await _repair_call(
+                    provider, prompt_messages, errors, delta_schema, channel_id
+                )
+                logger.debug(f"Batch {batch_num} — REPAIR RESPONSE:\n{response_text}")
+                continue
+            return None, "; ".join(errors)
+
+        ops_before = len(delta.get("ops", []))
+        delta["ops"] = validate_domain(delta, pre_state, context_labels)
+        ops_after = len(delta["ops"])
+        logger.debug(
+            f"Batch {batch_num} — domain validation: {ops_before} ops in, "
+            f"{ops_after} accepted, {ops_before - ops_after} rejected"
+        )
+        return delta, None
+
+    return None, "; ".join(errors)
+
+
+async def _repair_call(provider, original_messages, errors, delta_schema, channel_id):
+    """Resend the original prompt with a repair instruction appended. One retry only."""
+    repair = (
+        "Your previous output failed validation.\n\n"
+        "VALIDATION_ERRORS:\n" +
+        "\n".join(f"- {e}" for e in errors) +
+        "\n\nReturn ONLY corrected JSON conforming to the schema. No other text."
+    )
     try:
-        provider = get_provider(SUMMARIZER_PROVIDER)
-        response_text = await provider.generate_ai_response(prompt_messages, temperature=0)
+        return await provider.generate_ai_response(
+            original_messages + [{"role": "user", "content": repair}],
+            temperature=0,
+            response_mime_type="application/json",
+            response_json_schema=delta_schema,
+        )
     except Exception as e:
-        logger.error(f"Summarizer provider call failed for channel {channel_id}: {e}")
-        return {**_empty, "error": str(e)}
-
-    updates = _parse_json_response(response_text)
-    if updates is None:
-        return {**_empty, "error": "LLM returned invalid JSON"}
-
-    _translate_labels_to_ids(updates, label_to_id)
-
-    snapshot = current
-    updated = apply_updates(current, updates)
-    mismatches, verified = verify_protected_hashes(updated, snapshot)
-
-    messages_by_id = {msg.id: msg.content for msg in new_messages}
-    src_passed, src_failed = run_source_verification(updated, messages_by_id)
-
-    # Token count and meta
-    summary_str = json.dumps(updated)
-    token_count = estimate_tokens(summary_str)
-    updated["summary_token_count"] = token_count
-
-    last_id = new_messages[-1].id
-    protected_count = sum(
-        len(updated.get(k, []))
-        for k in ("decisions", "key_facts", "action_items", "pinned_memory")
-    )
-    verification = {
-        "protected_items_count": protected_count,
-        "hashes_verified": verified,
-        "mismatches": mismatches,
-        "source_checks_passed": src_passed,
-        "source_checks_failed": src_failed,
-    }
-    updated["meta"].update({
-        "model": f"{SUMMARIZER_PROVIDER}/{SUMMARIZER_MODEL}",
-        "summarized_at": datetime.now(timezone.utc).isoformat(),
-        "token_count": token_count,
-        "message_range": {
-            "first_id": new_messages[0].id,
-            "last_id": last_id,
-            "count": len(new_messages),
-        },
-        "verification": verification,
-    })
-
-    prior_count = current.get("meta", {}).get("message_range", {}).get("count", 0)
-    await asyncio.to_thread(
-        save_channel_summary, channel_id,
-        json.dumps(updated), prior_count + len(new_messages), last_id
-    )
-
-    if token_count > 2000:
-        logger.warning(f"Summary token count {token_count} exceeds 2000 target for channel {channel_id}")
-    logger.info(
-        f"Summary saved for channel {channel_id}: {len(new_messages)} messages, "
-        f"{token_count} tokens, {mismatches} hash mismatches"
-    )
-    return {"messages_processed": len(new_messages), "token_count": token_count,
-            "verification": verification, "error": None}
+        logger.error(f"Repair call failed for channel {channel_id}: {e}")
+        return ""
 
 
 async def _get_unsummarized_messages(channel_id, last_message_id):
-    """Return messages after last_message_id, capped at _MAX_MESSAGES."""
+    """Return unsummarized messages, excluding housekeeping noise (bot commands,
+    settings confirmations, history output) — same filters as prepare_messages_for_api().
+    Bot-authored messages are included but flagged via is_bot_author for label marking."""
     from utils.message_store import get_channel_messages
+    from utils.history.message_processing import (
+        is_history_output, is_settings_persistence_message, is_summary_output,
+    )
     all_messages = await asyncio.to_thread(get_channel_messages, channel_id)
     if last_message_id is not None:
         all_messages = [m for m in all_messages if m.id > last_message_id]
-    return all_messages[-_MAX_MESSAGES:]
-
-
-def _build_label_map(messages):
-    """
-    Assign M1/M2/M3 labels to messages.
-
-    Returns:
-        tuple: (label_to_id dict, labeled_text string)
-    """
-    label_to_id = {}
-    lines = []
-    for i, msg in enumerate(messages, 1):
-        label = f"M{i}"
-        label_to_id[label] = msg.id
-        ts = msg.created_at[:16] if msg.created_at else ""
-        lines.append(f"[{label}] {msg.author_name} ({ts}): {msg.content}")
-    return label_to_id, "\n".join(lines)
-
-
-def _build_prompt(current_summary_json, labeled_text):
-    """Build the [system, user] message list for the summarizer LLM call."""
-    user_content = (
-        f"Current summary:\n{current_summary_json}\n\n"
-        f"New messages:\n{labeled_text}\n\n"
-        "Return the incremental update JSON now."
-    )
     return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user",   "content": user_content},
+        m for m in all_messages if m.content
+        and not m.content.startswith('!')
+        and not is_history_output(m.content)
+        and not is_settings_persistence_message(m.content)
+        and not is_summary_output(m.content)
+        and "System prompt updated for" not in m.content
     ]
 
 
-def _parse_json_response(text):
-    """Parse JSON from LLM response, stripping markdown code fences if present."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse LLM response as JSON: {e}\nResponse: {text[:200]}")
-        return None
-
-
-def _translate_labels_to_ids(updates, label_to_id):
-    """Replace M-label strings with integer snowflake IDs in all source_message_ids."""
-    def _translate(id_list):
-        result = []
-        for item_id in id_list:
-            if isinstance(item_id, str) and item_id in label_to_id:
-                result.append(label_to_id[item_id])
-            elif isinstance(item_id, int):
-                result.append(item_id)
-        return result
-
-    for list_key in ("topic_updates", "decision_updates", "fact_updates",
-                     "action_item_updates", "question_updates", "pinned_memory_updates"):
-        for entry in updates.get(list_key, []):
-            item = entry.get("item", {})
-            if "source_message_ids" in item:
-                item["source_message_ids"] = _translate(item["source_message_ids"])
+def _translate_labels_to_ids(ops, label_to_id):
+    """Replace M-label strings with integer snowflake IDs in ops[].source_message_ids."""
+    for op in ops:
+        if "source_message_ids" in op:
+            op["source_message_ids"] = [
+                label_to_id.get(mid, mid) for mid in op["source_message_ids"]
+            ]

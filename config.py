@@ -1,8 +1,23 @@
 # config.py
-# Version 1.8.0
+# Version 1.11.0
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.11.0: Reduce default batch size to prevent response truncation
+- CHANGED: SUMMARIZER_BATCH_SIZE default 200 → 50 — 200-message batches caused
+  Gemini to generate too many ops, truncating the JSON before closing braces;
+  50 messages keeps output well within the response token window
+
+CHANGES v1.10.0: Summarizer batch size + Gemini output limit (SOW v3.2.0)
+- ADDED: SUMMARIZER_BATCH_SIZE env var (default 200) — messages per Gemini call
+- CHANGED: GEMINI_MAX_TOKENS default 8192 → 32768 — previous limit truncated
+  delta JSON for batches of 200 messages (~8K output tokens needed)
+
+CHANGES v1.9.0: Gemini provider configuration (SOW v3.2.0)
+- ADDED: GEMINI_API_KEY, GEMINI_MODEL, GEMINI_CONTEXT_LENGTH, GEMINI_MAX_TOKENS
+- CHANGED: SUMMARIZER_PROVIDER default 'AI_PROVIDER' → 'gemini'
+- CHANGED: SUMMARIZER_MODEL default 'deepseek-chat' → 'gemini-2.5-flash-lite'
 
 CHANGES v1.8.0: Summarizer provider configuration (SOW v3.2.0)
 - ADDED: SUMMARIZER_PROVIDER env var (default: AI_PROVIDER) — provider used
@@ -94,14 +109,23 @@ OPENAI_COMPATIBLE_MODEL = os.environ.get('OPENAI_COMPATIBLE_MODEL', 'deepseek-ch
 OPENAI_COMPATIBLE_CONTEXT_LENGTH = int(os.environ.get('OPENAI_COMPATIBLE_CONTEXT_LENGTH', 64000))
 OPENAI_COMPATIBLE_MAX_TOKENS = int(os.environ.get('OPENAI_COMPATIBLE_MAX_TOKENS', 8000))
 
+# Gemini configuration
+# Used primarily for summarization (1M token context fits full message history).
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-lite')
+GEMINI_CONTEXT_LENGTH = int(os.environ.get('GEMINI_CONTEXT_LENGTH', 1000000))
+GEMINI_MAX_TOKENS = int(os.environ.get('GEMINI_MAX_TOKENS', 32768))
+
 # Summarizer configuration
-# SUMMARIZER_PROVIDER selects the provider for summarization calls. Defaults
-# to AI_PROVIDER if not set. If both conversation and summarization use the
-# same provider type (e.g. both 'deepseek'), they share the singleton instance
-# and therefore the same model. Use a different provider type to get a separate
-# instance with a different model.
-SUMMARIZER_PROVIDER = os.environ.get('SUMMARIZER_PROVIDER', AI_PROVIDER)
-SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'deepseek-chat')
+# SUMMARIZER_PROVIDER defaults to 'gemini' — 1M context handles full history
+# in a single pass without recursive chunking. Set to another provider to
+# override (shares that provider's singleton and model).
+SUMMARIZER_PROVIDER = os.environ.get('SUMMARIZER_PROVIDER', 'gemini')
+SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-2.5-flash-lite')
+# SUMMARIZER_BATCH_SIZE: messages per Gemini call. Keeps output JSON small
+# enough to stay within Gemini's response token limit. Default 50 — larger
+# batches cause too many ops in a single response, truncating the JSON.
+SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

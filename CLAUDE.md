@@ -1,11 +1,12 @@
 # CLAUDE.md
-# Version 1.2.0
+# Version 1.3.0
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Workflow Rules
 
 - **NO CODE CHANGES WITHOUT APPROVAL** — Discuss proposed changes, rationale, and impact before implementing. Wait for explicit approval before writing any code.
+- **Implement exactly what the SOW specifies** — Never add limitations, caps, defaults, or behaviours not described in the SOW without explicit approval. If a concern arises (e.g. a missing cap on message volume), raise it and wait for a decision before adding anything.
 - **Always present complete files** — Never show partial diffs or snippets when delivering code changes. Always present the full file contents.
 - **Increment version numbers before committing** — Every file has a version header (e.g., `# Version 1.2.0`). Bump the version in the file header as part of the change, and update the changelog block in the docstring.
 - **Update STATUS.md and HANDOFF.md alongside code changes** — Any version bump must be reflected in STATUS.md (version history) and HANDOFF.md (current state). These are not optional.
