@@ -1,7 +1,18 @@
 # utils/history/message_processing.py
-# Version 2.2.6
+# Version 2.2.7
 """
 Message processing and filtering for Discord bot history.
+
+CHANGES v2.2.7: Add is_summary_output(); fix command-specific help filter
+- ADDED: is_summary_output() — detects !summary create results, !summary display
+  output, and !summary clear confirmations
+- MODIFIED: is_history_output() calls is_summary_output() so summary messages are
+  filtered from channel_history (and therefore !history output) as well
+- ADDED: ```\n!command pattern to catch command-specific help output (e.g. !help ai)
+- ADDED: is_summary_output() — detects !summary create results, !summary display
+  output, and !summary clear confirmations
+- MODIFIED: is_history_output() calls is_summary_output() so summary messages are
+  filtered from channel_history (and therefore !history output) as well
 
 CHANGES v2.2.6: Add DEEPSEEK_REASONING noise pattern (SOW v2.20.0)
 - ADDED: REASONING_PREFIX constant matching openai_compatible_provider.py
@@ -52,6 +63,9 @@ def is_history_output(message_text):
         logger.debug("Not filtering 'System prompt updated for' message")
         return False
 
+    if is_summary_output(message_text):
+        return True
+
     return (
         # DeepSeek reasoning content (filtered as noise — never store in history)
         message_text.startswith(REASONING_PREFIX) or
@@ -67,6 +81,9 @@ def is_history_output(message_text):
         (("Loaded " in message_text) and
          (" messages from channel history" in message_text)) or
         "Cleaned history: removed " in message_text or
+
+        # Help command output (command-specific help blocks start with ```\n!command)
+        message_text.startswith("```\n!") or
 
         # v2.13.0 command output patterns
         "**Bot Status for" in message_text or
@@ -97,6 +114,31 @@ def is_history_output(message_text):
     # - "DeepSeek thinking display **enabled/disabled**" (action, not status)
     # - "AI provider for #channel changed from ... to"
     # - "AI provider for #channel reset from ... to"
+
+
+def is_summary_output(message_text):
+    """
+    Return True if message is output from a !summary command.
+
+    Covers:
+    - !summary display:  "**Summary for #..."
+    - !summary create:   "**Summary updated for #..." / "No new messages to summarize"
+                         / "Summarization failed:" / "Error running summarization:"
+    - !summary clear:    "Summary cleared for #..." / "No summary found for #..."
+    - !summary (empty):  "No summary available for #..."
+    """
+    return (
+        message_text.startswith("**Summary for #") or
+        message_text.startswith("**Summary updated for #") or
+        message_text.startswith("No new messages to summarize") or
+        message_text.startswith("Summarization failed:") or
+        message_text.startswith("Error running summarization:") or
+        message_text.startswith("Summary cleared for #") or
+        message_text.startswith("No summary found for #") or
+        message_text.startswith("No summary available for #") or
+        message_text.startswith("Error retrieving summary:") or
+        message_text.startswith("Error clearing summary:")
+    )
 
 
 def is_settings_persistence_message(message_text):

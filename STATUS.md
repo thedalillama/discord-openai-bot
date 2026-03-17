@@ -1,8 +1,81 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.2.0
+# Version 3.2.3
 
 ## Current Version Features
+
+### Version 3.2.3 - Summary Quality & Bot Message Filtering
+- **ADDED**: `schema/003.sql` — `is_bot_author INTEGER DEFAULT 0` column migration
+- **MODIFIED**: `utils/models.py` v1.2.0 — `is_bot_author: bool = False` field on StoredMessage
+- **MODIFIED**: `utils/message_store.py` v1.2.0 — `is_bot_author` in INSERT and SELECT
+  (column index 13); existing rows default to 0 via migration
+- **MODIFIED**: `utils/raw_events.py` v1.2.0 — captures `message.author.bot` in
+  persistence_on_message and _backfill_channel; bot responses stored with is_bot_author=True
+- **MODIFIED**: `utils/summarizer.py` v1.5.0 — `not m.is_bot_author` filter in
+  _get_unsummarized_messages() excludes all bot-authored messages (AI responses,
+  trivia answers, etc.) from summarization input; resolves 130-fact noise problem
+- **MODIFIED**: `utils/summarizer.py` v1.2.0–v1.4.0 (earlier in session) — batch loop:
+  summarize_channel() loops over SUMMARIZER_BATCH_SIZE chunks until all messages processed;
+  summary reloaded from DB each iteration so batches build on previous result;
+  added housekeeping filters: is_history_output(), is_settings_persistence_message(),
+  "System prompt updated for" excluded from summarizer (kept in channel_history)
+- **MODIFIED**: `config.py` v1.10.0 — SUMMARIZER_BATCH_SIZE env var (default 200);
+  GEMINI_MAX_TOKENS raised 8192 → 32768
+- **MODIFIED**: `commands/summary_commands.py` v2.0.0 — !summarize removed; !summary
+  becomes a group: `!summary` (show, all users), `!summary create` (run, admin),
+  `!summary clear` (hard delete, admin)
+- **MODIFIED**: `utils/summary_store.py` v1.1.0 — delete_channel_summary() added
+- **MODIFIED**: `utils/summary_prompts.py` v1.1.0 — system prompt overhauled:
+  durable-state-only promotion policy; explicit DO NOT PROMOTE list; budget guidance;
+  PRIORITY ORDER for new items
+- **MODIFIED**: `utils/summary_validation.py` v1.1.0 — content-empty add ops rejected;
+  _CONTENT_OPS frozenset; check 0 before source ID check
+- **MODIFIED**: `commands/__init__.py` v2.2.0 — !summarize removed from changelog
+
+### Version 3.2.2 - Three-Layer Enforcement Architecture (SOW v3.2.0 full compliance)
+- **MODIFIED**: `utils/summary_schema.py` v1.1.0 — DELTA_SCHEMA constant (ops[]
+  JSON schema for Gemini response_json_schema); apply_updates() replaced by
+  apply_ops() handling all 13 op types; verify_protected_hashes() unified to
+  text_hash for all protected sections
+- **MODIFIED**: `ai_providers/gemini_provider.py` v1.1.0 — response_mime_type
+  and response_json_schema kwargs added to generate_ai_response(); passed to
+  GenerateContentConfig as response_schema for Gemini Structured Outputs (Layer 1)
+- **ADDED**: `utils/summary_normalization.py` v1.0.0 — parse_json_response()
+  (3-strategy JSON extraction); classify_response() (delta/full/unknown);
+  canonicalize_full_summary() (field remap + type coercion); diff_full_to_ops()
+  (domain-aware diff of full summary → delta ops[]) — Layer 2 normalization
+- **ADDED**: `utils/summary_validation.py` v1.0.0 — validate_domain(): source
+  ID presence, duplicate ADD IDs within delta, ADD of pre-existing IDs, status
+  transition validity — Layer 3 domain validation
+- **ADDED**: `utils/summary_prompts.py` v1.0.0 — SYSTEM_PROMPT (SOW-specified
+  strict instruction with forbidden example); build_label_map(); build_prompt()
+  (hash-only CURRENT_STATE snapshot + M-labeled messages + RULES)
+- **MODIFIED**: `utils/summarizer.py` v1.1.0 — full three-layer pipeline:
+  Gemini Structured Outputs → normalization → domain validation → apply_ops;
+  repair prompt retry on failure; imports from summary_prompts + summary_normalization
+- **NOTE**: tier2_tests.py tests apply_updates() (old format) — needs update
+
+### Version 3.2.1 - Gemini Provider + Summarizer Bugfix
+- **ADDED**: `ai_providers/gemini_provider.py` v1.0.0 — GeminiProvider using
+  google-genai SDK; converts OpenAI-style messages to Gemini format
+  (system_instruction + contents); run_in_executor() pattern; usage logging
+  from response.usage_metadata
+- **MODIFIED**: `ai_providers/__init__.py` v1.4.0 — 'gemini' case in
+  get_provider() factory; lazy import of GeminiProvider to avoid import errors
+  when google-genai is not installed
+- **MODIFIED**: `config.py` v1.9.0 — GEMINI_API_KEY, GEMINI_MODEL
+  (gemini-2.5-flash-lite), GEMINI_CONTEXT_LENGTH (1M), GEMINI_MAX_TOKENS
+  (8192); SUMMARIZER_PROVIDER default changed from AI_PROVIDER → 'gemini';
+  SUMMARIZER_MODEL default changed to 'gemini-2.5-flash-lite'
+- **MODIFIED**: `requirements.txt` — added google-genai>=1.0.0
+- **MODIFIED**: `utils/summarizer.py` v1.0.1 — robust JSON extraction
+  (3 strategies: direct, markdown fence strip, outermost { } block); logs
+  full response (up to 1000 chars) on parse failure
+- **MODIFIED**: `CLAUDE.md` v1.3.0 — added SOW compliance rule: never add
+  limitations, caps, or behaviours not in the SOW without explicit approval
+- **ADDED**: `tier2_tests.py` — 58 unit tests covering schema, store,
+  summarizer functions (all pass)
+- **NOTE**: GEMINI_API_KEY must be set in .env for !summarize to work
 
 ### Version 3.2.0 - Structured Summary Generation (Roadmap M2)
 - **ADDED**: `utils/summary_schema.py` v1.0.0 — schema factory, hash utilities,
@@ -15,6 +88,7 @@
 - **ADDED**: `commands/summary_commands.py` v1.0.0 — !summarize (admin only)
   and !summary (all users) commands
 - **MODIFIED**: `config.py` v1.8.0 — SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
+  (superseded by v1.9.0 in v3.2.1)
 - **MODIFIED**: `commands/__init__.py` v2.1.0 — registers summary_commands
 - **UNCHANGED**: message_store.py, bot.py, raw_events.py, all history modules,
   all existing providers — in-memory response pipeline untouched (M3 injects
@@ -141,7 +215,7 @@
 ```
 ├── main.py                    # Entry point (minimal)
 ├── bot.py                     # Core Discord events (v3.0.0)
-├── config.py                  # Configuration management (v1.7.0)
+├── config.py                  # Configuration management (v1.9.0)
 ├── schema/                    # Versioned SQL migration files (NEW v3.1.0)
 │   ├── 001.sql                    # v3.0.0 baseline schema
 │   └── 002.sql                    # v3.1.0 extensions
@@ -154,11 +228,12 @@
 │   ├── thinking_commands.py       # v2.1.0
 │   └── status_commands.py
 ├── ai_providers/              # AI provider implementations
-│   ├── __init__.py                # Provider factory (v1.3.0)
+│   ├── __init__.py                # Provider factory (v1.4.0)
 │   ├── base.py
 │   ├── openai_provider.py         # v1.3.0
 │   ├── anthropic_provider.py      # v1.1.0
-│   └── openai_compatible_provider.py  # v1.2.0
+│   ├── openai_compatible_provider.py  # v1.2.0
+│   └── gemini_provider.py         # v1.0.0 (NEW v3.2.1)
 └── utils/                     # Utility modules
     ├── models.py                  # v1.1.0 — StoredMessage dataclass
     ├── message_store.py           # v1.1.0 — SQLite persistence
@@ -183,7 +258,7 @@
 ├── utils/                     # Utility modules (continued)
 │   ├── summary_schema.py          # v1.0.0 (NEW v3.2.0)
 │   ├── summary_store.py           # v1.0.0 (NEW v3.2.0)
-│   └── summarizer.py              # v1.0.0 (NEW v3.2.0)
+│   └── summarizer.py              # v1.0.1 (NEW v3.2.0, bugfix v3.2.1)
 └── commands/                  # (continued)
     └── summary_commands.py        # v1.0.0 (NEW v3.2.0)
         ├── settings_manager.py

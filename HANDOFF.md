@@ -1,19 +1,74 @@
 # HANDOFF.md
-# Version 3.2.0
+# Version 3.2.3
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: claude-code (v3.2.0 not yet merged to development)
+**Branch**: claude-code (v3.2.3 not yet merged to development)
 **Main**: v3.0.0 (untagged)
 **Development**: v3.1.1
 **Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v3.2.0 — Structured Summary Generation (Roadmap M2)
+**Last completed**: v3.2.3 — Summary quality improvements + is_bot_author filtering
 **Next**: M3 — Inject summary into response context (build_context_for_provider)
+**Env required**: GEMINI_API_KEY in .env; restart bot to pick up schema/003.sql migration
 
 ---
 
 ## Recent Completed Work
+
+### v3.2.3 — Summary Quality & Bot Message Filtering
+- **NEW**: `schema/003.sql` — `ALTER TABLE messages ADD COLUMN is_bot_author INTEGER DEFAULT 0`
+- **MODIFIED**: `utils/models.py` v1.2.0 — `is_bot_author: bool = False` on StoredMessage
+- **MODIFIED**: `utils/message_store.py` v1.2.0 — INSERT/SELECT include is_bot_author (col 13)
+- **MODIFIED**: `utils/raw_events.py` v1.2.0 — `message.author.bot` captured in realtime
+  and backfill; bot responses stored with is_bot_author=True
+- **MODIFIED**: `utils/summarizer.py` v1.5.0 — `not m.is_bot_author` filter added to
+  _get_unsummarized_messages(); resolves 130-fact noise from AI-generated trivia answers
+- **MODIFIED**: `utils/summarizer.py` v1.2.0–v1.4.0 — batch loop over SUMMARIZER_BATCH_SIZE;
+  housekeeping filters (is_history_output, is_settings_persistence_message,
+  "System prompt updated for"); _partial() return helper
+- **MODIFIED**: `config.py` v1.10.0 — SUMMARIZER_BATCH_SIZE (default 200);
+  GEMINI_MAX_TOKENS 8192 → 32768
+- **MODIFIED**: `commands/summary_commands.py` v2.0.0 — !summary group: show / create / clear;
+  !summarize removed
+- **MODIFIED**: `utils/summary_store.py` v1.1.0 — delete_channel_summary() added
+- **MODIFIED**: `utils/summary_prompts.py` v1.1.0 — durable-state-only system prompt;
+  DO NOT PROMOTE list; PRIORITY ORDER; 0-3 item budget per batch
+- **MODIFIED**: `utils/summary_validation.py` v1.1.0 — content-empty add ops rejected
+- **MODIFIED**: `commands/__init__.py` v2.2.0
+
+### v3.2.2 — Three-Layer Enforcement Architecture
+- **MODIFIED**: `utils/summary_schema.py` v1.1.0 — DELTA_SCHEMA (ops[] JSON
+  schema for Gemini response_json_schema); apply_ops() replaces apply_updates();
+  text_hash unified across all protected sections
+- **MODIFIED**: `ai_providers/gemini_provider.py` v1.1.0 — response_mime_type +
+  response_json_schema kwargs → GenerateContentConfig.response_schema (Layer 1)
+- **NEW**: `utils/summary_normalization.py` v1.0.0 — parse_json_response(),
+  classify_response(), canonicalize_full_summary(), diff_full_to_ops() (Layer 2)
+- **NEW**: `utils/summary_validation.py` v1.0.0 — validate_domain(): source IDs,
+  duplicate ADD IDs, pre-existing ID ADDs, status transitions (Layer 3)
+- **NEW**: `utils/summary_prompts.py` v1.0.0 — SYSTEM_PROMPT, build_label_map(),
+  build_prompt() with hash-only CURRENT_STATE snapshot
+- **MODIFIED**: `utils/summarizer.py` v1.1.0 — full three-layer pipeline wired;
+  Gemini Structured Outputs; repair prompt retry; imports from new modules
+- **NOTE**: tier2_tests.py tests apply_updates() (old format) — needs update
+
+### v3.2.1 — Gemini Provider + Summarizer Bugfix
+- **NEW**: `ai_providers/gemini_provider.py` v1.0.0 — GeminiProvider; google-genai
+  SDK (pip: google-genai); converts OpenAI-style messages to Gemini format
+  (system → system_instruction, user/assistant → contents with role "user"/"model");
+  run_in_executor() pattern; usage from response.usage_metadata
+- **NEW**: `tier2_tests.py` — 58 unit tests, all pass
+- **MODIFIED**: `ai_providers/__init__.py` v1.4.0 — 'gemini' case added to
+  get_provider() factory with lazy import of GeminiProvider
+- **MODIFIED**: `config.py` v1.9.0 — GEMINI_API_KEY, GEMINI_MODEL
+  (gemini-2.5-flash-lite), GEMINI_CONTEXT_LENGTH (1000000), GEMINI_MAX_TOKENS
+  (8192); SUMMARIZER_PROVIDER default → 'gemini'; SUMMARIZER_MODEL → same
+- **MODIFIED**: `requirements.txt` — added google-genai>=1.0.0
+- **MODIFIED**: `utils/summarizer.py` v1.0.1 — _parse_json_response() with 3
+  strategies (direct, markdown fence, outermost {}) to handle LLM prose wrapping
+- **MODIFIED**: `CLAUDE.md` v1.3.0 — SOW compliance rule: never add limitations
+  not in the SOW without approval
 
 ### v3.2.0 — Structured Summary Generation (Roadmap M2)
 - **NEW**: `utils/summary_schema.py` v1.0.0 — schema factory, compute_hash,
@@ -23,7 +78,7 @@
   limit; imports _get_conn from message_store via deferred import)
 - **NEW**: `utils/summarizer.py` v1.0.0 — summarize_channel() orchestrator;
   M-label system for source tracing; loop.run_in_executor() via provider;
-  asyncio.to_thread() for SQLite; capped at 500 messages per call
+  asyncio.to_thread() for SQLite
 - **NEW**: `commands/summary_commands.py` v1.0.0 — !summarize (admin) and
   !summary (all users)
 - **MODIFIED**: `config.py` v1.8.0 — SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
@@ -129,7 +184,7 @@ Default: `./data/messages.db` (configurable via `DATABASE_PATH` env var)
 messages: id (PK), channel_id, author_id, author_name, content,
           created_at, message_type, is_deleted,
           reply_to_message_id, thread_id, edited_at, deleted_at,
-          attachments_metadata
+          attachments_metadata, is_bot_author
 channel_state: channel_id (PK), last_processed_id, updated_at
 channel_summaries: channel_id (PK), summary_json, updated_at,
                    message_count, last_message_id
@@ -144,6 +199,7 @@ Indexes: idx_channel_time, idx_channel_id, idx_reply_to, idx_thread,
 ```
 schema/001.sql  — v3.0.0 baseline
 schema/002.sql  — v3.1.0 extensions
+schema/003.sql  — v3.2.3 is_bot_author column
 schema/NNN.sql  — future migrations (add files, runner picks them up)
 
 init_database() → run_migrations(conn)
@@ -175,9 +231,11 @@ Bot startup → on_ready() → startup_backfill()
   not dispatch `on_raw_message_create` when `@bot.event on_message` is
   defined. The persistence listener is a second `on_message` registered
   via `bot.add_listener()` which coexists with bot.py's primary handler.
-- **Bot messages stored**: Unlike bot.py's `on_message` which skips bot
-  messages, the persistence listener captures them — they are conversation
-  context needed for summarization.
+- **Bot messages stored with is_bot_author flag**: Unlike bot.py's `on_message`
+  which skips bot messages, the persistence listener captures them with
+  `is_bot_author=True`. The summarizer excludes them via `not m.is_bot_author`
+  filter — allowing future use (e.g. context display) while keeping
+  AI-generated content out of the summarization input.
 - **Soft delete**: Deleted messages set `is_deleted = 1` and `deleted_at`
   timestamp, never hard-deleted. Removing messages creates conversational
   gaps that confuse summarization.

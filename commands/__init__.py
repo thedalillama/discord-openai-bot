@@ -1,8 +1,11 @@
 # commands/__init__.py
-# Version 2.1.0
+# Version 2.2.0
 """
 Commands package initialization.
 Registers all command modules with the bot.
+
+CHANGES v2.2.0: Summary command group restructure
+- CHANGED: !summarize removed; !summary is now a group: show / create / clear
 
 CHANGES v2.1.0: Summary commands (SOW v3.2.0)
 - ADDED: register_summary_commands for !summarize and !summary commands

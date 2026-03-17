@@ -1,15 +1,22 @@
 # commands/summary_commands.py
-# Version 1.0.0
+# Version 2.0.0
 """
-!summarize and !summary commands for channel summary management.
+!summary command group for channel summary management.
+
+CHANGES v2.0.0: Restructured as command group (replaces !summarize)
+- CHANGED: !summary (no subcommand) — show current summary (all users)
+- ADDED:   !summary create — run summarization (admin only)
+- ADDED:   !summary clear  — hard delete channel summary (admin only)
+- REMOVED: !summarize command
+
+CHANGES v1.0.1: Truncate error messages to Discord 2000-char limit
 
 CREATED v1.0.0: Structured summary generation (SOW v3.2.0)
-- ADDED: !summarize — run summarization for a channel (admin only)
-- ADDED: !summary  — display current summary (all users)
 
 Usage:
-  !summarize    Run summarization for this channel (admin only)
-  !summary      Show current channel summary (all users)
+  !summary         Show current channel summary (all users)
+  !summary create  Run summarization for this channel (admin only)
+  !summary clear   Delete the stored summary for this channel (admin only)
 """
 import json
 from utils.logging_utils import get_logger
@@ -18,74 +25,11 @@ logger = get_logger('commands.summary')
 
 
 def register_summary_commands(bot):
-    """Register !summarize and !summary commands with the bot."""
+    """Register !summary command group with the bot."""
 
-    @bot.command(name='summarize')
-    async def summarize_cmd(ctx):
-        """
-        Run summarization for this channel.
-
-        Usage: !summarize  (admin only)
-        """
-        channel_id = ctx.channel.id
-        channel_name = ctx.channel.name
-
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.send("You need administrator permissions to run summarization.")
-            logger.warning(
-                f"Unauthorized !summarize by {ctx.author.display_name} in #{channel_name}"
-            )
-            return
-
-        async with ctx.typing():
-            try:
-                from utils.summarizer import summarize_channel
-                result = await summarize_channel(channel_id)
-
-                if result.get("error"):
-                    await ctx.send(f"Summarization failed: {result['error']}")
-                    logger.error(f"!summarize failed for #{channel_name}: {result['error']}")
-                    return
-
-                msgs = result["messages_processed"]
-                if msgs == 0:
-                    await ctx.send(f"No new messages to summarize for #{channel_name}.")
-                    return
-
-                tokens = result["token_count"]
-                v = result["verification"]
-                mismatches = v.get("mismatches", 0)
-                src_failed = v.get("source_checks_failed", 0)
-
-                lines = [
-                    f"**Summary updated for #{channel_name}**",
-                    f"Messages processed: {msgs}",
-                    f"Summary token count: {tokens}",
-                ]
-                if mismatches:
-                    lines.append(f"⚠️ Hash mismatches corrected: {mismatches}")
-                if src_failed:
-                    lines.append(f"⚠️ Source verification failures: {src_failed}")
-                if not mismatches and not src_failed:
-                    lines.append("✅ Verification passed")
-
-                await ctx.send("\n".join(lines))
-                logger.info(
-                    f"!summarize complete for #{channel_name}: "
-                    f"{msgs} messages, {tokens} tokens"
-                )
-
-            except Exception as e:
-                logger.error(f"Error in !summarize for #{channel_name}: {e}")
-                await ctx.send(f"Error running summarization: {e}")
-
-    @bot.command(name='summary')
+    @bot.group(name='summary', invoke_without_command=True)
     async def summary_cmd(ctx):
-        """
-        Show the current channel summary.
-
-        Usage: !summary  (all users)
-        """
+        """Show the current channel summary."""
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
 
@@ -96,7 +40,7 @@ def register_summary_commands(bot):
             if not summary_json:
                 await ctx.send(
                     f"No summary available for #{channel_name}. "
-                    f"An admin can run `!summarize` to generate one."
+                    f"Run `!summary create` to generate one."
                 )
                 return
 
@@ -111,11 +55,11 @@ def register_summary_commands(bot):
             if topics:
                 lines.append("**Active Topics**")
                 for t in topics[:5]:
-                    lines.append(f"• **{t['title']}** — {t.get('summary', '')[:80]}")
+                    lines.append(f"• **{t['title']}** — {t.get('text', '')[:80]}")
                 lines.append("")
 
             decisions = [d for d in summary.get("decisions", [])
-                         if d.get("status") == "active"]
+                         if d.get("status") == "active" and d.get("decision")]
             if decisions:
                 lines.append("**Recent Decisions**")
                 for d in decisions[:3]:
@@ -148,3 +92,75 @@ def register_summary_commands(bot):
         except Exception as e:
             logger.error(f"Error in !summary for #{channel_name}: {e}")
             await ctx.send(f"Error retrieving summary: {e}")
+
+    @summary_cmd.command(name='create')
+    async def summary_create(ctx):
+        """Run summarization for this channel (admin only)."""
+        channel_id = ctx.channel.id
+        channel_name = ctx.channel.name
+
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("You need administrator permissions to run summarization.")
+            logger.warning(f"Unauthorized !summary create by {ctx.author.display_name} in #{channel_name}")
+            return
+
+        async with ctx.typing():
+            try:
+                from utils.summarizer import summarize_channel
+                result = await summarize_channel(channel_id)
+
+                if result.get("error"):
+                    err = str(result['error'])[:1800]
+                    await ctx.send(f"Summarization failed: {err}")
+                    logger.error(f"!summary create failed for #{channel_name}: {result['error']}")
+                    return
+
+                msgs = result["messages_processed"]
+                if msgs == 0:
+                    await ctx.send(f"No new messages to summarize for #{channel_name}.")
+                    return
+
+                tokens = result["token_count"]
+                v = result["verification"]
+                mismatches = v.get("mismatches", 0)
+                src_failed = v.get("source_checks_failed", 0)
+                lines = [
+                    f"**Summary updated for #{channel_name}**",
+                    f"Messages processed: {msgs}",
+                    f"Summary token count: {tokens}",
+                ]
+                if mismatches:
+                    lines.append(f"⚠️ Hash mismatches corrected: {mismatches}")
+                if src_failed:
+                    lines.append(f"⚠️ Source verification failures: {src_failed}")
+                if not mismatches and not src_failed:
+                    lines.append("✅ Verification passed")
+                await ctx.send("\n".join(lines))
+                logger.info(f"!summary create complete for #{channel_name}: {msgs} messages, {tokens} tokens")
+
+            except Exception as e:
+                logger.error(f"Error in !summary create for #{channel_name}: {e}")
+                await ctx.send(f"Error running summarization: {str(e)[:1800]}")
+
+    @summary_cmd.command(name='clear')
+    async def summary_clear(ctx):
+        """Delete the stored summary for this channel (admin only)."""
+        channel_id = ctx.channel.id
+        channel_name = ctx.channel.name
+
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("You need administrator permissions to clear the summary.")
+            logger.warning(f"Unauthorized !summary clear by {ctx.author.display_name} in #{channel_name}")
+            return
+
+        try:
+            from utils.summary_store import delete_channel_summary
+            deleted = delete_channel_summary(channel_id)
+            if deleted:
+                await ctx.send(f"Summary cleared for #{channel_name}.")
+                logger.info(f"!summary clear: summary deleted for #{channel_name}")
+            else:
+                await ctx.send(f"No summary found for #{channel_name}.")
+        except Exception as e:
+            logger.error(f"Error in !summary clear for #{channel_name}: {e}")
+            await ctx.send(f"Error clearing summary: {e}")
