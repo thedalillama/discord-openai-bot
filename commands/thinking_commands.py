@@ -1,23 +1,17 @@
 # commands/thinking_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
 Thinking display management command for the Discord bot.
 
-CHANGES v2.1.0: Remove <think> tag logic (SOW v2.20.0)
-- REMOVED: filter_thinking_tags() — dead code for DeepSeek official API
-- REMOVED: import re — no longer needed
-- RETAINED: get_thinking_enabled(), set_thinking_enabled() — still used by
-  openai_compatible_provider.py and realtime_settings_parser.py
-- NOTE: !thinking on/off now controls reasoning_content display in Discord
-  and logging level for DeepSeek reasoner models
+CHANGES v2.2.0: ℹ️/⚙️ prefix tagging for noise filtering
+- Settings changes prefixed with ⚙️ (persist for replay)
+- Status/error output prefixed with ℹ️ (filter everywhere)
 
+CHANGES v2.1.0: Remove <think> tag logic (SOW v2.20.0)
 CHANGES v2.0.0: Command interface redesign (SOW v2.13.0)
-- REMOVED: @commands.has_permissions decorator — replaced with manual admin check
-- REMOVED: !thinkingstatus command — no-arg !thinking now shows status (all users)
-- PRESERVED: Exact confirmation message strings required by realtime_settings_parser
 
 Usage:
-  !thinking        - Show current thinking display status and options (all users)
+  !thinking        - Show current thinking display status (all users)
   !thinking on     - Enable DeepSeek thinking display (admin only)
   !thinking off    - Disable DeepSeek thinking display (admin only)
 """
@@ -25,34 +19,21 @@ from utils.logging_utils import get_logger
 
 logger = get_logger('commands.thinking')
 
+_I = "ℹ️ "
+_S = "⚙️ "
+
 # Per-channel thinking display preference. Default False (off).
 channel_thinking_enabled = {}
 
 
 def get_thinking_enabled(channel_id):
-    """
-    Get the thinking display setting for a channel.
-
-    Args:
-        channel_id: The Discord channel ID
-
-    Returns:
-        bool: True if thinking should be displayed, False otherwise
-    """
+    """Get the thinking display setting for a channel."""
     return channel_thinking_enabled.get(channel_id, False)
 
 
 def set_thinking_enabled(channel_id, enabled):
-    """
-    Set the thinking display setting for a channel.
-
-    Args:
-        channel_id: The Discord channel ID
-        enabled: Whether to display DeepSeek thinking
-
-    Returns:
-        bool: True if this is a change, False if same as before
-    """
+    """Set the thinking display setting for a channel.
+    Returns True if this is a change, False if same as before."""
     current_setting = get_thinking_enabled(channel_id)
     if current_setting == enabled:
         return False
@@ -70,38 +51,28 @@ def register_thinking_commands(bot):
 
     @bot.command(name='thinking')
     async def thinking_cmd(ctx, setting=None):
-        """
-        Manage DeepSeek thinking display for this channel.
-
-        When enabled: full reasoning content shown in Discord before answer,
-        logged at INFO. When disabled: answer only shown, reasoning logged
-        at DEBUG only.
-
-        Usage:
-          !thinking        - Show current status and options (all users)
-          !thinking on     - Enable thinking display (admin only)
-          !thinking off    - Disable thinking display (admin only)
-        """
+        """Manage DeepSeek thinking display for this channel."""
         channel_id = ctx.channel.id
         channel_name = ctx.channel.name
 
-        # No-arg: show current status (all users)
         if setting is None:
-            current_setting = get_thinking_enabled(channel_id)
-            status = "enabled" if current_setting else "disabled"
+            current = get_thinking_enabled(channel_id)
+            status = "enabled" if current else "disabled"
             logger.debug(
                 f"Thinking status requested for #{channel_name} "
                 f"by {ctx.author.display_name}: {status}"
             )
             await ctx.send(
-                f"DeepSeek thinking display is currently **{status}** in #{channel_name}\n"
+                f"{_I}DeepSeek thinking display is currently "
+                f"**{status}** in #{channel_name}\n"
                 f"Options: on, off"
             )
             return
 
-        # Write operations: admin only
         if not ctx.author.guild_permissions.administrator:
-            await ctx.send("You need administrator permissions to change this setting.")
+            await ctx.send(
+                f"{_I}You need administrator permissions to change this setting."
+            )
             logger.warning(
                 f"Unauthorized thinking change attempt by "
                 f"{ctx.author.display_name} in #{channel_name}"
@@ -116,7 +87,7 @@ def register_thinking_commands(bot):
             enabled = False
             action = "disabled"
         else:
-            await ctx.send(f"Invalid setting: **{setting}**. Use `on` or `off`.")
+            await ctx.send(f"{_I}Invalid setting: **{setting}**. Use `on` or `off`.")
             logger.warning(f"Invalid thinking setting: {setting} in #{channel_name}")
             return
 
@@ -124,15 +95,20 @@ def register_thinking_commands(bot):
 
         if was_changed:
             # CRITICAL: exact string required by realtime_settings_parser.py
-            await ctx.send(f"DeepSeek thinking display **{action}** for #{channel_name}")
+            await ctx.send(
+                f"{_S}DeepSeek thinking display **{action}** for #{channel_name}"
+            )
             logger.info(
                 f"Thinking display {action} for #{channel_name} "
                 f"by {ctx.author.display_name}"
             )
         else:
             await ctx.send(
-                f"DeepSeek thinking display is already **{action}** in #{channel_name}"
+                f"{_I}DeepSeek thinking display is already "
+                f"**{action}** in #{channel_name}"
             )
-            logger.debug(f"Thinking display unchanged for #{channel_name}: {action}")
+            logger.debug(
+                f"Thinking display unchanged for #{channel_name}: {action}"
+            )
 
     return {"thinking": thinking_cmd}
