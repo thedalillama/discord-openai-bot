@@ -1,9 +1,12 @@
 # utils/summary_prompts_authoring.py
-# Version 1.1.1
+# Version 1.1.2
 """
 Two-pass authoring prompts: Secretary (natural language) + Structurer (JSON).
 
-CHANGES v1.1.1: Redefine DECISIONS as agreement-on-action, not fact-lookup
+CHANGES v1.1.2: Skip M-labels in Secretary output
+- ADDED: M-labels to WHAT TO SKIP list — internal references not useful in minutes
+
+CHANGES v1.1.1: Redefine DECISIONS as agreement-on-action
 - MODIFIED: DECISIONS section — a decision requires agreement on a course of
   action ("I think X" / "Agreed"). Asking a question and getting an answer is
   a clarification, not a decision. Added conversational examples showing the
@@ -100,6 +103,8 @@ WHAT TO SKIP ENTIRELY:
 - Bot self-descriptions ("I am Claude", "I cannot access the web")
 - Math calculations unless they relate to a project decision
 - Each individual bot response — summarize the TOPIC, not each reply
+- Message labels like M1, M2, M481 — these are internal references, \
+not meaningful to anyone reading the minutes
 
 LIVING DOCUMENT:
 When updating existing minutes, condense resolved topics and completed \
