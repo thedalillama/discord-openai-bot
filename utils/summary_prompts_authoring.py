@@ -1,7 +1,12 @@
 # utils/summary_prompts_authoring.py
-# Version 1.1.2
+# Version 1.2.0
 """
 Two-pass authoring prompts: Secretary (natural language) + Structurer (JSON).
+
+CHANGES v1.2.0: Add KEY FACTS section for personal details and durable info
+- ADDED: KEY FACTS section between OPEN QUESTIONS and ACTIVE TOPICS with
+  GOOD/BAD examples. Captures personal details, preferences, and durable
+  information that would otherwise be lost to ARCHIVED one-liners.
 
 CHANGES v1.1.2: Skip M-labels in Secretary output
 - ADDED: M-labels to WHAT TO SKIP list — internal references not useful in minutes
@@ -83,6 +88,18 @@ NOT trivia, NOT questions already answered in conversation.
 - BAD: "What is the current DALL-E 3 pricing?" (Already answered.)
 - BAD: "Did Dario Amodei attend Princeton?" (Trivia, not consequential.)
 
+KEY FACTS
+Personal details, preferences, and durable information shared by \
+participants that someone joining the conversation later would want \
+to know. Include specific values — names, numbers, dates, locations.
+- GOOD: "absolutebeginner's favorite number is 333."
+- GOOD: "absolutebeginner is 65 years old."
+- GOOD: "The project uses GCP for hosting."
+- BAD: "The user asked about gold prices." (Transient query, not a \
+durable fact.)
+- BAD: "The bot explained how lift works." (Topic content belongs in \
+ACTIVE TOPICS, not here.)
+
 ACTIVE TOPICS
 ### [Topic Name]
 Write 2-3 sentences capturing the discussion arc AND specific \
@@ -152,6 +169,7 @@ No markdown, no code fences, no explanations.
 
 EXTRACTION RULES:
 - Each decision line → add_decision op
+- Each key fact → add_fact op
 - Each open action item → add_action_item op (include owner if stated)
 - Each completed action item → add_action_item with status "completed"
 - Each open question → add_open_question op
@@ -165,6 +183,7 @@ EXTRACTION RULES:
 
 ID GENERATION:
 - Use descriptive kebab-case IDs: "decision-use-sqlite", "topic-api-design"
+- Facts: "fact-[short-description]"
 - Action items: "action-[short-description]"
 - Questions: "question-[short-description]"
 
