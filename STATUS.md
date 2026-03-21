@@ -1,97 +1,51 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.3.2
+# Version 3.4.0
 
 ## Current Version Features
 
+### Version 3.4.0 - M3 Context Integration + KEY FACTS
+- **MODIFIED**: `utils/context_manager.py` v1.1.0 — `build_context_for_provider()`
+  loads channel summary and appends it to the system prompt. Bot now has
+  conversational memory of decisions, topics, facts, and action items.
+- **MODIFIED**: `utils/summary_display.py` v1.2.1 — `format_summary_for_context()`
+  formats full summary as plain text for system prompt injection. Key Facts
+  moved from full-only to default `!summary` view.
+- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.2.0 — KEY FACTS section
+  added to Secretary prompt with GOOD/BAD examples for personal details.
+  Structurer updated with `add_fact` extraction rule.
+- **ADDED**: `test_pipeline.py` — standalone script runs Secretary + Structurer
+  pipeline outside Discord, shows both outputs
+- **ADDED**: `test_summary.py` — inspect stored summary + interactive Q&A
+- **MODIFIED**: `README_ENV.md` v3.4.0 — added Gemini/summarizer variables
+- **TESTED**: Bot recalls decisions, personal facts (favorite number 333,
+  age 65, lives in NJ), action items from 400+ messages ago via summary memory
+
 ### Version 3.3.2 - Debug Command Group
 - **ADDED**: `commands/debug_commands.py` v1.0.0 — `!debug noise/cleanup/status`
-  consolidates maintenance and diagnostic tools
-- **MODIFIED**: `commands/__init__.py` v2.4.0 — registers debug_commands,
-  removes cleanup_commands
-- **REMOVED**: `commands/cleanup_commands.py` — functionality moved to !debug
+- **MODIFIED**: `commands/__init__.py` v2.4.0 — registers debug_commands
+- **REMOVED**: `commands/cleanup_commands.py`
 
 ### Version 3.3.1 - Supersession Fix + Readable Snapshots
 - **MODIFIED**: `utils/summary_schema.py` v1.4.0 — `_supersede()` always retires
-  old decision even with empty text; fixes both decisions staying active
-- **MODIFIED**: `utils/summary_prompts.py` v1.5.0 — snapshot includes readable
-  text (decision, fact, task, question) so model can match existing IDs for
-  supersede ops; added "use EXACT id from CURRENT_STATE" rule; re-exports
-  authoring prompts
-- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.1.2 — M-labels added
-  to WHAT TO SKIP list in Secretary prompt
-- **TESTED**: Three successive decision changes (Redis → SQLite → PostgreSQL)
-  all correctly superseded with stable token counts (~1,500)
+  old decision even with empty text
+- **MODIFIED**: `utils/summary_prompts.py` v1.5.0 — readable text in snapshots
+- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.1.2 — M-labels skipped
 
 ### Version 3.3.0 - Two-Pass Summarization + Prefix Noise Filtering
-- **ADDED**: `utils/summary_prompts_authoring.py` v1.1.1 — Secretary (natural
-  language minutes) + Structurer (JSON conversion) prompts. Decision defined
-  as agreement-on-action, not fact lookup.
-- **ADDED**: `utils/summarizer_authoring.py` v1.0.1 — Cold start two-pass
-  pipeline: Secretary writes unstructured minutes, Structurer converts to
-  JSON delta ops. Single-pass (no batching) for cold starts.
-- **ADDED**: `utils/summary_display.py` v1.1.0 — Paginated Discord output
-  with ℹ️ prefix on all pages
-- **ADDED**: `commands/cleanup_commands.py` v1.0.0 — `!cleanup scan/run` for
-  removing pre-prefix bot noise from Discord history (later moved to !debug)
-- **MODIFIED**: `commands/summary_commands.py` v2.2.0 — ℹ️ prefix on all output;
-  `!summary raw` and `!summary full` subcommands
-- **MODIFIED**: `utils/summarizer.py` v1.9.0 — routes cold starts to Secretary
-  pipeline, incremental updates to delta ops
-- **MODIFIED**: `utils/summary_prompts.py` v1.3.0→v1.5.0 — re-exports authoring
-  prompts; readable text in snapshots
-- **MODIFIED**: All command modules — ℹ️/⚙️ prefix system:
-  - `commands/auto_respond_commands.py` v2.1.0
-  - `commands/ai_provider_commands.py` v2.1.0
-  - `commands/thinking_commands.py` v2.2.0
-  - `commands/prompt_commands.py` v2.1.0
-  - `commands/status_commands.py` v2.1.0
-  - `commands/history_commands.py` v2.1.0
-- **MODIFIED**: `utils/history/message_processing.py` v2.3.0 — prefix-based
-  filters (`is_noise_message()`, `is_settings_message()`, `is_admin_output()`)
-  replace growing pattern-match list; legacy patterns retained for backward compat
-- **RESULT**: Cold start: 18,619 tokens → 1,871 tokens for 483 messages.
-  214 items → ~15 meaningful entries. 1 real decision instead of 40+ facts.
+- **ADDED**: `utils/summary_prompts_authoring.py` v1.1.1 — Secretary/Structurer
+- **ADDED**: `utils/summarizer_authoring.py` v1.0.1 — cold start pipeline
+- **ADDED**: `utils/summary_display.py` v1.1.0 — paginated display
+- **MODIFIED**: All command modules — ℹ️/⚙️ prefix system
+- **MODIFIED**: `utils/history/message_processing.py` v2.3.0 — prefix filters
+- **RESULT**: 18,619 → 1,871 tokens. 214 → ~15 meaningful items.
 
 ### Version 3.2.3 - Summary Quality & Bot Message Filtering
-- **ADDED**: `schema/003.sql` — `is_bot_author INTEGER DEFAULT 0` column
-- **MODIFIED**: `utils/models.py` v1.2.0 — `is_bot_author` field on StoredMessage
-- **MODIFIED**: `utils/message_store.py` v1.2.0 — `is_bot_author` in INSERT/SELECT
-- **MODIFIED**: `utils/raw_events.py` v1.2.0 — captures `message.author.bot`
-- **MODIFIED**: `utils/summarizer.py` v1.5.0 — `not m.is_bot_author` filter
-- **MODIFIED**: `config.py` v1.10.0 — SUMMARIZER_BATCH_SIZE, GEMINI_MAX_TOKENS
-- **MODIFIED**: `commands/summary_commands.py` v2.0.0 — !summary group
-- **MODIFIED**: `utils/summary_prompts.py` v1.1.0 — durable-state promotion policy
-- **MODIFIED**: `utils/summary_validation.py` v1.1.0 — content-empty ops rejected
-
 ### Version 3.2.2 - Three-Layer Enforcement Architecture
-- **MODIFIED**: `utils/summary_schema.py` v1.1.0 — DELTA_SCHEMA, apply_ops()
-- **MODIFIED**: `ai_providers/gemini_provider.py` v1.1.0 — Structured Outputs
-- **ADDED**: `utils/summary_normalization.py` v1.0.0 — parse, classify, canonicalize
-- **ADDED**: `utils/summary_validation.py` v1.0.0 — domain validation
-- **ADDED**: `utils/summary_prompts.py` v1.0.0 — SYSTEM_PROMPT, build_prompt()
-- **MODIFIED**: `utils/summarizer.py` v1.1.0 — full pipeline wired
-
-### Version 3.2.0 - Structured Summary Generation (Roadmap M2)
-- **ADDED**: `utils/summary_schema.py` v1.0.0 — schema, hash, ops
-- **ADDED**: `utils/summary_store.py` v1.0.0 — SQLite channel_summaries
-- **ADDED**: `utils/summarizer.py` v1.0.0 — summarization engine
-- **ADDED**: `commands/summary_commands.py` v1.0.0 — !summarize and !summary
-- **MODIFIED**: `config.py` v1.8.0 — SUMMARIZER_PROVIDER, SUMMARIZER_MODEL
-
+### Version 3.2.0 - Structured Summary Generation (M2)
 ### Version 3.1.1 - Code Quality: realtime_settings_parser.py split
-- **ADDED**: `utils/history/settings_appliers.py` v1.0.0
-- **MODIFIED**: `utils/history/realtime_settings_parser.py` v2.2.0
-
 ### Version 3.1.0 - Schema Extension & Enhanced Capture
-- **ADDED**: `schema/001.sql`, `schema/002.sql`, `utils/db_migration.py` v1.0.0
-- **MODIFIED**: `utils/models.py` v1.1.0, `utils/message_store.py` v1.1.0
-- **MODIFIED**: `utils/raw_events.py` v1.1.0, `bot.py` v3.1.0, `config.py` v1.9.0
-
 ### Version 3.0.0 - SQLite Message Persistence Layer
-- **ADDED**: `utils/models.py`, `utils/message_store.py`, `utils/raw_events.py`
-- SQLite with WAL mode, real-time capture, startup backfill
-
 ### Version 2.23.0 - Token-Budget Context Management + Usage Logging
 ### Version 2.22.0 - Provider Singleton Caching
 ### Version 2.21.0 - Async Executor Safety
@@ -111,8 +65,10 @@
 ```
 discord-bot/
 ├── bot.py                         # v3.1.0
-├── config.py                      # v1.10.0
+├── config.py                      # v1.11.0
 ├── main.py
+├── test_pipeline.py               # Summarization pipeline inspector
+├── test_summary.py                # Summary + interactive Q&A inspector
 ├── .env
 ├── data/
 │   └── messages.db                # SQLite + WAL
@@ -141,15 +97,15 @@ discord-bot/
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.2.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── context_manager.py         # v1.0.0
+│   ├── context_manager.py         # v1.1.0
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v1.9.0
 │   ├── summarizer_authoring.py    # v1.0.1
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.5.0
-│   ├── summary_prompts_authoring.py  # v1.1.2
-│   ├── summary_display.py         # v1.1.0
+│   ├── summary_prompts_authoring.py  # v1.2.0
+│   ├── summary_display.py         # v1.2.1
 │   ├── summary_normalization.py   # v1.0.0
 │   ├── summary_validation.py      # v1.1.0
 │   └── history/
@@ -184,6 +140,7 @@ discord-bot/
 ---
 
 ## Resolved Issues
+- ✅ M3 context integration — resolved in v3.4.0
 - ✅ Summarization quality — resolved in v3.3.0 (Secretary architecture)
 - ✅ Decision supersession — resolved in v3.3.1
 - ✅ Summary output contamination — resolved in v3.3.0 (prefix system)
@@ -198,14 +155,18 @@ discord-bot/
 
 ## Current Priority Issues
 
-### 1. M3: Context Integration (NEXT)
-Inject summary minutes into `build_context_for_provider()` between system
-prompt and recent messages so the bot uses its conversational memory.
+### 1. Archived Items Bloating Summary
+Secretary produces 50+ archived one-liners; Structurer converts each to
+a separate topic. Need to condense ARCHIVED to 5-6 category-level entries.
 
-### 2. Incremental Path Quality
-Token growth from incremental updates needs monitoring. Consider collapsing
-to always use Secretary path instead of delta ops for all updates.
+### 2. Topic-Centric Schema Redesign (Future)
+Items (decisions, facts, actions) should nest under parent topics with
+snowflake message IDs as immutable evidence anchors. Design discussed,
+implementation deferred.
 
-### 3. WAL File Stats Bug
-`get_database_stats()` reports 0.0 MB because it only measures the main
-SQLite file, not the WAL file which holds the actual data.
+### 3. config.py Default SUMMARIZER_MODEL
+Default is `gemini-2.5-flash-lite` but deployed server uses
+`gemini-3.1-flash-lite-preview` via .env override. Consider updating default.
+
+### 4. WAL File Stats Bug
+`get_database_stats()` reports 0.0 MB — only measures main file, not WAL.
