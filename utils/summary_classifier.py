@@ -1,7 +1,11 @@
 # utils/summary_classifier.py
-# Version 1.1.0
+# Version 1.2.0
 """
 GPT-5.4 nano classification pass for summary ops quality control.
+
+CHANGES v1.2.0: Protect topics with decisions and action items with owners
+- ADDED: Never drop ACTIVE_TOPIC that provides context for a kept DECISION
+- ADDED: Never drop ACTION_ITEM with an assigned owner
 
 CHANGES v1.1.0: Classifier respects Secretary judgment — organize, don't filter
 - REWRITTEN: Classifier prompt now treats Secretary output as authoritative.
@@ -52,6 +56,9 @@ Rules:
 as ACTIVE_TOPIC
 - If the Secretary included a topic, KEEP it unless it's a duplicate \
 or an individual bot response repackaged as a topic
+- NEVER drop an ACTIVE_TOPIC that provides context for a kept DECISION. \
+The topic has richer narrative than the one-line decision — both are kept.
+- NEVER drop an ACTION_ITEM that has an assigned owner
 - DEDUPLICATION: If two items cover the same subject, DROP the less \
 specific one. If an archived topic duplicates an active topic, DROP \
 the archived one
