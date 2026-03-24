@@ -1,17 +1,29 @@
 # utils/summarizer_authoring.py
-# Version 1.0.0
+# Version 1.5.0
 """
-Two-pass authoring pipeline for cold start summarization.
+Three-pass authoring pipeline for cold start summarization.
 
-Pass 1 (Secretary): Streams through messages in batches, writing and
-  updating natural language minutes with no JSON constraints.
-Pass 2 (Structurer): Converts the final natural language minutes into
+Pass 1 (Secretary): Sends all messages in a single pass to write natural
+  language minutes. Gemini's 1M context handles full history easily.
+Pass 2 (Structurer): Converts the natural language minutes into
   structured JSON delta ops using Gemini Structured Outputs.
+Pass 3 (Classifier): GPT-5.4 nano validates each op — KEEP/DROP/RECLASSIFY.
+  Removes misclassified items before apply_ops().
 
+CHANGES v1.5.0: Save Structurer and Classifier outputs to data/ files
+- ADDED: data/structurer_raw_{channel_id}.json — raw Structurer delta ops
+- ADDED: data/classifier_raw_{channel_id}.json — kept IDs and dropped items
+
+CHANGES v1.4.0: Scaled max_output_tokens for Secretary pass
+- ADDED: _secretary_max_tokens() scales output budget with message count
+  (base 1024 + 4 per message, capped at 16384). Prevents Gemini's known
+  repetition loop from burning 32K+ tokens on the ARCHIVED section.
+- REMOVED: _dedup_lines() — not approved; output should not be modified
+
+CHANGES v1.3.0: Save raw Gemini output + classifier drops in meta
+CHANGES v1.1.0: Add classifier pass (GPT-5.4 nano) after Structurer
+CHANGES v1.0.1: Single-pass Secretary for cold starts
 CREATED v1.0.0: Extracted from summarizer.py v1.9.0
-- ADDED: cold_start_pipeline() — full two-pass flow
-- ADDED: _run_secretary_batches() — Pass 1 streaming
-- ADDED: _run_structurer() — Pass 2 JSON conversion
 """
 import asyncio
 import json
@@ -24,15 +36,7 @@ logger = get_logger('summarizer.authoring')
 
 async def cold_start_pipeline(channel_id, provider, batch_size,
                                prov_name, model_name, all_messages):
-    """Two-pass pipeline: Secretary writes minutes, Structurer makes JSON.
-
-    Args:
-        channel_id: Discord channel ID
-        provider: AI provider instance (Gemini)
-        batch_size: Messages per Secretary batch
-        prov_name: Provider name for meta
-        model_name: Model name for meta
-        all_messages: List of StoredMessage objects to summarize
+    """Three-pass pipeline: Secretary → Structurer → Classifier.
 
     Returns:
         dict: {messages_processed, token_count, verification, error}
@@ -51,8 +55,8 @@ async def cold_start_pipeline(channel_id, provider, batch_size,
         return _result(0, 0, {}, None)
 
     # --- Pass 1: Secretary ---
-    minutes_text, total = await _run_secretary_batches(
-        provider, all_messages, batch_size, build_label_map,
+    minutes_text, total = await _run_secretary(
+        provider, all_messages, build_label_map,
         build_secretary_prompt, channel_id,
     )
     if minutes_text is None:
@@ -65,6 +69,45 @@ async def cold_start_pipeline(channel_id, provider, batch_size,
     )
     if err:
         return _result(total, 0, {}, err)
+
+    # Save Structurer output
+    try:
+        with open(f"data/structurer_raw_{channel_id}.json", "w") as f:
+            json.dump(delta, f, indent=2)
+        logger.info(f"Structurer raw output saved: data/structurer_raw_{channel_id}.json")
+    except Exception as e:
+        logger.warning(f"Failed to save structurer raw output: {e}")
+
+    # --- Pass 3: Classifier ---
+    ops = delta.get("ops", [])
+    pre_count = len(ops)
+    classifier_drops = []
+    try:
+        from utils.summary_classifier import classify_ops, filter_ops
+        verdicts = await classify_ops(ops)
+        ops, classifier_drops = filter_ops(ops, verdicts)
+        delta["ops"] = ops
+        logger.info(
+            f"Classifier: {pre_count} → {len(ops)} ops, "
+            f"{len(classifier_drops)} dropped for channel {channel_id}")
+    except Exception as e:
+        logger.warning(f"Classifier failed, keeping all ops: {e}")
+
+    # Save Classifier output
+    try:
+        classifier_output = {
+            "kept": [op.get("id", "") for op in ops],
+            "dropped": [
+                {"id": op.get("id", ""), "op": op.get("op", ""),
+                 "text": op.get("text", "") or op.get("title", "")}
+                for op in classifier_drops
+            ],
+        }
+        with open(f"data/classifier_raw_{channel_id}.json", "w") as f:
+            json.dump(classifier_output, f, indent=2)
+        logger.info(f"Classifier output saved: data/classifier_raw_{channel_id}.json")
+    except Exception as e:
+        logger.warning(f"Failed to save classifier output: {e}")
 
     # --- Apply ops and store ---
     empty = make_empty_summary(channel_id)
@@ -94,6 +137,11 @@ async def cold_start_pipeline(channel_id, provider, batch_size,
         },
         "verification": verification,
         "minutes_text": minutes_text,
+        "classifier_drops": [
+            {"id": op.get("id", ""), "op": op.get("op", ""),
+             "text": op.get("text", "") or op.get("title", "")}
+            for op in classifier_drops
+        ],
     })
 
     await asyncio.to_thread(
@@ -102,62 +150,57 @@ async def cold_start_pipeline(channel_id, provider, batch_size,
     )
 
     if token_count > 2000:
-        logger.warning(f"Summary token count {token_count} exceeds 2000 target")
+        logger.warning(
+            f"Summary token count {token_count} exceeds 2000 target")
     logger.info(
         f"Cold start complete for channel {channel_id}: "
-        f"{total} messages, {token_count} summary tokens"
-    )
+        f"{total} messages, {token_count} summary tokens")
     return _result(total, token_count, verification, None)
 
 
-async def _run_secretary_batches(provider, all_messages, batch_size,
-                                  build_label_map, build_secretary_prompt,
-                                  channel_id):
-    """Pass 1: Stream messages through Secretary in batches.
-    Returns (minutes_text, total_processed) or (None, 0) on failure."""
-    minutes_text = ""
-    total = 0
-    batch_num = 0
+async def _run_secretary(provider, all_messages, build_label_map,
+                          build_secretary_prompt, channel_id):
+    """Pass 1: Send all messages to Secretary in a single pass.
+    Output token budget scales with message count to prevent
+    Gemini's repetition loop from burning excessive tokens."""
+    _, labeled_text = build_label_map(all_messages)
 
-    for i in range(0, len(all_messages), batch_size):
-        batch = all_messages[i:i + batch_size]
-        batch_num += 1
-        _, labeled_text = build_label_map(batch)
+    max_tokens = _secretary_max_tokens(len(all_messages))
+    logger.info(
+        f"Secretary single-pass: {len(all_messages)} msgs, "
+        f"max_output_tokens={max_tokens} "
+        f"(ids {all_messages[0].id}..{all_messages[-1].id})")
 
-        logger.info(
-            f"Secretary batch {batch_num}: {len(batch)} msgs "
-            f"(ids {batch[0].id}..{batch[-1].id})"
+    prompt = build_secretary_prompt("", labeled_text)
+    logger.debug(f"Secretary — PROMPT:\n{prompt[1]['content']}")
+
+    try:
+        minutes_text = await provider.generate_ai_response(
+            prompt, temperature=0, max_tokens=max_tokens,
         )
+    except Exception as e:
+        logger.error(f"Secretary pass failed: {e}")
+        return None, 0
 
-        prompt = build_secretary_prompt(minutes_text, labeled_text)
-        logger.debug(
-            f"Secretary batch {batch_num} — PROMPT:\n{prompt[1]['content']}"
-        )
+    # Save raw Gemini output
+    try:
+        raw_path = f"data/secretary_raw_{channel_id}.txt"
+        with open(raw_path, "w") as f:
+            f.write(minutes_text)
+        logger.info(f"Secretary raw output saved: {raw_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save secretary raw output: {e}")
 
-        try:
-            minutes_text = await provider.generate_ai_response(
-                prompt, temperature=0,
-            )
-        except Exception as e:
-            logger.error(f"Secretary batch {batch_num} failed: {e}")
-            return None, 0
-
-        logger.debug(
-            f"Secretary batch {batch_num} — OUTPUT:\n{minutes_text}"
-        )
-        total += len(batch)
-
+    logger.debug(f"Secretary — OUTPUT:\n{minutes_text}")
     logger.info(
         f"Secretary complete for channel {channel_id}: "
-        f"{total} msgs in {batch_num} batches"
-    )
-    return minutes_text, total
+        f"{len(all_messages)} msgs in single pass")
+    return minutes_text, len(all_messages)
 
 
 async def _run_structurer(provider, minutes_text, delta_schema,
                            build_structurer_prompt, channel_id):
-    """Pass 2: Convert natural language minutes to JSON delta ops.
-    Returns (delta_dict, None) or (None, error_string)."""
+    """Pass 2: Convert natural language minutes to JSON delta ops."""
     from utils.summarizer import _process_response
 
     logger.info(f"Structurer pass for channel {channel_id}")
@@ -184,6 +227,13 @@ async def _run_structurer(provider, minutes_text, delta_schema,
         channel_id, provider, prompt, delta_schema,
     )
     return delta, err
+
+
+def _secretary_max_tokens(msg_count):
+    """Scale Secretary output budget with message count.
+    Base 1024 + 4 tokens per message, capped at 16384.
+    Prevents Gemini's repetition loop from burning 32K+ tokens."""
+    return min(1024 + (msg_count * 4), 16384)
 
 
 def _result(processed, token_count, verification, error):
