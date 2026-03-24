@@ -1,7 +1,10 @@
 # commands/debug_commands.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Debug and maintenance commands for the Discord bot.
+
+CHANGES v1.1.0: Show classifier drops in !debug status
+- ADDED: Classifier Drops section shows items filtered by GPT-5.4 nano
 
 CREATED v1.0.0: Consolidates cleanup + summary diagnostics
 - !debug noise    — scan for bot noise (preview, no delete)
@@ -180,6 +183,17 @@ def register_debug_commands(bot):
                 f"{v.get('mismatches', 0)} mismatches, "
                 f"{v.get('source_checks_passed', 0)} src pass, "
                 f"{v.get('source_checks_failed', 0)} src fail")
+            lines.append("")
+
+        # Classifier drops
+        drops = summary.get("meta", {}).get("classifier_drops", [])
+        if drops:
+            lines.append(f"**Classifier Drops ({len(drops)})**")
+            for d in drops:
+                lines.append(
+                    f"  🗑️ `{d.get('id', '?')}` [{d.get('op', '?')}] "
+                    f"{d.get('text', '?')[:60]}")
+            lines.append("")
 
         # Send paginated
         from utils.summary_display import send_paginated
