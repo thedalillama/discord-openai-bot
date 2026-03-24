@@ -1,99 +1,97 @@
 # HANDOFF.md
-# Version 3.4.0
+# Version 3.5.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v3.4.0
+**Bot version**: v3.5.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
-**Last completed**: v3.4.0 — M3 Context Integration + KEY FACTS
-**Next**: Archived bloat fix, then M4 (episode segmentation)
+**Last completed**: v3.5.0 — anyOf discriminated union schema
+**Next**: Incremental path migration, merge to development
 
 ---
 
 ## Recent Completed Work
 
+### v3.5.0 — Discriminated Union Schema (SOW v3.5.0)
+- **NEW**: `utils/summary_delta_schema.py` v1.0.0 — anyOf schema with
+  camelCase enums, propertyOrdering, per-variant required fields
+- **MODIFIED**: `utils/summarizer_authoring.py` v1.6.0 — STRUCTURER_SCHEMA
+  + translate_ops() for camelCase → snake_case
+- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.4.0 — camelCase
+  op names in Structurer prompt
+- **MODIFIED**: `ai_providers/gemini_provider.py` v1.2.1 — use_json_schema
+  kwarg for anyOf support
+- **MODIFIED**: `utils/summary_classifier.py` v1.2.0 — protect topics
+  with decisions and action items with owners
+- **ROOT CAUSE**: Gemini's FSM constrained decoder systematically avoided
+  add_topic ops due to flat enum + optional fields architecture. anyOf
+  discriminated union reduces FSM complexity from multiplicative to additive.
+
 ### v3.4.0 — M3 Context Integration + KEY FACTS
-- **MODIFIED**: `utils/context_manager.py` v1.1.0 — loads channel summary,
-  appends to system prompt as `--- CONVERSATION CONTEXT ---` block
-- **MODIFIED**: `utils/summary_display.py` v1.2.1 — `format_summary_for_context()`
-  for plain text injection; Key Facts in default `!summary` view
-- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.2.0 — KEY FACTS section
-  in Secretary prompt; Structurer maps to `add_fact` ops
-- **ADDED**: `test_pipeline.py` — runs Secretary + Structurer outside Discord
-- **ADDED**: `test_summary.py` — inspects stored summary + interactive Q&A
-- **MODIFIED**: `README_ENV.md` v3.4.0 — Gemini/summarizer variables
+- M3 complete: summary injected into system prompt
+- GPT-5.4 nano classifier, diagnostic files, scaled max_tokens
 
-### v3.3.2 — Debug Command Group
-- **NEW**: `commands/debug_commands.py` v1.0.0 — !debug noise/cleanup/status
-- **MODIFIED**: `commands/__init__.py` v2.4.0
-- **REMOVED**: `commands/cleanup_commands.py`
-
-### v3.3.1 — Supersession Fix + Readable Snapshots
-- **MODIFIED**: `utils/summary_schema.py` v1.4.0 — always retire old decision
-- **MODIFIED**: `utils/summary_prompts.py` v1.5.0 — readable text in snapshots
-- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.1.2 — skip M-labels
-
-### v3.3.0 — Two-Pass Summarization + Prefix Noise Filtering
-- Secretary/Structurer two-pass architecture
-- ℹ️/⚙️ prefix system across all command modules
-- Result: 18,619 → 1,871 tokens for 483 messages
-
-### v3.2.x — Structured Summary Generation (M2)
-### v3.1.x — Schema Extension & Enhanced Capture
-### v3.0.0 — SQLite Message Persistence Layer
+### v3.3.0-3.3.2 — Two-Pass Summarization + Noise Filtering
+- Secretary/Structurer architecture, ℹ️/⚙️ prefix system
+- Debug commands, supersession fix
 
 ---
 
 ## Summarization Architecture
 
-### Two-Pass Pipeline (Cold Start)
+### Three-Pass Pipeline (Cold Start)
 ```
-Raw messages → Secretary (natural language minutes, no JSON)
-            → Structurer (JSON delta ops via Gemini Structured Outputs)
-            → apply_ops() → verify hashes → save to channel_summaries
+Raw messages → Secretary (Gemini, natural language minutes)
+            → Structurer (Gemini, anyOf JSON schema, camelCase ops)
+            → translate_ops() (camelCase → snake_case)
+            → Classifier (GPT-5.4 nano, KEEP/DROP/RECLASSIFY)
+            → apply_ops() → verify hashes → save
 ```
-- Summarizer model: `gemini-3.1-flash-lite-preview` (via .env override)
-- Single pass for cold starts (SUMMARIZER_BATCH_SIZE=500)
+- Secretary model: `gemini-3.1-flash-lite-preview` (via .env)
+- Structurer uses `STRUCTURER_SCHEMA` (anyOf discriminated union)
+  passed via `response_json_schema` (JSON Schema format)
+- Classifier cost: ~$0.0002 per run
+- Diagnostic files saved to `data/` at each stage
 
 ### Incremental Updates
 ```
-New messages + readable CURRENT_STATE snapshot → Gemini Structured Outputs
-            → delta ops JSON → apply_ops() → verify → save
+New messages + CURRENT_STATE snapshot → Gemini Structured Outputs
+            → delta ops JSON (old flat DELTA_SCHEMA)
+            → apply_ops() → verify → save
 ```
+Note: incremental path still uses old DELTA_SCHEMA — migration planned.
 
 ### M3 Context Injection
 ```
 System prompt + "--- CONVERSATION CONTEXT ---" + formatted summary
 → sent as single system message to conversation provider
-→ bot has memory of decisions, topics, facts, actions, questions
 ```
-
-### Noise Filtering
-```
-ℹ️ = noise (filter everywhere)
-⚙️ = settings (keep for replay, filter from API/summarizer)
-Legacy patterns retained for pre-prefix messages
-```
-
-### Hash Protection
-- Protected: decisions, key_facts, action_items, pinned_memory
-- SHA-256 truncated to 8 hex chars, assigned at creation
-- Supersession retires old, creates new — never modifies in-place
 
 ---
 
-## Known Issues
+## Key Design Decisions
 
-### Archived Items Bloating Summary
-Secretary produces 50+ archived one-liners. Structurer converts each to
-a separate `add_topic` with `status: "archived"`. Causes token bloat
-(3,639 tokens vs 1,871 clean). Fix: condense ARCHIVED to 5-6 categories.
+### anyOf Schema (v3.5.0)
+Gemini's constrained decoder uses a finite-state machine (FSM) that
+creates greedy token selection bias. The flat schema with 13 enum
+values and 9 optional fields was the worst-case architecture. The
+anyOf discriminated union gives each op type its own variant with
+only required fields, reducing FSM complexity from multiplicative
+to additive. Combined with camelCase enums (higher token probability)
+and propertyOrdering (op field first).
 
-### config.py Default SUMMARIZER_MODEL
-Default `gemini-2.5-flash-lite` is stale. Server runs
-`gemini-3.1-flash-lite-preview` via .env. Consider updating default.
+### Two Schemas
+- `DELTA_SCHEMA` in `summary_schema.py` — flat schema, used by
+  incremental path in `summarizer.py`
+- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf schema,
+  used by cold start Structurer in `summarizer_authoring.py`
+
+### Two JSON Schema Paths in Provider
+- `response_schema` — OpenAPI format (default, used by incremental)
+- `response_json_schema` — JSON Schema format (use_json_schema=True,
+  used by Structurer for anyOf support)
 
 ---
 
@@ -108,13 +106,7 @@ Default `gemini-2.5-flash-lite` is stale. Server runs
 | `!summary clear` | admin | Delete stored summary |
 | `!debug noise` | admin | Scan for bot noise |
 | `!debug cleanup` | admin | Delete bot noise from Discord |
-| `!debug status` | admin | Summary internals (IDs, hashes) |
-| `!status` | all | Bot settings for this channel |
-| `!autorespond` | all/admin | Auto-response toggle |
-| `!ai` | all/admin | AI provider switch |
-| `!thinking` | all/admin | DeepSeek thinking display |
-| `!prompt` | all/admin | System prompt view/set/reset |
-| `!history` | all | View/clean/reload history |
+| `!debug status` | admin | Summary internals + classifier drops |
 
 ---
 
@@ -124,14 +116,12 @@ AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=sk-[key]
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
-OPENAI_COMPATIBLE_CONTEXT_LENGTH=64000
-OPENAI_COMPATIBLE_MAX_TOKENS=8000
-CONTEXT_BUDGET_PERCENT=80
 SUMMARIZER_PROVIDER=gemini
 SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
 SUMMARIZER_BATCH_SIZE=500
 GEMINI_API_KEY=[key]
 GEMINI_MAX_TOKENS=32768
+OPENAI_API_KEY=[key]
 ```
 
 ---
@@ -142,8 +132,9 @@ GEMINI_MAX_TOKENS=32768
 |-----------|-------------|--------|
 | M0 | Merge dev → main | ✅ Complete |
 | M1 | Schema extension v3.1.0 | ✅ Complete |
-| M2 | Structured summary generation | ✅ Complete (v3.3.0) |
+| M2 | Structured summary generation | ✅ Complete (v3.2.0) |
 | M3 | Context integration | ✅ Complete (v3.4.0) |
+| M3.5 | anyOf schema fix | ✅ Complete (v3.5.0) |
 | M4 | Episode segmentation and retrieval | Planned |
 | M5 | Explainability and context receipts | Planned |
 | M6 | Citation-backed generation | Planned |
