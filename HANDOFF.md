@@ -1,97 +1,145 @@
 # HANDOFF.md
-# Version 3.5.0
+# Version 3.5.2
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v3.5.0
+**Bot version**: v3.5.2
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
-**Last completed**: v3.5.0 — anyOf discriminated union schema
-**Next**: Incremental path migration, merge to development
+**Model**: `gemini-3.1-flash-lite-preview` (in .env)
+**Last deployed**: v3.5.2 (overview inflation fix)
 
 ---
 
-## Recent Completed Work
+## What Just Happened
 
-### v3.5.0 — Discriminated Union Schema (SOW v3.5.0)
-- **NEW**: `utils/summary_delta_schema.py` v1.0.0 — anyOf schema with
-  camelCase enums, propertyOrdering, per-variant required fields
-- **MODIFIED**: `utils/summarizer_authoring.py` v1.6.0 — STRUCTURER_SCHEMA
-  + translate_ops() for camelCase → snake_case
-- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.4.0 — camelCase
-  op names in Structurer prompt
-- **MODIFIED**: `ai_providers/gemini_provider.py` v1.2.1 — use_json_schema
-  kwarg for anyOf support
-- **MODIFIED**: `utils/summary_classifier.py` v1.2.0 — protect topics
-  with decisions and action items with owners
-- **ROOT CAUSE**: Gemini's FSM constrained decoder systematically avoided
-  add_topic ops due to flat enum + optional fields architecture. anyOf
-  discriminated union reduces FSM complexity from multiplicative to additive.
+### v3.5.2 — Overview Inflation Fix (DEPLOYED)
+Investigation confirmed `minutes_text` IS persisted correctly in
+`meta.minutes_text` by `_run_pipeline()`. The Secretary receives prior
+minutes on incremental runs. The overview inflation was caused by the
+Secretary prompt lacking explicit guidance to preserve the existing
+overview. Fix: two lines added to SECRETARY_SYSTEM_PROMPT.
 
-### v3.4.0 — M3 Context Integration + KEY FACTS
-- M3 complete: summary injected into system prompt
-- GPT-5.4 nano classifier, diagnostic files, scaled max_tokens
+- `utils/summary_prompts_authoring.py` v1.5.0 — OVERVIEW section now
+  instructs: "preserve the existing overview unless the conversation's
+  purpose has fundamentally changed"
 
-### v3.3.0-3.3.2 — Two-Pass Summarization + Noise Filtering
-- Secretary/Structurer architecture, ℹ️/⚙️ prefix system
-- Debug commands, supersession fix
+### v3.5.1 — Pipeline Unification + Classifier Dedup (TESTED)
+Both cold start and incremental paths now use the same pipeline:
+```
+Secretary → Structurer (anyOf schema) → Classifier (dedup) → apply_ops()
+```
+- `utils/summarizer.py` v2.1.0 — delegates to `incremental_pipeline()`
+- `utils/summarizer_authoring.py` v1.9.0 — shared `_run_pipeline()`
+- `utils/summary_classifier.py` v1.3.0 — dedup against existing items
+- `utils/summary_prompts.py` v1.6.0 — camelCase ops in incremental
+
+**Test results**: Cold start 1,180 tokens → incremental 2,097 tokens.
+Classifier dropped 9/9 duplicate items. Growth from overview rewrite
++ 3 genuinely new items, not duplication. Dedup confirmed working.
+
+### v3.5.0 — anyOf Discriminated Union Schema (COMPLETE)
+Gemini's constrained decoder skipped `add_topic` ops due to flat enum
++ optional fields FSM complexity. Fixed with anyOf schema, camelCase
+enums, propertyOrdering. Result: 4 active + 7 archived topics.
 
 ---
 
-## Summarization Architecture
+## Immediate Next Steps
 
-### Three-Pass Pipeline (Cold Start)
-```
-Raw messages → Secretary (Gemini, natural language minutes)
-            → Structurer (Gemini, anyOf JSON schema, camelCase ops)
-            → translate_ops() (camelCase → snake_case)
-            → Classifier (GPT-5.4 nano, KEEP/DROP/RECLASSIFY)
-            → apply_ops() → verify hashes → save
-```
-- Secretary model: `gemini-3.1-flash-lite-preview` (via .env)
-- Structurer uses `STRUCTURER_SCHEMA` (anyOf discriminated union)
-  passed via `response_json_schema` (JSON Schema format)
-- Classifier cost: ~$0.0002 per run
-- Diagnostic files saved to `data/` at each stage
-
-### Incremental Updates
-```
-New messages + CURRENT_STATE snapshot → Gemini Structured Outputs
-            → delta ops JSON (old flat DELTA_SCHEMA)
-            → apply_ops() → verify → save
-```
-Note: incremental path still uses old DELTA_SCHEMA — migration planned.
-
-### M3 Context Injection
-```
-System prompt + "--- CONVERSATION CONTEXT ---" + formatted summary
-→ sent as single system message to conversation provider
-```
+### 1. Merge claude-code → development
+Accumulated v3.3.0 through v3.5.2. All on feature branch.
 
 ---
 
-## Key Design Decisions
+## Architecture Overview
 
-### anyOf Schema (v3.5.0)
-Gemini's constrained decoder uses a finite-state machine (FSM) that
-creates greedy token selection bias. The flat schema with 13 enum
-values and 9 optional fields was the worst-case architecture. The
-anyOf discriminated union gives each op type its own variant with
-only required fields, reducing FSM complexity from multiplicative
-to additive. Combined with camelCase enums (higher token probability)
-and propertyOrdering (op field first).
+### Three-Pass Pipeline (both paths)
+```
+Raw messages + existing minutes
+  → Secretary (Gemini, natural language minutes)
+  → Structurer (Gemini, anyOf JSON schema, camelCase ops)
+  → translate_ops() (camelCase → snake_case)
+  → Classifier (GPT-5.4 nano, KEEP/DROP/RECLASSIFY, dedup vs existing)
+  → apply_ops() → verify hashes → save
+```
 
-### Two Schemas
-- `DELTA_SCHEMA` in `summary_schema.py` — flat schema, used by
-  incremental path in `summarizer.py`
-- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf schema,
-  used by cold start Structurer in `summarizer_authoring.py`
+Cold start: `cold_start_pipeline()` — no existing minutes or summary.
+Incremental: `incremental_pipeline()` — passes existing minutes and
+summary to Secretary and Classifier respectively.
 
-### Two JSON Schema Paths in Provider
-- `response_schema` — OpenAPI format (default, used by incremental)
-- `response_json_schema` — JSON Schema format (use_json_schema=True,
-  used by Structurer for anyOf support)
+### Schemas
+- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf discriminated
+  union, camelCase enums, propertyOrdering. Used by both paths.
+- `DELTA_SCHEMA` in `summary_schema.py` — old flat schema. Retained for
+  `_process_response()` repair calls.
+
+### Token Budget Formula
+```python
+min(existing_tokens + (msg_count * 4) + 1024, 16384)
+```
+
+### Diagnostic Files
+Each pipeline run saves to `data/`:
+- `secretary_raw_{channel_id}.txt` — Secretary output
+- `structurer_raw_{channel_id}.json` — Structurer delta ops (after translate)
+- `classifier_raw_{channel_id}.json` — kept IDs + dropped items
+
+---
+
+## Classifier Dedup Test Results (v3.5.1)
+
+Cold start: 539 msgs → 22 ops → 1,180 tokens
+Incremental (+4 msgs): 16 ops emitted, 9 dropped as duplicates, 7 kept
+Final: 543 msgs → 2,097 tokens
+
+Structurer reused same IDs for re-emitted items. Classifier correctly
+identified 9 semantically duplicate items. `_add_if_new()` silently
+ignores same-ID re-emits for items the classifier kept. Token growth
+was from overview expansion + 3 genuinely new items.
+
+---
+
+## Known Issues
+
+### 1. _build_existing_items() Missing pinned_memory
+The dedup comparison extracts from decisions, key_facts, action_items,
+open_questions, and active_topics — but not pinned_memory. If the
+Structurer re-emits pinned items, they won't be caught by dedup.
+Low priority since pinned_memory is rarely used.
+
+### 2. config.py Default SUMMARIZER_MODEL
+Default `gemini-2.5-flash-lite` is stale. Server runs
+`gemini-3.1-flash-lite-preview` via .env. Consider updating default.
+
+### 3. WAL File Stats Bug
+`get_database_stats()` reports 0.0 MB — only measures main file, not WAL.
+
+---
+
+## File Versions on Server
+
+### Pipeline Files
+| File | Version | Key Role |
+|------|---------|----------|
+| `utils/summarizer.py` | v2.1.0 | Orchestrator, delegates to pipeline |
+| `utils/summarizer_authoring.py` | v1.9.0 | Three-pass pipeline (shared) |
+| `utils/summary_delta_schema.py` | v1.0.0 | anyOf schema + translate_ops() |
+| `utils/summary_classifier.py` | v1.3.0 | GPT-5.4 nano + existing dedup |
+| `utils/summary_prompts.py` | v1.6.0 | Incremental prompt (camelCase) |
+| `utils/summary_prompts_authoring.py` | v1.5.0 | Secretary/Structurer prompts |
+| `ai_providers/gemini_provider.py` | v1.2.1 | use_json_schema for anyOf |
+
+### Other Key Files
+| File | Version | Role |
+|------|---------|------|
+| `utils/summary_schema.py` | v1.4.0 | apply_ops(), verify, DELTA_SCHEMA |
+| `utils/summary_display.py` | v1.2.1 | Discord formatting, Key Facts |
+| `utils/summary_store.py` | v1.1.0 | SQLite read/write |
+| `utils/context_manager.py` | v1.1.0 | M3 context injection |
+| `commands/summary_commands.py` | v2.2.0 | !summary commands |
+| `commands/debug_commands.py` | v1.1.0 | !debug status/cleanup/noise |
 
 ---
 
@@ -110,7 +158,7 @@ and propertyOrdering (op field first).
 
 ---
 
-## .env Configuration (current server)
+## .env Configuration
 ```
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=sk-[key]
@@ -121,34 +169,34 @@ SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
 SUMMARIZER_BATCH_SIZE=500
 GEMINI_API_KEY=[key]
 GEMINI_MAX_TOKENS=32768
-OPENAI_API_KEY=[key]
+OPENAI_API_KEY=[key]   # Required for GPT-5.4 nano classifier
 ```
 
 ---
 
 ## Roadmap
 
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| M0 | Merge dev → main | ✅ Complete |
-| M1 | Schema extension v3.1.0 | ✅ Complete |
-| M2 | Structured summary generation | ✅ Complete (v3.2.0) |
-| M3 | Context integration | ✅ Complete (v3.4.0) |
-| M3.5 | anyOf schema fix | ✅ Complete (v3.5.0) |
-| M4 | Episode segmentation and retrieval | Planned |
-| M5 | Explainability and context receipts | Planned |
-| M6 | Citation-backed generation | Planned |
-| M7 | Epoch compression | Planned |
+| Milestone | Status |
+|-----------|--------|
+| M0-M3 | ✅ Complete |
+| M3.5 anyOf schema | ✅ Complete (v3.5.0) |
+| M3.5 pipeline unification | ✅ Complete (v3.5.1) |
+| M3.5 classifier dedup | ✅ Tested and working (v3.5.1) |
+| M3.5 overview inflation fix | ✅ Deployed (v3.5.2) |
+| Merge claude-code → development | Pending |
+| M4 Episode segmentation | Planned |
+| M5 Explainability | Planned |
+| M6 Citation-backed generation | Planned |
+| M7 Epoch compression | Planned |
 
 ---
 
 ## Development Rules (from AGENT.md)
 1. NO CODE CHANGES WITHOUT APPROVAL
-2. ALL DEVELOPMENT IN development OR feature branches
-3. main BRANCH IS FOR STABLE CODE ONLY
-4. DISCUSS FIRST, CODE SECOND
-5. ALWAYS provide full files — no partial patches
-6. INCREMENT version numbers in file heading comments
-7. Keep files under 250 lines
-8. Test before committing
-9. Update STATUS.md and HANDOFF.md with every commit
+2. Discuss before coding
+3. ALWAYS provide full files — no partial patches
+4. INCREMENT version numbers in file heading comments
+5. Keep files under 250 lines
+6. Update STATUS.md and HANDOFF.md with every commit
+7. Separate logical commits per change
+8. Transcripts from prior sessions at `/mnt/transcripts/`
