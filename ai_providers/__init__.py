@@ -1,7 +1,12 @@
 # ai_providers/__init__.py
-# Version 1.3.0
+# Version 1.4.0
 """
 AI Providers package - factory for creating AI provider instances.
+
+CHANGES v1.4.0: Gemini provider (SOW v3.2.0)
+- ADDED: 'gemini' case in get_provider() factory → GeminiProvider
+- ADDED: GeminiProvider import (lazy, inside the if-block to avoid import
+  errors when google-genai is not installed and Gemini is not being used)
 
 CHANGES v1.3.0: Provider singleton caching (SOW v2.22.0)
 - ADDED: _provider_cache module-level dictionary
@@ -68,10 +73,14 @@ def get_provider(provider_name=None, channel_id=None):
         elif provider_name == 'deepseek':
             logger.info(f"Instantiating OpenAICompatibleProvider for deepseek (first use)")
             _provider_cache[provider_name] = OpenAICompatibleProvider()
+        elif provider_name == 'gemini':
+            logger.info(f"Instantiating GeminiProvider (first use)")
+            from .gemini_provider import GeminiProvider
+            _provider_cache[provider_name] = GeminiProvider()
         else:
             error_msg = (
                 f"Unsupported AI provider: {provider_name}. "
-                f"Supported providers: openai, anthropic, deepseek"
+                f"Supported providers: openai, anthropic, deepseek, gemini"
             )
             logger.error(error_msg)
             raise ValueError(error_msg)

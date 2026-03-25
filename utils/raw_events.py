@@ -1,5 +1,5 @@
 # utils/raw_events.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Discord event handlers for SQLite message persistence.
 
@@ -24,6 +24,10 @@ CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
 - MODIFIED: _backfill_channel captures reply_to_message_id, thread_id,
   and attachments_metadata from historical messages
 - UPDATED: import reflects renamed update function
+
+CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
+- MODIFIED: persistence_on_message sets is_bot_author from message.author.bot
+- MODIFIED: _backfill_channel sets is_bot_author from msg.author.bot
 
 These handlers are INDEPENDENT of the on_message response pipeline in
 bot.py. The existing in-memory channel_history is untouched.
@@ -86,7 +90,8 @@ def setup_raw_events(bot):
 
         This is a SECOND on_message listener alongside bot.py's primary
         handler. Unlike that handler, this one does NOT skip bot messages
-        — bot responses are conversation context needed for summarization.
+        — bot responses are stored with is_bot_author=True so the
+        summarizer can filter them deterministically.
         """
         if message.guild is None:
             return
@@ -109,7 +114,8 @@ def setup_raw_events(bot):
                                  if message.reference else None),
             thread_id=(message.channel.id
                        if isinstance(message.channel, discord.Thread) else None),
-            attachments_metadata=_get_attachments_metadata(message)
+            attachments_metadata=_get_attachments_metadata(message),
+            is_bot_author=message.author.bot,
         )
 
         try:
@@ -189,9 +195,9 @@ async def _backfill_channel(channel):
     """
     Backfill a single channel. Returns the number of messages stored.
 
-    Captures reply_to_message_id, thread_id, and attachments_metadata
-    from historical messages (available via Discord API). edited_at and
-    deleted_at are not available during backfill.
+    Captures reply_to_message_id, thread_id, attachments_metadata, and
+    is_bot_author from historical messages (available via Discord API).
+    edited_at and deleted_at are not available during backfill.
     """
     async with _backfill_semaphore:
         channel_id = channel.id
@@ -225,7 +231,8 @@ async def _backfill_channel(channel):
                         {"filename": a.filename, "size": a.size,
                          "content_type": a.content_type}
                         for a in msg.attachments
-                    ]) if msg.attachments else None
+                    ]) if msg.attachments else None,
+                    is_bot_author=msg.author.bot,
                 ))
 
             if messages:
