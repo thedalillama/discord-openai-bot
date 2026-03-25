@@ -1,8 +1,13 @@
 # config.py
-# Version 1.11.0
+# Version 1.12.0
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.12.0: Semantic retrieval configuration (SOW v4.0.0)
+- ADDED: EMBEDDING_MODEL — Gemini embedding model (default text-embedding-004)
+- ADDED: RETRIEVAL_TOP_K — topics to retrieve per query (default 5)
+- ADDED: TOPIC_MSG_LIMIT — messages linked per topic via similarity (default 20)
 
 CHANGES v1.11.0: Reduce default batch size to prevent response truncation
 - CHANGED: SUMMARIZER_BATCH_SIZE default 200 → 50 — 200-message batches caused
@@ -126,6 +131,15 @@ SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-2.5-flash-lite')
 # enough to stay within Gemini's response token limit. Default 50 — larger
 # batches cause too many ops in a single response, truncating the JSON.
 SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
+
+# Semantic retrieval configuration (SOW v4.0.0)
+# EMBEDDING_MODEL: Gemini embedding model. text-embedding-004 is free tier,
+# 768 dimensions, covered by existing GEMINI_API_KEY.
+EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-004')
+# RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
+RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
+# TOPIC_MSG_LIMIT: max messages linked to each topic via embedding similarity.
+TOPIC_MSG_LIMIT = int(os.environ.get('TOPIC_MSG_LIMIT', 20))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

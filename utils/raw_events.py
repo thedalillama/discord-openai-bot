@@ -1,36 +1,15 @@
 # utils/raw_events.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Discord event handlers for SQLite message persistence.
 
-CREATED v1.0.0: SQLite message persistence (SOW v3.0.0)
-- on_message listener: captures all messages to SQLite in real-time
-- on_raw_message_edit: updates stored content on message edits
-- on_raw_message_delete: soft-deletes messages (sets is_deleted flag)
-- startup_backfill: fetches missed messages after bot restart
-
-CHANGES v1.0.1: Fix event registration
-- FIXED: Changed @bot.event to bot.add_listener() for raw event handlers.
-
-CHANGES v1.0.2: Fix message create not firing
-- FIXED: on_raw_message_create never dispatched by commands.Bot when
-  on_message is defined as @bot.event. Replaced with on_message listener.
-
-CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
-- MODIFIED: persistence_on_message captures reply_to_message_id,
-  thread_id, and attachments_metadata from live messages
-- MODIFIED: on_raw_message_edit calls update_message_content_and_edit_time()
-  (sets both content and edited_at timestamp)
-- MODIFIED: _backfill_channel captures reply_to_message_id, thread_id,
-  and attachments_metadata from historical messages
-- UPDATED: import reflects renamed update function
-
-CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
-- MODIFIED: persistence_on_message sets is_bot_author from message.author.bot
-- MODIFIED: _backfill_channel sets is_bot_author from msg.author.bot
-
-These handlers are INDEPENDENT of the on_message response pipeline in
-bot.py. The existing in-memory channel_history is untouched.
+CREATED v1.0.0: on_message → SQLite, on_raw_message_edit, on_raw_message_delete,
+  startup_backfill. Independent of bot.py response pipeline.
+CHANGES v1.0.1: @bot.event → bot.add_listener() for raw handlers.
+CHANGES v1.0.2: on_message listener replaces on_raw_message_create.
+CHANGES v1.1.0: Capture reply_to_message_id, thread_id, attachments_metadata.
+CHANGES v1.2.0: Capture is_bot_author from message.author.bot.
+CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0). Skips noise/commands.
 """
 import asyncio
 import json
@@ -125,6 +104,18 @@ def setup_raw_events(bot):
             )
         except Exception as e:
             logger.error(f"Failed to store message {msg.id}: {e}")
+            return
+
+        # Embed message for semantic retrieval — skip noise and commands
+        content = msg.content
+        if content and not content.startswith(('!', 'ℹ️', '⚙️')):
+            try:
+                from utils.embedding_store import embed_and_store_message
+                await asyncio.to_thread(
+                    embed_and_store_message, msg.id, content
+                )
+            except Exception as e:
+                logger.warning(f"Embedding failed for msg {msg.id}: {e}")
 
     async def on_raw_message_edit(payload):
         """Update stored content and edited_at when a message is edited."""
