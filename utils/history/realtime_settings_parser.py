@@ -1,7 +1,16 @@
 # utils/history/realtime_settings_parser.py
-# Version 2.1.0
+# Version 2.2.0
 """
-Real-time settings parsing during Discord message loading.
+Real-time settings parsing orchestrator during Discord message loading.
+
+CHANGES v2.2.0: Split helper functions into settings_appliers.py
+- MOVED: _parse_and_apply_system_prompt() → settings_appliers.py
+- MOVED: _parse_and_apply_ai_provider() → settings_appliers.py
+- MOVED: _parse_and_apply_auto_respond() → settings_appliers.py
+- MOVED: _parse_and_apply_thinking_setting() → settings_appliers.py
+- MOVED: extract_prompt_from_update_message() → settings_appliers.py
+- RE-EXPORTED: extract_prompt_from_update_message for backwards compatibility
+- REASON: File exceeded 250-line limit (was 335 lines)
 
 CHANGES v2.1.0: Completed settings recovery implementation
 - IMPLEMENTED: _parse_and_apply_ai_provider() for AI provider change confirmations
@@ -14,43 +23,44 @@ CHANGES v2.0.0: Simplified to confirmed settings only
 - FOCUSED: Only parse confirmed settings from bot confirmation messages
 - SIMPLIFIED: More reliable restoration from actual conversation confirmations
 
-This module provides real-time parsing of bot configuration settings as Discord
-messages are being loaded. It detects the most recent settings and applies them
-immediately to in-memory storage, stopping parsing once each setting type is found.
+This module processes messages in reverse chronological order (newest first)
+to find the most recent confirmed settings. Once a setting type is found and
+applied, parsing stops for that type to optimise performance.
 
-This is part of the Configuration Persistence feature architecture and provides
-more efficient settings restoration than post-processing approaches.
-
-Key Features:
-- Parse settings in reverse chronological order (newest first)
-- Stop parsing each setting type once found and applied
-- Apply settings immediately to in-memory dictionaries
-- Handle errors gracefully without stopping message loading
-- Only restore from confirmed settings (bot confirmation messages)
+Only restores from confirmed settings (bot confirmation messages) — there is
+no settings database; settings are recovered by replaying !command confirmations
+found in channel history.
 """
-import datetime
 from utils.logging_utils import get_logger
-from .storage import add_message_to_history
-from .message_processing import create_system_update_message
-from .prompts import channel_system_prompts
+from .settings_appliers import (
+    _parse_and_apply_system_prompt,
+    _parse_and_apply_ai_provider,
+    _parse_and_apply_auto_respond,
+    _parse_and_apply_thinking_setting,
+    extract_prompt_from_update_message,  # re-exported for backwards compatibility
+)
 
 logger = get_logger('history.realtime_settings_parser')
+
+# Re-export so existing callers (api_imports.py, discord_loader.py) still work
+__all__ = ['parse_settings_during_load', 'extract_prompt_from_update_message']
+
 
 async def parse_settings_during_load(messages, channel_id):
     """
     Parse settings from Discord messages in real-time during loading.
-    
-    This function processes messages in reverse chronological order (newest first)
-    to find the most recent settings. Once a setting type is found and applied,
-    parsing stops for that type to optimize performance.
-    
+
+    Processes messages in reverse chronological order (newest first) to find
+    the most recent settings. Once a setting type is found and applied, parsing
+    stops for that type to optimise performance.
+
     Only processes confirmed settings from bot confirmation messages, not
     unprocessed commands.
-    
+
     Args:
-        messages: List of Discord message objects (should be in chronological order)
+        messages: List of Discord message objects (chronological order)
         channel_id: Discord channel ID to apply settings to
-        
+
     Returns:
         dict: Summary of what settings were found and applied:
             {
@@ -61,275 +71,52 @@ async def parse_settings_during_load(messages, channel_id):
                 'total_found': int
             }
     """
-    logger.debug(f"Starting real-time settings parsing for {len(messages)} messages in channel {channel_id}")
-    
-    # Track which settings have been found to enable early termination
+    logger.debug(
+        f"Starting real-time settings parsing for {len(messages)} messages "
+        f"in channel {channel_id}"
+    )
+
     settings_found = {
         'system_prompt': False,
         'ai_provider': False,
         'auto_respond': False,
         'thinking_enabled': False
     }
-    
-    # Process messages in reverse order (newest first) for efficiency
+
     for i, message in enumerate(reversed(messages)):
         try:
-            # Early termination if all settings found
             if all(settings_found.values()):
                 logger.debug(f"All settings found, stopping parsing after {i+1} messages")
                 break
-            
-            # Parse system prompt confirmations (highest priority)
+
             if not settings_found['system_prompt']:
                 if _parse_and_apply_system_prompt(message, channel_id):
                     settings_found['system_prompt'] = True
                     logger.debug(f"Found system prompt in message {i+1}")
-            
-            # Parse AI provider changes
+
             if not settings_found['ai_provider']:
                 if _parse_and_apply_ai_provider(message, channel_id):
                     settings_found['ai_provider'] = True
                     logger.debug(f"Found AI provider change in message {i+1}")
-            
-            # Parse auto-respond setting changes
+
             if not settings_found['auto_respond']:
                 if _parse_and_apply_auto_respond(message, channel_id):
                     settings_found['auto_respond'] = True
                     logger.debug(f"Found auto-respond setting in message {i+1}")
-            
-            # Parse thinking display setting changes
+
             if not settings_found['thinking_enabled']:
                 if _parse_and_apply_thinking_setting(message, channel_id):
                     settings_found['thinking_enabled'] = True
                     logger.debug(f"Found thinking setting in message {i+1}")
-                    
+
         except Exception as e:
             logger.error(f"Error parsing settings from message {i+1}: {e}")
-            # Continue parsing other messages despite errors
             continue
-    
+
     total_found = sum(settings_found.values())
-    logger.info(f"Real-time settings parsing complete for channel {channel_id}: {total_found} settings found and applied")
-    
-    return {
-        **settings_found,
-        'total_found': total_found
-    }
+    logger.info(
+        f"Real-time settings parsing complete for channel {channel_id}: "
+        f"{total_found} settings found and applied"
+    )
 
-def _parse_and_apply_system_prompt(message, channel_id):
-    """
-    Parse and apply system prompt from bot confirmation messages only.
-    
-    Only processes confirmed system prompt updates from bot response messages,
-    not unprocessed commands.
-    
-    Args:
-        message: Discord message object
-        channel_id: Discord channel ID
-        
-    Returns:
-        bool: True if system prompt was found and applied, False otherwise
-    """
-    try:
-        # Only handle system prompt update confirmations from bot
-        if (hasattr(message, 'author') and 
-              hasattr(message.author, 'bot') and 
-              message.author.bot and
-              "System prompt updated for" in message.content and 
-              "New prompt:" in message.content):
-            
-            extracted_prompt = extract_prompt_from_update_message(message)
-            if extracted_prompt:
-                channel_system_prompts[channel_id] = extracted_prompt
-                logger.info(f"Applied system prompt from bot confirmation: {extracted_prompt[:50]}...")
-                return True
-                
-    except Exception as e:
-        logger.error(f"Error parsing system prompt: {e}")
-    
-    return False
-
-def _parse_and_apply_ai_provider(message, channel_id):
-    """
-    Parse and apply AI provider setting from bot confirmation messages.
-    
-    Parses AI provider change confirmations from bot messages like:
-    - "AI provider for #channel changed from **openai** to **deepseek**."
-    - "AI provider for #channel reset from **deepseek** to default (**openai**)."
-    
-    Args:
-        message: Discord message object
-        channel_id: Discord channel ID
-        
-    Returns:
-        bool: True if AI provider was found and applied, False otherwise
-    """
-    try:
-        # Only handle AI provider confirmations from bot
-        if (hasattr(message, 'author') and 
-              hasattr(message.author, 'bot') and 
-              message.author.bot):
-            
-            content = message.content
-            
-            # Parse AI provider change confirmations
-            if "AI provider for" in content and " to " in content:
-                # Extract provider after last occurrence of " to "
-                parts = content.split(" to ")
-                if len(parts) >= 2:
-                    provider_part = parts[-1].strip()
-                    
-                    # Clean up formatting and extract provider name
-                    # Handle both "deepseek**." and "default (**deepseek**)."
-                    provider = provider_part.replace("**", "").replace(".", "").replace("(", "").replace(")", "").strip()
-                    
-                    # Handle "default (provider)" format
-                    if provider.startswith("default "):
-                        provider = provider.replace("default ", "").strip()
-                    
-                    if provider.lower() in ['openai', 'anthropic', 'deepseek']:
-                        from .storage import channel_ai_providers
-                        channel_ai_providers[channel_id] = provider.lower()
-                        logger.info(f"Applied AI provider from confirmation: {provider.lower()}")
-                        return True
-                        
-    except Exception as e:
-        logger.error(f"Error parsing AI provider: {e}")
-    
-    return False
-
-def _parse_and_apply_auto_respond(message, channel_id):
-    """
-    Parse and apply auto-respond setting from bot confirmation messages.
-    
-    Parses auto-respond toggle confirmations from bot messages like:
-    - "Auto-response is now **enabled** in #channel"
-    - "Auto-response is now **disabled** in #channel"
-    
-    Args:
-        message: Discord message object
-        channel_id: Discord channel ID
-        
-    Returns:
-        bool: True if auto-respond setting was found and applied, False otherwise
-    """
-    try:
-        # Only handle auto-respond confirmations from bot
-        if (hasattr(message, 'author') and 
-              hasattr(message.author, 'bot') and 
-              message.author.bot):
-            
-            content = message.content.lower()
-            
-            # Parse auto-respond toggle confirmations
-            if "auto-response is now" in content:
-                if "enabled" in content:
-                    # Import and add channel to auto-respond set
-                    # Note: This requires access to the auto_respond_channels set from bot.py
-                    logger.info(f"Found auto-respond enabled confirmation for channel {channel_id}")
-                    # TODO: Need integration point to apply auto-respond enabled setting
-                    return True
-                elif "disabled" in content:
-                    logger.info(f"Found auto-respond disabled confirmation for channel {channel_id}")
-                    # TODO: Need integration point to apply auto-respond disabled setting
-                    return True
-                    
-    except Exception as e:
-        logger.error(f"Error parsing auto-respond setting: {e}")
-    
-    return False
-
-def _parse_and_apply_thinking_setting(message, channel_id):
-    """
-    Parse and apply thinking display setting from bot confirmation messages.
-    
-    Parses thinking display confirmations from bot messages like:
-    - "DeepSeek thinking display **enabled** for #channel"
-    - "DeepSeek thinking display **disabled** for #channel"
-    
-    Args:
-        message: Discord message object
-        channel_id: Discord channel ID
-        
-    Returns:
-        bool: True if thinking setting was found and applied, False otherwise
-    """
-    try:
-        # Only handle thinking display confirmations from bot
-        if (hasattr(message, 'author') and 
-              hasattr(message.author, 'bot') and 
-              message.author.bot):
-            
-            content = message.content.lower()
-            
-            # Parse thinking display confirmations
-            if "deepseek thinking display" in content:
-                if "enabled" in content:
-                    # Import and apply thinking enabled setting
-                    try:
-                        from commands.thinking_commands import set_thinking_enabled
-                        set_thinking_enabled(channel_id, True)
-                        logger.info(f"Applied thinking display enabled for channel {channel_id}")
-                        return True
-                    except ImportError:
-                        logger.warning("Could not import thinking commands module for settings restoration")
-                        return False
-                        
-                elif "disabled" in content:
-                    # Import and apply thinking disabled setting
-                    try:
-                        from commands.thinking_commands import set_thinking_enabled
-                        set_thinking_enabled(channel_id, False)
-                        logger.info(f"Applied thinking display disabled for channel {channel_id}")
-                        return True
-                    except ImportError:
-                        logger.warning("Could not import thinking commands module for settings restoration")
-                        return False
-                    
-    except Exception as e:
-        logger.error(f"Error parsing thinking setting: {e}")
-    
-    return False
-
-def extract_prompt_from_update_message(message):
-    """
-    Extract system prompt text from a "System prompt updated" confirmation message.
-    
-    This function parses bot confirmation messages that contain system prompt updates
-    to restore the actual prompt text for history tracking.
-    
-    Args:
-        message: Discord message object containing system prompt update confirmation
-        
-    Returns:
-        str or None: The system prompt text, or None if extraction failed
-        
-    Example:
-        Input message: "System prompt updated for #channel. New prompt: **You are helpful**"
-        Output: "You are helpful"
-    """
-    try:
-        content = message.content
-        
-        # Extract the prompt from the confirmation message format
-        # Expected format: "System prompt updated for #channel. New prompt: **[prompt text]**"
-        if "New prompt:" not in content:
-            logger.debug(f"System prompt update message missing 'New prompt:' section")
-            return None
-            
-        prompt_text = content.split("New prompt:", 1)[1].strip()
-        
-        # Remove any Discord formatting (like ** for bold)
-        prompt_text = prompt_text.replace("**", "").strip()
-        
-        if not prompt_text:
-            logger.debug(f"Extracted prompt text was empty after cleaning")
-            return None
-        
-        logger.debug(f"Successfully extracted prompt from update message: {prompt_text[:50]}...")
-        return prompt_text
-        
-    except Exception as e:
-        logger.error(f"Error extracting prompt from update message: {e}")
-        logger.debug(f"Update message content: {message.content}")
-        return None
+    return {**settings_found, 'total_found': total_found}

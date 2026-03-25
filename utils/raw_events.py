@@ -1,35 +1,46 @@
 # utils/raw_events.py
-# Version 1.0.2
+# Version 1.2.0
 """
 Discord event handlers for SQLite message persistence.
 
 CREATED v1.0.0: SQLite message persistence (SOW v3.0.0)
-- on_raw_message_create: Captures all messages to SQLite in real-time
-- on_raw_message_edit: Updates stored content on message edits
-- on_raw_message_delete: Soft-deletes messages (sets is_deleted flag)
-- startup_backfill: Fetches missed messages after bot restart
+- on_message listener: captures all messages to SQLite in real-time
+- on_raw_message_edit: updates stored content on message edits
+- on_raw_message_delete: soft-deletes messages (sets is_deleted flag)
+- startup_backfill: fetches missed messages after bot restart
 
 CHANGES v1.0.1: Fix event registration
 - FIXED: Changed @bot.event to bot.add_listener() for raw event handlers.
 
 CHANGES v1.0.2: Fix message create not firing
 - FIXED: on_raw_message_create never dispatched by commands.Bot when
-  on_message is defined as @bot.event. Replaced with on_message listener
-  for create events. Edit and delete remain as raw listeners since they
-  have no equivalent cached event conflict.
-- ADDED: Bot's own messages captured via separate on_message listener that
-  does NOT skip bot messages (unlike bot.py's on_message which returns early).
+  on_message is defined as @bot.event. Replaced with on_message listener.
+
+CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
+- MODIFIED: persistence_on_message captures reply_to_message_id,
+  thread_id, and attachments_metadata from live messages
+- MODIFIED: on_raw_message_edit calls update_message_content_and_edit_time()
+  (sets both content and edited_at timestamp)
+- MODIFIED: _backfill_channel captures reply_to_message_id, thread_id,
+  and attachments_metadata from historical messages
+- UPDATED: import reflects renamed update function
+
+CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
+- MODIFIED: persistence_on_message sets is_bot_author from message.author.bot
+- MODIFIED: _backfill_channel sets is_bot_author from msg.author.bot
 
 These handlers are INDEPENDENT of the on_message response pipeline in
 bot.py. The existing in-memory channel_history is untouched.
 """
 import asyncio
+import json
+import discord
 from datetime import timezone
 
 from utils.logging_utils import get_logger
 from utils.models import StoredMessage
 from utils.message_store import (
-    insert_message, update_message_content, soft_delete_message,
+    insert_message, update_message_content_and_edit_time, soft_delete_message,
     get_last_processed_id, update_last_processed_id,
     insert_messages_batch, init_database
 )
@@ -41,6 +52,16 @@ _backfill_semaphore = asyncio.Semaphore(3)
 
 # Maximum messages to fetch per channel during backfill
 MAX_BACKFILL_PER_CHANNEL = 10000
+
+
+def _get_attachments_metadata(message):
+    """Return JSON string of attachment info, or None if no attachments."""
+    if not message.attachments:
+        return None
+    return json.dumps([
+        {"filename": a.filename, "size": a.size, "content_type": a.content_type}
+        for a in message.attachments
+    ])
 
 
 def setup_raw_events(bot):
@@ -67,12 +88,11 @@ def setup_raw_events(bot):
         """
         Capture every message (including bot's own) to SQLite.
 
-        This is a SECOND on_message listener that runs alongside the
-        primary on_message in bot.py. Unlike that handler, this one
-        does NOT skip bot messages — bot responses are part of the
-        conversation context needed for summarization.
+        This is a SECOND on_message listener alongside bot.py's primary
+        handler. Unlike that handler, this one does NOT skip bot messages
+        — bot responses are stored with is_bot_author=True so the
+        summarizer can filter them deterministically.
         """
-        # Skip DMs — only capture guild messages
         if message.guild is None:
             return
 
@@ -89,7 +109,13 @@ def setup_raw_events(bot):
             if message.created_at.tzinfo is None
             else message.created_at.isoformat(),
             message_type=message.type.value if hasattr(message.type, 'value') else 0,
-            is_deleted=False
+            is_deleted=False,
+            reply_to_message_id=(message.reference.message_id
+                                 if message.reference else None),
+            thread_id=(message.channel.id
+                       if isinstance(message.channel, discord.Thread) else None),
+            attachments_metadata=_get_attachments_metadata(message),
+            is_bot_author=message.author.bot,
         )
 
         try:
@@ -101,7 +127,7 @@ def setup_raw_events(bot):
             logger.error(f"Failed to store message {msg.id}: {e}")
 
     async def on_raw_message_edit(payload):
-        """Update stored content when a message is edited."""
+        """Update stored content and edited_at when a message is edited."""
         data = payload.data
         new_content = data.get("content")
         message_id = payload.message_id
@@ -110,8 +136,10 @@ def setup_raw_events(bot):
             return
 
         try:
-            await asyncio.to_thread(update_message_content, message_id, new_content)
-            logger.debug(f"Updated message {message_id} content")
+            await asyncio.to_thread(
+                update_message_content_and_edit_time, message_id, new_content
+            )
+            logger.debug(f"Updated message {message_id} content and edited_at")
         except Exception as e:
             logger.error(f"Failed to update message {message_id}: {e}")
 
@@ -167,7 +195,9 @@ async def _backfill_channel(channel):
     """
     Backfill a single channel. Returns the number of messages stored.
 
-    Uses the semaphore to limit concurrent Discord API fetches.
+    Captures reply_to_message_id, thread_id, attachments_metadata, and
+    is_bot_author from historical messages (available via Discord API).
+    edited_at and deleted_at are not available during backfill.
     """
     async with _backfill_semaphore:
         channel_id = channel.id
@@ -177,7 +207,7 @@ async def _backfill_channel(channel):
             messages = []
             fetch_kwargs = {"limit": MAX_BACKFILL_PER_CHANNEL}
             if last_id:
-                fetch_kwargs["after"] = discord_object_with_id(last_id)
+                fetch_kwargs["after"] = discord.Object(id=last_id)
 
             async for msg in channel.history(**fetch_kwargs, oldest_first=True):
                 messages.append(StoredMessage(
@@ -192,7 +222,17 @@ async def _backfill_channel(channel):
                     if msg.created_at.tzinfo is None
                     else msg.created_at.isoformat(),
                     message_type=msg.type.value if hasattr(msg.type, 'value') else 0,
-                    is_deleted=False
+                    is_deleted=False,
+                    reply_to_message_id=(msg.reference.message_id
+                                         if msg.reference else None),
+                    thread_id=(msg.channel.id
+                               if isinstance(msg.channel, discord.Thread) else None),
+                    attachments_metadata=json.dumps([
+                        {"filename": a.filename, "size": a.size,
+                         "content_type": a.content_type}
+                        for a in msg.attachments
+                    ]) if msg.attachments else None,
+                    is_bot_author=msg.author.bot,
                 ))
 
             if messages:
@@ -214,9 +254,3 @@ async def _backfill_channel(channel):
         except Exception as e:
             logger.error(f"Backfill failed for #{channel.name}: {e}")
             raise
-
-
-def discord_object_with_id(snowflake_id):
-    """Create a minimal object with an .id attribute for channel.history(after=...)."""
-    import discord
-    return discord.Object(id=snowflake_id)

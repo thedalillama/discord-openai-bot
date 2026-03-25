@@ -1,5 +1,5 @@
 # utils/message_store.py
-# Version 1.0.0
+# Version 1.2.0
 """
 SQLite message persistence layer for the Discord bot.
 
@@ -8,7 +8,19 @@ CREATED v1.0.0: SQLite message persistence (SOW v3.0.0)
 - Insert, update, soft-delete, and query operations
 - Channel state tracking (last_processed_id) for restart recovery
 - All write operations designed for asyncio.to_thread() wrapping
-- Schema: messages table + channel_state table with indexes
+
+CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
+- REMOVED: SCHEMA_SQL constant (moved to schema/001.sql)
+- MODIFIED: init_database() calls run_migrations() from db_migration.py
+- MODIFIED: insert_message(), insert_messages_batch() include 3 new columns
+  (reply_to_message_id, thread_id, attachments_metadata)
+- REPLACED: update_message_content() with update_message_content_and_edit_time()
+- MODIFIED: soft_delete_message() also sets deleted_at timestamp
+- MODIFIED: get_channel_messages() returns all 13 columns
+
+CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
+- MODIFIED: insert_message(), insert_messages_batch() include is_bot_author column
+- MODIFIED: get_channel_messages() maps column index 13 to is_bot_author
 """
 import sqlite3
 import os
@@ -23,41 +35,17 @@ logger = get_logger('message_store')
 # Module-level connection — initialized once via init_database()
 _conn = None
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY,
-    channel_id INTEGER NOT NULL,
-    author_id INTEGER NOT NULL,
-    author_name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    message_type INTEGER DEFAULT 0,
-    is_deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_channel_time
-    ON messages(channel_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_channel_id
-    ON messages(channel_id, id);
-
-CREATE TABLE IF NOT EXISTS channel_state (
-    channel_id INTEGER PRIMARY KEY,
-    last_processed_id INTEGER NOT NULL,
-    updated_at TEXT NOT NULL
-);
-"""
-
 
 def init_database():
     """
-    Initialize the SQLite database connection and create tables.
+    Initialize the SQLite database connection and run migrations.
 
-    Creates the data directory if it doesn't exist, opens the database
-    file, enables WAL mode, and creates tables/indexes if needed.
+    Creates the data directory if needed, opens the database, enables
+    WAL mode, and runs all pending schema migrations via db_migration.py.
     Must be called once at startup before any other operations.
     """
     global _conn
 
-    # Create data directory if needed
     db_dir = os.path.dirname(DATABASE_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir)
@@ -66,8 +54,9 @@ def init_database():
     _conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
     _conn.execute("PRAGMA journal_mode = WAL")
     _conn.execute("PRAGMA synchronous = NORMAL")
-    _conn.executescript(SCHEMA_SQL)
-    _conn.commit()
+
+    from utils.db_migration import run_migrations
+    run_migrations(_conn)
 
     logger.info(f"Database initialized at {DATABASE_PATH}")
     journal = _conn.execute("PRAGMA journal_mode").fetchone()[0]
@@ -92,11 +81,14 @@ def insert_message(msg):
     conn.execute(
         """INSERT OR IGNORE INTO messages
            (id, channel_id, author_id, author_name, content,
-            created_at, message_type, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            created_at, message_type, is_deleted,
+            reply_to_message_id, thread_id, attachments_metadata,
+            is_bot_author)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (msg.id, msg.channel_id, msg.author_id, msg.author_name,
-         msg.content, msg.created_at, msg.message_type,
-         int(msg.is_deleted))
+         msg.content, msg.created_at, msg.message_type, int(msg.is_deleted),
+         msg.reply_to_message_id, msg.thread_id, msg.attachments_metadata,
+         int(msg.is_bot_author))
     )
     conn.commit()
 
@@ -114,28 +106,33 @@ def insert_messages_batch(messages):
     conn.executemany(
         """INSERT OR IGNORE INTO messages
            (id, channel_id, author_id, author_name, content,
-            created_at, message_type, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            created_at, message_type, is_deleted,
+            reply_to_message_id, thread_id, attachments_metadata,
+            is_bot_author)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [(m.id, m.channel_id, m.author_id, m.author_name,
-          m.content, m.created_at, m.message_type, int(m.is_deleted))
+          m.content, m.created_at, m.message_type, int(m.is_deleted),
+          m.reply_to_message_id, m.thread_id, m.attachments_metadata,
+          int(m.is_bot_author))
          for m in messages]
     )
     conn.commit()
     logger.debug(f"Batch inserted {len(messages)} messages")
 
 
-def update_message_content(message_id, new_content):
+def update_message_content_and_edit_time(message_id, new_content):
     """
-    Update the content of an existing message (for edits).
+    Update message content and set edited_at timestamp (for edits).
 
     Args:
         message_id: Discord snowflake message ID
         new_content: Updated message text
     """
     conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "UPDATE messages SET content = ? WHERE id = ?",
-        (new_content, message_id)
+        "UPDATE messages SET content = ?, edited_at = ? WHERE id = ?",
+        (new_content, now, message_id)
     )
     conn.commit()
 
@@ -148,9 +145,10 @@ def soft_delete_message(message_id):
         message_id: Discord snowflake message ID
     """
     conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "UPDATE messages SET is_deleted = 1 WHERE id = ?",
-        (message_id,)
+        "UPDATE messages SET is_deleted = 1, deleted_at = ? WHERE id = ?",
+        (now, message_id)
     )
     conn.commit()
 
@@ -168,18 +166,25 @@ def get_channel_messages(channel_id, include_deleted=False):
     """
     conn = _get_conn()
     if include_deleted:
-        sql = "SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at"
-        rows = conn.execute(sql, (channel_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at",
+            (channel_id,)
+        ).fetchall()
     else:
-        sql = """SELECT * FROM messages
-                 WHERE channel_id = ? AND is_deleted = 0
-                 ORDER BY created_at"""
-        rows = conn.execute(sql, (channel_id,)).fetchall()
+        rows = conn.execute(
+            """SELECT * FROM messages
+               WHERE channel_id = ? AND is_deleted = 0
+               ORDER BY created_at""",
+            (channel_id,)
+        ).fetchall()
 
     return [StoredMessage(
         id=r[0], channel_id=r[1], author_id=r[2], author_name=r[3],
         content=r[4], created_at=r[5], message_type=r[6],
-        is_deleted=bool(r[7])
+        is_deleted=bool(r[7]),
+        reply_to_message_id=r[8], thread_id=r[9],
+        edited_at=r[10], deleted_at=r[11], attachments_metadata=r[12],
+        is_bot_author=bool(r[13]) if r[13] is not None else False,
     ) for r in rows]
 
 
