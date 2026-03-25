@@ -1,5 +1,5 @@
 # utils/models.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Data models for the Discord bot persistence layer.
 
@@ -16,6 +16,10 @@ CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
 - ADDED: deleted_at — ISO 8601 timestamp of deletion (None if not deleted)
 - ADDED: attachments_metadata — JSON string of attachment info, or None
 - All new fields default to None for backward compatibility with existing rows
+
+CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
+- ADDED: is_bot_author — True if message was sent by a bot user;
+  used by summarizer to exclude bot-authored messages from input
 """
 from dataclasses import dataclass, field
 
@@ -43,6 +47,7 @@ class StoredMessage:
         edited_at: ISO 8601 timestamp of last edit, or None
         deleted_at: ISO 8601 timestamp of deletion, or None
         attachments_metadata: JSON string of attachment info, or None
+        is_bot_author: True if message was sent by a bot user
     """
     id: int
     channel_id: int
@@ -58,3 +63,5 @@ class StoredMessage:
     edited_at: str | None = None
     deleted_at: str | None = None
     attachments_metadata: str | None = None
+    # v3.2.1 addition
+    is_bot_author: bool = False

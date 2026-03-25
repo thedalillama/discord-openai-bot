@@ -1,234 +1,202 @@
 # HANDOFF.md
-# Version 3.1.1
+# Version 3.5.2
 # Agent Development Handoff Document
 
 ## Current Status
 
-**Branch**: development
-**Main**: v3.0.0 (untagged)
-**Development**: v3.1.0 (ahead of main, not yet merged)
-**Bot**: Running on systemd, stable, using deepseek-reasoner model
-**Last completed**: v3.1.1 — Code Quality: realtime_settings_parser.py split
-**Next**: Gemini Summarization Integration
+**Branch**: claude-code
+**Bot version**: v3.5.2
+**Bot**: Running on GCP VM as systemd service (`discord-bot`)
+**Model**: `gemini-3.1-flash-lite-preview` (in .env)
+**Last deployed**: v3.5.2 (overview inflation fix)
 
 ---
 
-## Recent Completed Work
+## What Just Happened
 
-### v3.1.1 — Code Quality: realtime_settings_parser.py split
-- **NEW**: `utils/history/settings_appliers.py` v1.0.0 — extracted 5 helper
-  functions (_parse_and_apply_* × 4 + extract_prompt_from_update_message)
-- **MODIFIED**: `utils/history/realtime_settings_parser.py` v2.2.0 — thin
-  orchestrator only; imports from settings_appliers; re-exports
-  extract_prompt_from_update_message for backwards compatibility; 335→122 lines
-- **FIXED**: HANDOFF.md corrected to show development is at v3.1.0
+### v3.5.2 — Overview Inflation Fix (DEPLOYED)
+Investigation confirmed `minutes_text` IS persisted correctly in
+`meta.minutes_text` by `_run_pipeline()`. The Secretary receives prior
+minutes on incremental runs. The overview inflation was caused by the
+Secretary prompt lacking explicit guidance to preserve the existing
+overview. Fix: two lines added to SECRETARY_SYSTEM_PROMPT.
 
-### v3.1.0 — Schema Extension & Enhanced Capture
-- **NEW**: `schema/001.sql` — v3.0.0 baseline schema extracted from message_store.py
-- **NEW**: `schema/002.sql` — 5 new message columns, 2 new empty tables
-- **NEW**: `utils/db_migration.py` v1.0.0 — scans schema/, applies unapplied
-  migrations sequentially, tracks each in schema_version table. Idempotent.
-- **MODIFIED**: `utils/models.py` v1.1.0 — StoredMessage adds 5 optional fields:
-  reply_to_message_id, thread_id, edited_at, deleted_at, attachments_metadata
-- **MODIFIED**: `utils/message_store.py` v1.1.0 — removed SCHEMA_SQL, calls
-  run_migrations(), updated INSERT/SELECT for 3 new capture fields,
-  replaced update_message_content() with update_message_content_and_edit_time(),
-  soft_delete_message() now also sets deleted_at
-- **MODIFIED**: `utils/raw_events.py` v1.1.0 — persistence_on_message and
-  _backfill_channel capture reply_to_message_id, thread_id, attachments_metadata;
-  on_raw_message_edit calls update_message_content_and_edit_time()
-- **NEW**: `docs/sow/SOW_v3.1.0.md`
+- `utils/summary_prompts_authoring.py` v1.5.0 — OVERVIEW section now
+  instructs: "preserve the existing overview unless the conversation's
+  purpose has fundamentally changed"
 
-### v3.0.0 — SQLite Message Persistence Layer
-- **NEW**: `utils/models.py` v1.0.0 — StoredMessage dataclass (~350 bytes
-  per instance vs ~1,200 for discord.py Message objects)
-- **NEW**: `utils/message_store.py` v1.0.0 — SQLite with WAL mode, schema
-  creation, insert/update/soft-delete/query, channel state tracking
-- **NEW**: `utils/raw_events.py` v1.0.2 — on_message listener for real-time
-  capture (including bot messages), raw edit/delete handlers, startup backfill
-  with Semaphore(3) concurrency limit and 10K message cap per channel
-- **MODIFIED**: `bot.py` v3.0.0 — imports raw_events, calls setup_raw_events()
-  and startup_backfill() in on_ready()
-- **MODIFIED**: `config.py` v1.7.0 — added DATABASE_PATH env var
-- **MODIFIED**: `.gitignore` — added `data/`
-- **NEW**: `docs/sow/SOW_v3.0.0.md`
-- **VERIFIED**: Database creation, WAL mode, real-time capture (create/edit/
-  delete), startup backfill, restart recovery, no impact on existing response
-  pipeline. 3,200+ messages captured across 12 channels.
+### v3.5.1 — Pipeline Unification + Classifier Dedup (TESTED)
+Both cold start and incremental paths now use the same pipeline:
+```
+Secretary → Structurer (anyOf schema) → Classifier (dedup) → apply_ops()
+```
+- `utils/summarizer.py` v2.1.0 — delegates to `incremental_pipeline()`
+- `utils/summarizer_authoring.py` v1.9.0 — shared `_run_pipeline()`
+- `utils/summary_classifier.py` v1.3.0 — dedup against existing items
+- `utils/summary_prompts.py` v1.6.0 — camelCase ops in incremental
 
-**Key bug fixes during v3.0.0 development:**
-- v1.0.0 → v1.0.1: `@bot.event` → `bot.add_listener()` for event registration
-- v1.0.1 → v1.0.2: `on_raw_message_create` not dispatched by `commands.Bot`
-  when `@bot.event on_message` is defined. Replaced with a second `on_message`
-  listener registered via `bot.add_listener(persistence_on_message, 'on_message')`.
+**Test results**: Cold start 1,180 tokens → incremental 2,097 tokens.
+Classifier dropped 9/9 duplicate items. Growth from overview rewrite
++ 3 genuinely new items, not duplication. Dedup confirmed working.
 
-### v2.23.0 — Token-Budget Context Management + Usage Logging
-- **Files**: bot.py → v2.10.0, config.py → v1.6.0,
-  context_manager.py → v1.0.0, response_handler.py → v1.1.4,
-  openai_provider.py → v1.3.0, anthropic_provider.py → v1.1.0,
-  openai_compatible_provider.py → v1.2.0
-
-### v2.22.0 — Provider Singleton Caching
-- **File**: ai_providers/__init__.py → v1.3.0
-
-### v2.21.0 — Async Executor Safety
-### v2.20.0 — DeepSeek Reasoning Content Display
+### v3.5.0 — anyOf Discriminated Union Schema (COMPLETE)
+Gemini's constrained decoder skipped `add_topic` ops due to flat enum
++ optional fields FSM complexity. Fixed with anyOf schema, camelCase
+enums, propertyOrdering. Result: 4 active + 7 archived topics.
 
 ---
 
-## v3.x Roadmap
+## Immediate Next Steps
 
-### Next — Gemini Summarization Integration
-- Add Gemini 2.5 Flash Lite as summarization-only provider
-- Incremental summarization: every 15-30 messages, Gemini generates
-  structured meeting-minutes-style summary from raw messages in SQLite
-- Fresh-from-source: send raw messages directly (no recursive summary-of-
-  summary), eliminating the 14% semantic drift per cycle documented in
-  research. Gemini's 1M token context fits ~25,000 raw messages.
-- Summary injected into response context between system prompt and recent
-  messages via existing build_context_for_provider() injection point
-- channel_summaries table (created in v3.1.0) is the write target
-- Estimated new files: summarizer.py, gemini_client.py
-
-### Future — Epoch Rollover + Fresh Recalibration
-- When channel exceeds ~25,000 messages, freeze current summary as an
-  archived epoch artifact and reset the active summarization window
-- Weekly fresh-from-source recalibration pass via Gemini Batch API (50%
-  discount) to reset any accumulated drift in incremental summaries
-
-### Future — Cost Optimization + Activity Tiering
-- Batch API integration for scheduled recalibration passes
-- Activity-based summarization frequency: hot channels every 50 messages,
-  warm every 100, cold every 200, dormant channels skip entirely
+### 1. Merge claude-code → development
+Accumulated v3.3.0 through v3.5.2. All on feature branch.
 
 ---
 
-## SQLite Persistence Architecture (v3.1.0)
+## Architecture Overview
 
-### Database Location
-Default: `./data/messages.db` (configurable via `DATABASE_PATH` env var)
-
-### Schema
-```sql
-messages: id (PK), channel_id, author_id, author_name, content,
-          created_at, message_type, is_deleted,
-          reply_to_message_id, thread_id, edited_at, deleted_at,
-          attachments_metadata
-channel_state: channel_id (PK), last_processed_id, updated_at
-channel_summaries: channel_id (PK), summary_json, updated_at,
-                   message_count, last_message_id
-response_context_receipts: response_message_id (PK), user_message_id,
-                           channel_id, created_at, receipt_json
-schema_version: version (PK), applied_at
-Indexes: idx_channel_time, idx_channel_id, idx_reply_to, idx_thread,
-         idx_receipt_channel
+### Three-Pass Pipeline (both paths)
+```
+Raw messages + existing minutes
+  → Secretary (Gemini, natural language minutes)
+  → Structurer (Gemini, anyOf JSON schema, camelCase ops)
+  → translate_ops() (camelCase → snake_case)
+  → Classifier (GPT-5.4 nano, KEEP/DROP/RECLASSIFY, dedup vs existing)
+  → apply_ops() → verify hashes → save
 ```
 
-### Migration Architecture
-```
-schema/001.sql  — v3.0.0 baseline
-schema/002.sql  — v3.1.0 extensions
-schema/NNN.sql  — future migrations (add files, runner picks them up)
+Cold start: `cold_start_pipeline()` — no existing minutes or summary.
+Incremental: `incremental_pipeline()` — passes existing minutes and
+summary to Secretary and Classifier respectively.
 
-init_database() → run_migrations(conn)
-                    → CREATE TABLE IF NOT EXISTS schema_version
-                    → scan schema/ for NNN.sql files
-                    → apply unapplied in sequence
-                    → record each in schema_version
-```
+### Schemas
+- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf discriminated
+  union, camelCase enums, propertyOrdering. Used by both paths.
+- `DELTA_SCHEMA` in `summary_schema.py` — old flat schema. Retained for
+  `_process_response()` repair calls.
 
-### Event Flow
-```
-Discord Gateway → on_message listener (raw_events.py)
-                    → asyncio.to_thread(insert_message)
-                    → asyncio.to_thread(update_last_processed_id)
-
-Discord Gateway → on_raw_message_edit (raw_events.py)
-                    → asyncio.to_thread(update_message_content_and_edit_time)
-
-Discord Gateway → on_raw_message_delete (raw_events.py)
-                    → asyncio.to_thread(soft_delete_message)  # sets deleted_at
-
-Bot startup → on_ready() → startup_backfill()
-                → per-channel: fetch after last_processed_id
-                → Semaphore(3) concurrency, 10K cap per channel
+### Token Budget Formula
+```python
+min(existing_tokens + (msg_count * 4) + 1024, 16384)
 ```
 
-### Key Design Decisions
-- **on_message listener** (not on_raw_message_create): `commands.Bot` does
-  not dispatch `on_raw_message_create` when `@bot.event on_message` is
-  defined. The persistence listener is a second `on_message` registered
-  via `bot.add_listener()` which coexists with bot.py's primary handler.
-- **Bot messages stored**: Unlike bot.py's `on_message` which skips bot
-  messages, the persistence listener captures them — they are conversation
-  context needed for summarization.
-- **Soft delete**: Deleted messages set `is_deleted = 1` and `deleted_at`
-  timestamp, never hard-deleted. Removing messages creates conversational
-  gaps that confuse summarization.
-- **WAL mode**: Enables concurrent reads during writes — critical for async
-  bot that receives messages while summarization reads the database.
-- **asyncio.to_thread()**: All SQLite operations run off the event loop to
-  prevent blocking Discord's heartbeat.
-- **Migration runner**: Adding future tables requires only a new NNN.sql file.
-  No code changes to message_store.py or db_migration.py.
+### Diagnostic Files
+Each pipeline run saves to `data/`:
+- `secretary_raw_{channel_id}.txt` — Secretary output
+- `structurer_raw_{channel_id}.json` — Structurer delta ops (after translate)
+- `classifier_raw_{channel_id}.json` — kept IDs + dropped items
 
 ---
 
-## Token Budget + Usage Architecture (v2.23.0)
+## Classifier Dedup Test Results (v3.5.1)
 
-### Call Flow
-```
-bot.py on_message()
-  → get_provider(provider_override, channel_id)
-  → build_context_for_provider(channel_id, provider)
-      → prepare_messages_for_api(channel_id)
-      → estimate_tokens() per message
-      → newest-to-oldest until budget exhausted
-      → return [system_msg] + selected
-  → handle_ai_response(message, channel_id, messages, provider_override)
-      → generate_ai_response(messages, ...)
-      → provider._log_usage(response, channel_id) OR inline extraction
-      → record_usage(channel_id, provider, in, out)
-```
+Cold start: 539 msgs → 22 ops → 1,180 tokens
+Incremental (+4 msgs): 16 ops emitted, 9 dropped as duplicates, 7 kept
+Final: 543 msgs → 2,097 tokens
 
-### Noise Filtering Architecture (Three Layers)
-```
-Layer 1 — Runtime:   add_response_to_history() checks is_history_output()
-Layer 2 — Load time: discord_converter.py checks is_history_output()
-Layer 3 — API build: prepare_messages_for_api() checks is_history_output()
-                     AND is_settings_persistence_message()
-```
-
-### Constants That Must Stay in Sync
-
-| Constant | Files |
-|----------|-------|
-| `API_ERROR_PREFIX` | response_handler.py, message_processing.py |
-| `REASONING_PREFIX` | openai_compatible_provider.py, response_handler.py, message_processing.py |
-| `REASONING_SEPARATOR` | openai_compatible_provider.py, response_handler.py |
+Structurer reused same IDs for re-emitted items. Classifier correctly
+identified 9 semantically duplicate items. `_add_if_new()` silently
+ignores same-ID re-emits for items the classifier kept. Token growth
+was from overview expansion + 3 genuinely new items.
 
 ---
 
-## Current .env Configuration
+## Known Issues
+
+### 1. _build_existing_items() Missing pinned_memory
+The dedup comparison extracts from decisions, key_facts, action_items,
+open_questions, and active_topics — but not pinned_memory. If the
+Structurer re-emits pinned items, they won't be caught by dedup.
+Low priority since pinned_memory is rarely used.
+
+### 2. config.py Default SUMMARIZER_MODEL
+Default `gemini-2.5-flash-lite` is stale. Server runs
+`gemini-3.1-flash-lite-preview` via .env. Consider updating default.
+
+### 3. WAL File Stats Bug
+`get_database_stats()` reports 0.0 MB — only measures main file, not WAL.
+
+---
+
+## File Versions on Server
+
+### Pipeline Files
+| File | Version | Key Role |
+|------|---------|----------|
+| `utils/summarizer.py` | v2.1.0 | Orchestrator, delegates to pipeline |
+| `utils/summarizer_authoring.py` | v1.9.0 | Three-pass pipeline (shared) |
+| `utils/summary_delta_schema.py` | v1.0.0 | anyOf schema + translate_ops() |
+| `utils/summary_classifier.py` | v1.3.0 | GPT-5.4 nano + existing dedup |
+| `utils/summary_prompts.py` | v1.6.0 | Incremental prompt (camelCase) |
+| `utils/summary_prompts_authoring.py` | v1.5.0 | Secretary/Structurer prompts |
+| `ai_providers/gemini_provider.py` | v1.2.1 | use_json_schema for anyOf |
+
+### Other Key Files
+| File | Version | Role |
+|------|---------|------|
+| `utils/summary_schema.py` | v1.4.0 | apply_ops(), verify, DELTA_SCHEMA |
+| `utils/summary_display.py` | v1.2.1 | Discord formatting, Key Facts |
+| `utils/summary_store.py` | v1.1.0 | SQLite read/write |
+| `utils/context_manager.py` | v1.1.0 | M3 context injection |
+| `commands/summary_commands.py` | v2.2.0 | !summary commands |
+| `commands/debug_commands.py` | v1.1.0 | !debug status/cleanup/noise |
+
+---
+
+## Commands Reference
+
+| Command | Access | Description |
+|---------|--------|-------------|
+| `!summary` | all | Show channel summary |
+| `!summary full` | all | All sections including archived |
+| `!summary raw` | all | Secretary's natural language minutes |
+| `!summary create` | admin | Run summarization |
+| `!summary clear` | admin | Delete stored summary |
+| `!debug noise` | admin | Scan for bot noise |
+| `!debug cleanup` | admin | Delete bot noise from Discord |
+| `!debug status` | admin | Summary internals + classifier drops |
+
+---
+
+## .env Configuration
 ```
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=sk-[key]
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
-OPENAI_COMPATIBLE_CONTEXT_LENGTH=64000
-OPENAI_COMPATIBLE_MAX_TOKENS=8000
-CONTEXT_BUDGET_PERCENT=80
+SUMMARIZER_PROVIDER=gemini
+SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
+SUMMARIZER_BATCH_SIZE=500
+GEMINI_API_KEY=[key]
+GEMINI_MAX_TOKENS=32768
+OPENAI_API_KEY=[key]   # Required for GPT-5.4 nano classifier
 ```
+
+---
+
+## Roadmap
+
+| Milestone | Status |
+|-----------|--------|
+| M0-M3 | ✅ Complete |
+| M3.5 anyOf schema | ✅ Complete (v3.5.0) |
+| M3.5 pipeline unification | ✅ Complete (v3.5.1) |
+| M3.5 classifier dedup | ✅ Tested and working (v3.5.1) |
+| M3.5 overview inflation fix | ✅ Deployed (v3.5.2) |
+| Merge claude-code → development | Pending |
+| M4 Episode segmentation | Planned |
+| M5 Explainability | Planned |
+| M6 Citation-backed generation | Planned |
+| M7 Epoch compression | Planned |
 
 ---
 
 ## Development Rules (from AGENT.md)
 1. NO CODE CHANGES WITHOUT APPROVAL
-2. ALL DEVELOPMENT WORK IN development BRANCH
-3. main BRANCH IS FOR STABLE CODE ONLY
-4. DISCUSS FIRST, CODE SECOND
-5. ALWAYS provide full files — no partial patches
-6. INCREMENT version numbers in file heading comments
-7. Keep files under 250 lines
-8. Test before committing
-9. Update STATUS.md and HANDOFF.md with every commit
+2. Discuss before coding
+3. ALWAYS provide full files — no partial patches
+4. INCREMENT version numbers in file heading comments
+5. Keep files under 250 lines
+6. Update STATUS.md and HANDOFF.md with every commit
+7. Separate logical commits per change
+8. Transcripts from prior sessions at `/mnt/transcripts/`
