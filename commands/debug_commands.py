@@ -95,6 +95,7 @@ def register_debug_commands(bot):
                 await ctx.send(f"{_I}No summary for #{ctx.channel.name}.")
                 return
             summary = json.loads(raw)
+#            logger.info(f'Raw Summary: {summary}')
         except Exception as e:
             await ctx.send(f"{_I}Error loading summary: {e}")
             return

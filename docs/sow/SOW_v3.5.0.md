@@ -156,10 +156,80 @@ providers, `bot.py`, `config.py`.
 8. If `anyOf` fails with 400 error, fall back to flat schema with
    camelCase only (partial fix)
 
+## Test Results
+
+**The anyOf discriminated union schema works.** The Structurer produced
+23 ops including 4 active topics and 7 archived topics — matching the
+Secretary output exactly. This is up from zero topics with the flat
+schema across three different Gemini model tiers.
+
+Results from 517-message cold start:
+- Secretary: clean output, no repetition loop (max_tokens cap working)
+- Structurer: 23 ops including 11 add_topic (4 active, 7 archived)
+- Classifier: kept 21, dropped 2 (dedup: Database Decision topic
+  overlapped with decision item, archived AI pricing duplicated active)
+- translate_ops(): camelCase → snake_case translation worked correctly
+- All downstream code (apply_ops, display, debug) handled topics
+
+## Lessons Learned
+
+### 1. Gemini's constrained decoder has systematic enum bias
+The flat DELTA_SCHEMA with 13 enum values and 9 optional fields caused
+Gemini to systematically avoid `add_topic` ops across all model tiers
+(Flash Lite, Flash, Pro). The model knew about `add_topic` when queried
+in plain text but never emitted it under structured outputs mode. This
+is not a model intelligence issue — it's an FSM state space issue.
+
+### 2. Schema descriptions made things worse
+Adding `description` fields to the schema (per Google's recommendation)
+caused Gemini to produce even fewer op types. The descriptions added
+complexity to the FSM without helping the decoder select the right
+enum values. Reverted immediately.
+
+### 3. The anyOf pattern is the correct fix
+Switching from flat enum + optional fields to discriminated union
+(`anyOf`) with per-variant required fields eliminated the problem
+completely. Each variant has only the fields it needs, reducing FSM
+complexity from multiplicative to additive.
+
+### 4. response_json_schema vs response_schema matters
+The `anyOf` keyword is only supported via `response_json_schema`
+(JSON Schema format), not `response_schema` (OpenAPI format). The
+Gemini provider needed a new `use_json_schema` parameter to select
+the correct config key.
+
+### 5. camelCase enum values help token probability
+The constrained decoder biases toward high-probability tokens.
+`addTopic` (camelCase) is a more natural token sequence than
+`add_topic` (snake_case with underscore). Combined with the anyOf
+pattern, this ensures the decoder doesn't avoid any enum values.
+
+### 6. Always provide complete files when modifying providers
+The `_convert_messages()` function was accidentally broken when
+rewriting `gemini_provider.py` — plain dicts were used instead of
+`types.Content` and `types.Part` objects. The original SDK-specific
+format must be preserved exactly. Fixed in v1.2.1.
+
+### 7. Test scripts must match production filtering
+`test_pipeline.py` filtered out bot messages (`is_bot_author`) while
+production included them (517 vs 248 messages). This masked the
+Gemini repetition loop bug. Test scripts should use the same filtering
+as production code.
+
+### 8. Classifier may over-aggregate related items
+The classifier dropped a Database Decision topic because it overlapped
+with the decision item. But the topic contains richer narrative context
+than the one-line decision. Future work: topics should be containers
+for related items (decisions, facts, actions), not peers that get
+deduplicated against them.
+
 ## Future Work
 
 If the `anyOf` schema works, consider:
 - Migrating the incremental path to use the same schema
 - Refactoring downstream code to use camelCase natively (eliminating
   the translation layer)
-- Adding `propertyOrdering` guidance to the research document
+- Topic-centric schema: items nested under parent topics with snowflake
+  message IDs as immutable evidence anchors
+- Classifier tuning: keep topics that provide context for decisions
+- Tune classifier to never drop action items with assigned owners

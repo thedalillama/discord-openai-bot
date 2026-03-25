@@ -99,6 +99,11 @@ async def run_pipeline(channel_id):
     print(minutes_text)
     print("-" * 40)
 
+    # Save Secretary output
+    with open("output_secretary.txt", "w") as f:
+        f.write(minutes_text)
+    print("Saved: output_secretary.txt")
+
     # --- Pass 2: Structurer ---
     print(f"\n{'='*60}")
     print("PASS 2: STRUCTURER (JSON delta ops)")
@@ -124,7 +129,13 @@ async def run_pipeline(channel_id):
 
     try:
         delta = json.loads(response_text)
-        print(json.dumps(delta, indent=2))
+        pretty = json.dumps(delta, indent=2)
+        print(pretty)
+
+        # Save Structurer output
+        with open("output_structurer.json", "w") as f:
+            f.write(pretty)
+        print("Saved: output_structurer.json")
 
         ops = delta.get("ops", [])
         print(f"\n{len(ops)} ops generated:")
