@@ -1,33 +1,22 @@
 # utils/summary_prompts_authoring.py
-# Version 1.2.0
+# Version 1.4.0
 """
 Two-pass authoring prompts: Secretary (natural language) + Structurer (JSON).
 
-CHANGES v1.2.0: Add KEY FACTS section for personal details and durable info
-- ADDED: KEY FACTS section between OPEN QUESTIONS and ACTIVE TOPICS with
-  GOOD/BAD examples. Captures personal details, preferences, and durable
-  information that would otherwise be lost to ARCHIVED one-liners.
+CHANGES v1.4.0: camelCase op names in Structurer prompt
+- MODIFIED: All op references changed from snake_case (add_topic) to
+  camelCase (addTopic) to match anyOf discriminated union schema.
+  Research shows camelCase has higher token probability in decoder.
 
+CHANGES v1.3.0: Add topic extraction examples to Structurer prompt
+- ADDED: Concrete examples for ACTIVE TOPICS → add_topic ops with
+  title/text/status, and ARCHIVED → add_topic with status "archived"
+- Gemini was skipping topics entirely without examples
+
+CHANGES v1.2.0: KEY FACTS section for personal details
 CHANGES v1.1.2: Skip M-labels in Secretary output
-- ADDED: M-labels to WHAT TO SKIP list — internal references not useful in minutes
-
 CHANGES v1.1.1: Redefine DECISIONS as agreement-on-action
-- MODIFIED: DECISIONS section — a decision requires agreement on a course of
-  action ("I think X" / "Agreed"). Asking a question and getting an answer is
-  a clarification, not a decision. Added conversational examples showing the
-  distinction. Added "expect very few decisions" guidance.
-
-CREATED v1.0.0: Two-pass architecture (Implementation Plan Action 1 revised)
-- ADDED: SECRETARY_SYSTEM_PROMPT — unstructured authoring for natural language
-  minutes. No JSON, no schema constraints. Used for cold starts and bulk
-  summarization where judgment quality matters most.
-- ADDED: STRUCTURER_SYSTEM_PROMPT — JSON conversion from natural language
-  minutes into structured delta ops. Used with Gemini Structured Outputs.
-- ADDED: build_secretary_prompt() — builds [system, user] for Pass 1
-- ADDED: build_structurer_prompt() — builds [system, user] for Pass 2
-
-The Secretary writes good minutes. The Structurer formats them as JSON.
-Separating these two jobs lets each model call do one thing well.
+CREATED v1.0.0: Two-pass architecture
 """
 import json
 
@@ -168,24 +157,43 @@ delta operations. Output ONLY a single JSON object matching the schema.
 No markdown, no code fences, no explanations.
 
 EXTRACTION RULES:
-- Each decision line → add_decision op
-- Each key fact → add_fact op
-- Each open action item → add_action_item op (include owner if stated)
-- Each completed action item → add_action_item with status "completed"
-- Each open question → add_open_question op
-- Each topic heading with its summary → add_topic op (title + summary)
-- Each archived item → add_topic with status "archived"
-- Each participant → add_participant op
-- The OVERVIEW section → update_overview op
+- Each decision line → addDecision op
+- Each key fact → addFact op
+- Each open action item → addActionItem op (include owner if stated)
+- Each completed action item → addActionItem with status "completed"
+- Each open question → addOpenQuestion op
+- Each ACTIVE TOPIC (### heading + summary) → addTopic op with \
+status "active". Put the heading in "title" and the summary in "text".
+- Each ARCHIVED item → addTopic op with status "archived". \
+Put the one-line description in "title".
+- Each participant → addParticipant op
+- The OVERVIEW section → updateOverview op
 - Use exact text from the minutes. Do not paraphrase or invent content.
 - If nothing to extract: {"schema_version":"delta.v1","mode":"incremental",\
 "ops":[{"op":"noop","id":"noop"}]}
+
+TOPIC EXAMPLES:
+Minutes input:
+  ### Database Decision
+  The team decided on PostgreSQL after considering SQLite and Redis.
+Output:
+  {"op":"addTopic","id":"topic-database-decision",\
+"title":"Database Decision",\
+"text":"The team decided on PostgreSQL after considering SQLite and Redis.",\
+"status":"active"}
+
+Minutes input:
+  - Bot interaction and testing (M1-M14)
+Output:
+  {"op":"addTopic","id":"topic-bot-interaction",\
+"title":"Bot interaction and testing","status":"archived"}
 
 ID GENERATION:
 - Use descriptive kebab-case IDs: "decision-use-sqlite", "topic-api-design"
 - Facts: "fact-[short-description]"
 - Action items: "action-[short-description]"
 - Questions: "question-[short-description]"
+- Topics: "topic-[short-description]"
 
 For items matching existing CURRENT_STATE entries by content, do not \
 re-add them. Only emit ops for new or changed items."""

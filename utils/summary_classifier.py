@@ -1,36 +1,22 @@
 # utils/summary_classifier.py
-# Version 1.2.0
+# Version 1.3.0
 """
 GPT-5.4 nano classification pass for summary ops quality control.
 
-CHANGES v1.2.0: Protect topics with decisions and action items with owners
-- ADDED: Never drop ACTIVE_TOPIC that provides context for a kept DECISION
-- ADDED: Never drop ACTION_ITEM with an assigned owner
+CHANGES v1.3.0: Dedup against existing items in stored summary
+- classify_ops() accepts existing_summary for dedup comparison
+- _build_existing_items() extracts items from summary
+- Classifier prompt includes EXISTING ITEMS section
 
-CHANGES v1.1.0: Classifier respects Secretary judgment — organize, don't filter
-- REWRITTEN: Classifier prompt now treats Secretary output as authoritative.
-  Only drops duplicates and individual bot responses repackaged as topics.
-  Everything the Secretary included should appear in the final summary.
-
-CHANGES v1.0.2: Return dropped items for audit trail
-CHANGES v1.0.1: Add deduplication rules
-CREATED v1.0.0: Post-Structurer classification filter
-- ADDED: classify_ops() — sends ops to GPT-5.4 nano for KEEP/DROP/RECLASSIFY
-- ADDED: filter_ops() — removes DROP ops and applies reclassifications
-- Runs after Structurer (cold start) or delta ops (incremental)
-- Cost: ~$0.001 per run
-
-The classifier validates whether each item is correctly categorized and
-worth retaining. Catches misclassifications that Gemini produces:
-- Scientific facts classified as decisions
-- Individual bot responses stored as topics
-- Transient queries stored as archived topics
+CHANGES v1.2.0: Protect topics with decisions, action items with owners
+CHANGES v1.1.0: Classifier respects Secretary judgment
+CHANGES v1.0.0-v1.0.2: Initial classifier, dedup rules, audit trail
 """
 import json
 import os
 from utils.logging_utils import get_logger
 
-logger = get_logger('summary_classifier')
+logger = get_logger('summarizer.classifier')
 
 CLASSIFIER_PROMPT = """\
 You are a summary quality classifier. The Secretary has already decided \
@@ -39,8 +25,8 @@ remove content the Secretary included.
 
 For each item, decide:
 - KEEP: correctly classified, retain as-is
-- DROP: duplicate of another item, or an individual bot response \
-repackaged as a topic (e.g. "User asking about X", "Bot provided Y")
+- DROP: duplicate of another item OR duplicate of an EXISTING ITEM, \
+or an individual bot response repackaged as a topic
 - RECLASSIFY: wrong category — specify the correct one
 
 Categories:
@@ -69,52 +55,57 @@ the archived one
 
 Respond ONLY with a JSON array. Each element:
 {"id":"item-id","verdict":"KEEP|DROP|RECLASSIFY",\
-"reclassify_to":"new_category or null"}"""
+"reclassify_to":"new_category or null"}
 
-# Map reclassify_to values to op types
+EXISTING ITEMS (if provided) are already in the stored summary. \
+DROP any new op that duplicates an existing item by meaning, even if \
+the ID or exact wording differs. Example: new op "The project uses \
+PostgreSQL" duplicates existing "Use PostgreSQL for the database" — \
+DROP the new op."""
+
 _RECLASSIFY_MAP = {
-    "DECISION": "add_decision",
-    "KEY_FACT": "add_fact",
+    "DECISION": "add_decision", "KEY_FACT": "add_fact",
     "ACTION_ITEM": "add_action_item",
     "OPEN_QUESTION": "add_open_question",
-    "ACTIVE_TOPIC": "add_topic",
-    "ARCHIVED_TOPIC": "add_topic",
+    "ACTIVE_TOPIC": "add_topic", "ARCHIVED_TOPIC": "add_topic",
 }
 
 
-async def classify_ops(ops):
+async def classify_ops(ops, existing_summary=None):
     """Send ops to GPT-5.4 nano for classification.
 
     Args:
-        ops: list of delta ops dicts from Structurer/incremental
+        ops: list of delta ops dicts from Structurer
+        existing_summary: current summary dict for dedup, or None
 
     Returns:
-        dict mapping op id → {"verdict": "KEEP|DROP|RECLASSIFY",
-                               "reclassify_to": str|None}
+        dict mapping op id → {"verdict": ..., "reclassify_to": ...}
         Returns empty dict on failure (all ops kept by default).
     """
     if not ops or all(op.get("op") == "noop" for op in ops):
         return {}
 
-    # Build items for classification
     items = []
     for op in ops:
         op_type = op.get("op", "")
-        op_id = op.get("id", "")
         if op_type in ("noop", "update_overview", "add_participant"):
-            continue  # Always keep these
+            continue
         text = op.get("text", "") or op.get("title", "")
-        category = _op_to_category(op_type, op.get("status"))
         items.append({
-            "id": op_id, "category": category,
+            "id": op.get("id", ""),
+            "category": _op_to_category(op_type, op.get("status")),
             "status": op.get("status", ""), "text": text,
         })
-
     if not items:
         return {}
 
-    items_json = json.dumps(items)
-    logger.debug(f"Classifying {len(items)} items ({len(items_json)} chars)")
+    existing = _build_existing_items(existing_summary)
+    user_content = f"NEW OPS:\n{json.dumps(items)}"
+    if existing:
+        user_content += f"\n\nEXISTING ITEMS:\n{json.dumps(existing)}"
+    logger.debug(
+        f"Classifying {len(items)} items against "
+        f"{len(existing)} existing")
 
     try:
         from openai import OpenAI
@@ -123,104 +114,113 @@ async def classify_ops(ops):
             model="gpt-5.4-nano",
             messages=[
                 {"role": "system", "content": CLASSIFIER_PROMPT},
-                {"role": "user", "content": items_json},
+                {"role": "user", "content": user_content},
             ],
             temperature=0,
         )
         result_text = response.choices[0].message.content
-        tokens_in = response.usage.prompt_tokens
-        tokens_out = response.usage.completion_tokens
-        logger.info(
-            f"Classifier: {tokens_in}+{tokens_out} tokens, "
-            f"${(tokens_in * 0.03 + tokens_out * 0.15) / 1_000_000:.6f}")
+        usage = response.usage
+        if usage:
+            cost = (usage.prompt_tokens * 0.03 +
+                    usage.completion_tokens * 0.15) / 1_000_000
+            logger.info(
+                f"Classifier: {usage.prompt_tokens}+{usage.completion_tokens}"
+                f" tokens, ${cost:.6f}")
     except Exception as e:
-        logger.warning(f"Classifier call failed, keeping all ops: {e}")
+        logger.error(f"Classifier API call failed: {e}")
         return {}
 
-    # Parse response
     try:
         clean = result_text.strip()
         if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1]
-            clean = clean.rsplit("```", 1)[0]
-        results = json.loads(clean)
-    except (json.JSONDecodeError, IndexError):
-        logger.warning(f"Classifier JSON parse failed, keeping all ops")
+            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        verdicts_list = json.loads(clean)
+    except Exception as e:
+        logger.error(f"Failed to parse classifier response: {e}")
+        logger.debug(f"Raw classifier response: {result_text}")
         return {}
 
     verdicts = {}
-    for r in results:
-        verdicts[r.get("id", "")] = {
-            "verdict": r.get("verdict", "KEEP"),
-            "reclassify_to": r.get("reclassify_to"),
+    for v in verdicts_list:
+        vid = v.get("id", "")
+        verdicts[vid] = {
+            "verdict": v.get("verdict", "KEEP"),
+            "reclassify_to": v.get("reclassify_to"),
         }
-
     kept = sum(1 for v in verdicts.values() if v["verdict"] == "KEEP")
     dropped = sum(1 for v in verdicts.values() if v["verdict"] == "DROP")
-    reclass = sum(1 for v in verdicts.values() if v["verdict"] == "RECLASSIFY")
-    logger.info(f"Classifier: {kept} keep, {dropped} drop, {reclass} reclassify")
-
+    reclassified = sum(
+        1 for v in verdicts.values() if v["verdict"] == "RECLASSIFY")
+    logger.info(
+        f"Classifier verdicts: {kept} KEEP, {dropped} DROP, "
+        f"{reclassified} RECLASSIFY")
     return verdicts
 
 
 def filter_ops(ops, verdicts):
-    """Filter ops based on classifier verdicts.
-
-    - DROP: remove the op, add to dropped list
-    - RECLASSIFY: change the op type
-    - KEEP or not in verdicts: leave unchanged
-
-    Returns:
-        tuple: (filtered_ops, dropped_ops)
-    """
+    """Apply verdicts: remove DROPs, apply RECLASSIFYs.
+    Returns (filtered_ops, dropped_ops)."""
     if not verdicts:
         return ops, []
-
-    filtered = []
-    dropped = []
+    filtered = []; dropped = []
     for op in ops:
         op_id = op.get("id", "")
+        op_type = op.get("op", "")
+        if op_type in ("noop", "update_overview", "add_participant"):
+            filtered.append(op); continue
         verdict = verdicts.get(op_id)
-
-        if verdict is None:
-            filtered.append(op)
-            continue
-
+        if not verdict:
+            filtered.append(op); continue
         if verdict["verdict"] == "DROP":
-            logger.info(f"Dropping: {op.get('op')} id={op_id} "
-                        f"text={op.get('text', op.get('title', ''))[:60]}")
-            dropped.append(op)
-            continue
-
+            logger.info(f"Dropping {op_id} ({op_type})")
+            dropped.append(op); continue
         if verdict["verdict"] == "RECLASSIFY":
             new_cat = verdict.get("reclassify_to")
             new_op = _RECLASSIFY_MAP.get(new_cat)
             if new_op:
                 logger.info(
-                    f"Reclassifying {op_id}: {op.get('op')} → {new_op}")
-                op = dict(op)
-                op["op"] = new_op
+                    f"Reclassifying {op_id}: {op_type} → {new_op}")
+                op = dict(op); op["op"] = new_op
             else:
                 logger.warning(
                     f"Unknown reclassify target '{new_cat}' for {op_id}")
-
         filtered.append(op)
-
     return filtered, dropped
 
 
 def _op_to_category(op_type, status=None):
     """Map op type to classifier category string."""
     mapping = {
-        "add_decision": "DECISION",
-        "supersede_decision": "DECISION",
-        "add_fact": "KEY_FACT",
-        "add_action_item": "ACTION_ITEM",
+        "add_decision": "DECISION", "supersede_decision": "DECISION",
+        "add_fact": "KEY_FACT", "add_action_item": "ACTION_ITEM",
         "add_open_question": "OPEN_QUESTION",
-        "add_topic": "ARCHIVED_TOPIC" if status == "archived"
-                     else "ACTIVE_TOPIC",
+        "add_topic": ("ARCHIVED_TOPIC" if status == "archived"
+                      else "ACTIVE_TOPIC"),
         "add_pinned_memory": "KEY_FACT",
         "complete_action_item": "ACTION_ITEM",
         "close_open_question": "OPEN_QUESTION",
     }
     return mapping.get(op_type, "UNKNOWN")
+
+
+def _build_existing_items(summary):
+    """Extract existing items from summary for dedup comparison."""
+    if not summary:
+        return []
+    items = []
+    for d in summary.get("decisions", []):
+        items.append({"id": d["id"], "category": "DECISION",
+                      "text": d.get("decision", "")})
+    for f in summary.get("key_facts", []):
+        items.append({"id": f["id"], "category": "KEY_FACT",
+                      "text": f.get("fact", "")})
+    for a in summary.get("action_items", []):
+        items.append({"id": a["id"], "category": "ACTION_ITEM",
+                      "text": a.get("task", "")})
+    for q in summary.get("open_questions", []):
+        items.append({"id": q["id"], "category": "OPEN_QUESTION",
+                      "text": q.get("question", "")})
+    for t in summary.get("active_topics", []):
+        items.append({"id": t["id"], "category": "ACTIVE_TOPIC",
+                      "text": t.get("title", "")})
+    return items
