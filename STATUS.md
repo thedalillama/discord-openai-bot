@@ -1,8 +1,36 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.5.0
+# Version 3.5.2
 
 ## Current Version Features
+
+### Version 3.5.2 - Overview Inflation Fix (DEPLOYED)
+- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.5.0 — SECRETARY_SYSTEM_PROMPT
+  OVERVIEW section now instructs the Secretary to preserve the existing overview
+  unless the conversation's purpose has fundamentally changed. Prevents progressive
+  overview inflation on incremental updates.
+- **TESTED**: Deployed and validated on #openclaw channel. Overview updates only
+  when content genuinely changes (e.g., rate limit changed 1000 → 5000 ipm).
+
+### Version 3.5.1 - Pipeline Unification + Classifier Dedup (TESTED)
+- **MODIFIED**: `utils/summarizer.py` v2.1.0 — `_incremental_loop()` delegates
+  to `incremental_pipeline()` instead of single-pass raw-to-JSON. Both cold
+  start and incremental now use the three-pass pipeline.
+- **MODIFIED**: `utils/summarizer_authoring.py` v1.9.0 — shared `_run_pipeline()`
+  for both paths; `incremental_pipeline()` entry point; `classify_ops()` receives
+  `existing_summary` for dedup; Secretary max_tokens scaled with existing minutes.
+- **MODIFIED**: `utils/summary_classifier.py` v1.3.0 — `classify_ops()` accepts
+  `existing_summary`; `_build_existing_items()` extracts items from stored summary;
+  prompt includes EXISTING ITEMS section for semantic dedup.
+- **MODIFIED**: `utils/summary_prompts.py` v1.6.0 — camelCase ops in incremental
+  prompt to match anyOf STRUCTURER_SCHEMA.
+- **TESTED**: Classifier dedup validated on #openclaw channel:
+  - Cold start: 539 msgs → 22 ops → 1,180 tokens
+  - Incremental (4 new msgs): 16 ops emitted, classifier dropped 9 duplicates,
+    kept 7 (3 new items + overview + 2 participants + 1 re-emitted action item)
+  - Final: 543 msgs → 2,097 tokens (growth from overview rewrite + 3 new items,
+    not from duplication)
+  - Classifier correctly identified all 9 semantically duplicate items
 
 ### Version 3.5.0 - Discriminated Union Schema (SOW v3.5.0)
 - **NEW**: `utils/summary_delta_schema.py` v1.0.0 — anyOf discriminated union
@@ -89,16 +117,16 @@ discord-bot/
 │   ├── db_migration.py            # v1.0.0
 │   ├── context_manager.py         # v1.1.0
 │   ├── response_handler.py        # v1.1.4
-│   ├── summarizer.py              # v1.9.0
-│   ├── summarizer_authoring.py    # v1.6.0
+│   ├── summarizer.py              # v2.1.0
+│   ├── summarizer_authoring.py    # v1.9.0
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_delta_schema.py    # v1.0.0
-│   ├── summary_classifier.py      # v1.2.0
+│   ├── summary_classifier.py      # v1.3.0
 │   ├── summary_store.py           # v1.1.0
-│   ├── summary_prompts.py         # v1.5.0
-│   ├── summary_prompts_authoring.py  # v1.4.0
+│   ├── summary_prompts.py         # v1.6.0
+│   ├── summary_prompts_authoring.py  # v1.5.0
 │   ├── summary_display.py         # v1.2.1
-│   ├── summary_normalization.py   # v1.0.0
+│   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
 │   └── history/
 │       ├── __init__.py
@@ -116,7 +144,24 @@ discord-bot/
 
 ---
 
+## Architecture Quality Standards
+1. **250-line file limit** — mandatory for all files
+2. **Single responsibility** — each module serves one clear purpose
+3. **Comprehensive documentation** — detailed docstrings and inline comments
+4. **Module-specific logging** — structured logging with appropriate levels
+5. **Error handling** — graceful degradation and proper error recovery
+6. **Version tracking** — proper version numbers and changelogs in all files
+7. **Async safety** — all provider API calls wrapped in run_in_executor()
+8. **Provider efficiency** — singleton caching prevents unnecessary instantiation
+9. **Token safety** — every API call budget-checked against provider context window
+10. **Message persistence** — all messages stored in SQLite via on_message listener
+
+---
+
 ## Resolved Issues
+- ✅ Overview inflation on incremental updates — resolved in v3.5.2 (Secretary guidance)
+- ✅ Incremental path uses old schema — resolved in v3.5.1 (unified pipeline)
+- ✅ Classifier dedup against existing items — tested in v3.5.1
 - ✅ Structurer skipping topics — resolved in v3.5.0 (anyOf schema)
 - ✅ M3 context integration — resolved in v3.4.0
 - ✅ Summarization quality — resolved in v3.3.0 (Secretary architecture)
@@ -128,13 +173,9 @@ discord-bot/
 
 ## Current Priority Issues
 
-### 1. Incremental Path Uses Old Schema
-The incremental update path in `summarizer.py` still uses the flat
-DELTA_SCHEMA. Should be migrated to the anyOf STRUCTURER_SCHEMA.
+### 1. config.py Default SUMMARIZER_MODEL
+Default `gemini-2.5-flash-lite` is stale. Server runs
+`gemini-3.1-flash-lite-preview` via .env override. Consider updating.
 
-### 2. Classifier Tuning
-Classifier occasionally drops items incorrectly. Rules added in v1.2.0
-but may need further refinement with more test data.
-
-### 3. Merge claude-code → development
-Feature branch has accumulated v3.3.0 through v3.5.0. Ready for merge.
+### 2. Merge claude-code → development
+Feature branch has accumulated v3.3.0 through v3.5.2. Ready for merge.
