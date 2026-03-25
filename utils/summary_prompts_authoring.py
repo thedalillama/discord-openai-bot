@@ -1,7 +1,13 @@
 # utils/summary_prompts_authoring.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Two-pass authoring prompts: Secretary (natural language) + Structurer (JSON).
+
+CHANGES v1.5.0: Overview preservation guidance for incremental updates
+- MODIFIED: SECRETARY_SYSTEM_PROMPT OVERVIEW section now instructs the
+  Secretary to preserve the existing overview unless the conversation's
+  purpose has fundamentally changed. Prevents progressive overview
+  inflation observed in incremental testing (1,180 → 2,097 tokens).
 
 CHANGES v1.4.0: camelCase op names in Structurer prompt
 - MODIFIED: All op references changed from snake_case (add_topic) to
@@ -9,10 +15,6 @@ CHANGES v1.4.0: camelCase op names in Structurer prompt
   Research shows camelCase has higher token probability in decoder.
 
 CHANGES v1.3.0: Add topic extraction examples to Structurer prompt
-- ADDED: Concrete examples for ACTIVE TOPICS → add_topic ops with
-  title/text/status, and ARCHIVED → add_topic with status "archived"
-- Gemini was skipping topics entirely without examples
-
 CHANGES v1.2.0: KEY FACTS section for personal details
 CHANGES v1.1.2: Skip M-labels in Secretary output
 CHANGES v1.1.1: Redefine DECISIONS as agreement-on-action
@@ -40,6 +42,9 @@ Use the structure below. Omit empty sections entirely.
 
 OVERVIEW
 [1-2 sentence summary of the conversation's purpose and current state]
+When updating existing minutes, preserve the existing overview unless \
+the conversation's purpose has fundamentally changed. Do not expand it \
+to summarize every topic — that is what ACTIVE TOPICS is for.
 
 PARTICIPANTS
 [Human participants only, comma-separated. NEVER list bots.]
