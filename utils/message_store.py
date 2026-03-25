@@ -1,5 +1,5 @@
 # utils/message_store.py
-# Version 1.1.0
+# Version 1.2.0
 """
 SQLite message persistence layer for the Discord bot.
 
@@ -17,6 +17,10 @@ CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
 - REPLACED: update_message_content() with update_message_content_and_edit_time()
 - MODIFIED: soft_delete_message() also sets deleted_at timestamp
 - MODIFIED: get_channel_messages() returns all 13 columns
+
+CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
+- MODIFIED: insert_message(), insert_messages_batch() include is_bot_author column
+- MODIFIED: get_channel_messages() maps column index 13 to is_bot_author
 """
 import sqlite3
 import os
@@ -78,11 +82,13 @@ def insert_message(msg):
         """INSERT OR IGNORE INTO messages
            (id, channel_id, author_id, author_name, content,
             created_at, message_type, is_deleted,
-            reply_to_message_id, thread_id, attachments_metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            reply_to_message_id, thread_id, attachments_metadata,
+            is_bot_author)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (msg.id, msg.channel_id, msg.author_id, msg.author_name,
          msg.content, msg.created_at, msg.message_type, int(msg.is_deleted),
-         msg.reply_to_message_id, msg.thread_id, msg.attachments_metadata)
+         msg.reply_to_message_id, msg.thread_id, msg.attachments_metadata,
+         int(msg.is_bot_author))
     )
     conn.commit()
 
@@ -101,11 +107,13 @@ def insert_messages_batch(messages):
         """INSERT OR IGNORE INTO messages
            (id, channel_id, author_id, author_name, content,
             created_at, message_type, is_deleted,
-            reply_to_message_id, thread_id, attachments_metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            reply_to_message_id, thread_id, attachments_metadata,
+            is_bot_author)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [(m.id, m.channel_id, m.author_id, m.author_name,
           m.content, m.created_at, m.message_type, int(m.is_deleted),
-          m.reply_to_message_id, m.thread_id, m.attachments_metadata)
+          m.reply_to_message_id, m.thread_id, m.attachments_metadata,
+          int(m.is_bot_author))
          for m in messages]
     )
     conn.commit()
@@ -175,7 +183,8 @@ def get_channel_messages(channel_id, include_deleted=False):
         content=r[4], created_at=r[5], message_type=r[6],
         is_deleted=bool(r[7]),
         reply_to_message_id=r[8], thread_id=r[9],
-        edited_at=r[10], deleted_at=r[11], attachments_metadata=r[12]
+        edited_at=r[10], deleted_at=r[11], attachments_metadata=r[12],
+        is_bot_author=bool(r[13]) if r[13] is not None else False,
     ) for r in rows]
 
 
