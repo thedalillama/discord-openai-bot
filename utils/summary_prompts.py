@@ -1,14 +1,14 @@
 # utils/summary_prompts.py
-# Version 1.5.0
+# Version 1.6.0
 """
 Prompt construction for the summarization pipeline.
 
-CHANGES v1.5.0: Readable text in snapshot for supersession; re-export authoring
-- MODIFIED: build_prompt() snapshot now includes readable text for decisions,
-  key_facts, action_items, and open_questions so the model can match existing
-  IDs when emitting supersede_decision ops
-- ADDED: Re-exports from summary_prompts_authoring.py for cold start pipeline
+CHANGES v1.6.0: camelCase op names in incremental prompt (SOW v3.5.0)
+- MODIFIED: SYSTEM_PROMPT uses camelCase ops (addDecision, supersedeDecision,
+  addTopic, etc.) to match the anyOf STRUCTURER_SCHEMA
+- ADDED: addTopic guidance in PROMOTION POLICY
 
+CHANGES v1.5.0: Readable text in snapshot for supersession; re-export authoring
 CHANGES v1.3.0: Fix BOT label format; add BOT message guidance
 CHANGES v1.2.0: Fix open_question definition; add overview guidance
 CHANGES v1.1.0: Durable-state promotion policy
@@ -34,8 +34,8 @@ Your job is to preserve only durable conversational state.
 
 RULES:
 - Never modify protected text in-place. To change a decision, emit \
-supersede_decision with supersedes_id matching the EXACT id from CURRENT_STATE.
-- Every add_* op must cite source_message_ids using M-labels from the \
+supersedeDecision with supersedes_id matching the EXACT id from CURRENT_STATE.
+- Every add op must cite source_message_ids using M-labels from the \
 provided messages.
 - Preserve filenames, paths, URLs, version numbers, identifiers, and \
 numeric values exactly as they appear.
@@ -47,31 +47,35 @@ PROMOTION POLICY:
 Promote ONLY durable information that is likely to matter in future \
 conversations if the raw messages are not re-read.
 
-overview (update_overview):
+overview (updateOverview):
 - Emit once when the overview is empty or needs updating.
 - Write 1-2 sentences describing what the conversation is about.
 
-participants (add_participant):
-- Emit add_participant for each human who has spoken.
+participants (addParticipant):
+- Emit addParticipant for each human who has spoken.
 - Use their Discord display name as both id and text.
 - Do NOT add bots as participants.
 
-decisions (add_decision / supersede_decision):
+decisions (addDecision / supersedeDecision):
 - Explicit choices made: technology selections, approach decisions, \
 policy choices.
 - To supersede, use the EXACT id from CURRENT_STATE in supersedes_id.
 
-commitments and action items (add_action_item):
+commitments and action items (addActionItem):
 - Tasks someone has agreed to do or been asked to do.
 
-open questions (add_open_question):
+open questions (addOpenQuestion):
 - UNRESOLVED project or decision questions requiring a future answer.
 - Do NOT capture: math, trivia, factual lookups, or questions already \
 answered in conversation.
 
-significant facts (add_fact):
+significant facts (addFact):
 - Durable constraints, metrics, filenames, URLs, version numbers, or \
 implementation facts that create ongoing constraints.
+
+topics (addTopic):
+- Ongoing discussions worth tracking. Include title and text summary.
+- Set status "active" for current topics, "archived" for resolved.
 
 Do NOT promote as facts:
 - greetings, jokes, small talk, agreement without a decision
@@ -79,7 +83,7 @@ Do NOT promote as facts:
 - questions the user asked the bot, low-level details
 
 PRIORITY ORDER:
-1. decision  2. action item  3. open question  4. pinned memory  5. fact
+1. decision  2. action item  3. open question  4. topic  5. fact
 
 BOT MESSAGE HANDLING:
 Messages labeled [BOT] are AI-generated responses.
@@ -123,30 +127,23 @@ def build_prompt(current, labeled_text):
         return [{f: it[f] for f in fields if f in it} for it in items]
 
     state = {
-        "overview":      current.get("overview", ""),
-        "decisions":     _snap(current.get("decisions", []),
-                               ["id", "decision", "text_hash", "status"]),
-        "key_facts":     _snap(current.get("key_facts", []),
-                               ["id", "fact", "text_hash", "status",
-                                "category"]),
-        "action_items":  _snap(current.get("action_items", []),
-                               ["id", "task", "text_hash", "status"]),
+        "decisions":      _snap(current.get("decisions", []),
+                                ["id", "decision", "status"]),
+        "key_facts":      _snap(current.get("key_facts", []),
+                                ["id", "fact", "status"]),
+        "action_items":   _snap(current.get("action_items", []),
+                                ["id", "task", "status", "owner"]),
         "open_questions": _snap(current.get("open_questions", []),
                                 ["id", "question", "status"]),
-        "active_topics": _snap(current.get("active_topics", []),
-                               ["id", "title", "status"]),
-        "participants":  _snap(current.get("participants", []),
-                               ["id", "display_name"]),
+        "active_topics":  _snap(current.get("active_topics", []),
+                                ["id", "title", "status"]),
+        "participants":   _snap(current.get("participants", []),
+                                ["id", "display_name"]),
     }
     user_content = (
-        "TASK:\nGiven CURRENT_STATE and NEW_MESSAGES, output ONLY delta ops.\n\n"
-        f"CURRENT_STATE (read-only):\n{json.dumps(state, indent=2)}\n\n"
-        f"NEW_MESSAGES:\n{labeled_text}\n\n"
-        "RULES:\n"
-        "- Only add/close/complete/supersede where NEW_MESSAGES provide evidence.\n"
-        "- Every op must cite source_message_ids using M-labels above.\n"
-        "- To supersede a decision, use the EXACT id from CURRENT_STATE.\n"
-        "- Do not restate CURRENT_STATE unless emitting an op about it."
+        f"CURRENT_STATE:\n{json.dumps(state, indent=2)}\n\n"
+        f"NEW MESSAGES:\n{labeled_text}\n\n"
+        "Emit delta ops for durable new information only."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

@@ -1,23 +1,21 @@
 # ai_providers/gemini_provider.py
-# Version 1.1.0
+# Version 1.2.1
 """
 Gemini provider implementation for summarization.
 
+CHANGES v1.2.1: Fix _convert_messages() to use types.Content/Part objects
+- FIXED: v1.2.0 broke message format by using plain dicts instead of
+  types.Content and types.Part objects, causing pydantic validation errors
+
+CHANGES v1.2.0: Support response_json_schema for anyOf schemas (SOW v3.5.0)
+- ADDED: use_json_schema kwarg to generate_ai_response(). When True, passes
+  schema via response_json_schema (JSON Schema format) instead of
+  response_schema (OpenAPI format). Required for anyOf discriminated unions.
+
 CHANGES v1.1.0: Structured output support (SOW v3.2.0)
-- ADDED: response_mime_type and response_json_schema kwargs to
-  generate_ai_response(); included in GenerateContentConfig when provided.
-  Enables Gemini Structured Outputs (Layer 1 delta schema enforcement).
+- ADDED: response_mime_type and response_json_schema kwargs
 
 CREATED v1.0.0: Gemini summarization provider (SOW v3.2.0)
-- ADDED: GeminiProvider — extends AIProvider; uses google-genai SDK
-- ADDED: generate_ai_response() — converts OpenAI-style messages to Gemini
-  format (system_instruction + contents), calls via run_in_executor(), logs
-  usage from response.usage_metadata
-- ADDED: _convert_messages() — maps system → system_instruction, user →
-  role "user", assistant → role "model"
-
-Provider calls use loop.run_in_executor() with ThreadPoolExecutor —
-established pattern for all providers; prevents heartbeat blocking.
 """
 import asyncio
 import concurrent.futures
@@ -33,14 +31,15 @@ from utils.context_manager import record_usage
 
 
 class GeminiProvider(AIProvider):
-    """Gemini provider using google-genai SDK. Used primarily for summarization."""
+    """Gemini provider using google-genai SDK."""
 
     def __init__(self):
         super().__init__()
         self.name = "gemini"
 
         if not GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
+            raise ValueError(
+                "GEMINI_API_KEY environment variable is required")
 
         self.client = genai.Client(api_key=GEMINI_API_KEY)
         self.model = GEMINI_MODEL
@@ -49,28 +48,28 @@ class GeminiProvider(AIProvider):
         self.supports_images = False
         self.logger = get_logger('gemini')
 
-        self.logger.info(f"Initialized Gemini provider: model={self.model}, "
-                         f"context={self.max_context_length}, "
-                         f"max_tokens={self.max_response_tokens}")
+        self.logger.info(
+            f"Initialized Gemini provider: model={self.model}, "
+            f"context={self.max_context_length}, "
+            f"max_tokens={self.max_response_tokens}")
 
     async def generate_ai_response(
-        self, messages, max_tokens=None, temperature=None, channel_id=None,
-        response_mime_type=None, response_json_schema=None,
+        self, messages, max_tokens=None, temperature=None,
+        channel_id=None, response_mime_type=None,
+        response_json_schema=None, use_json_schema=False,
     ):
-        """
-        Generate a response using the Gemini API.
-
-        Converts OpenAI-style messages (system/user/assistant) to Gemini
-        format: system message → system_instruction in config; user/assistant
-        turns → contents list with roles "user"/"model".
+        """Generate a response using the Gemini API.
 
         Args:
             messages: List of dicts with 'role' and 'content'.
             max_tokens: Max output tokens (defaults to GEMINI_MAX_TOKENS).
-            temperature: Sampling temperature (defaults to DEFAULT_TEMPERATURE).
+            temperature: Sampling temperature.
             channel_id: Discord channel ID for usage logging.
-            response_mime_type: e.g. "application/json" for structured output.
-            response_json_schema: JSON Schema dict for Gemini Structured Outputs.
+            response_mime_type: e.g. "application/json".
+            response_json_schema: JSON Schema dict for structured output.
+            use_json_schema: If True, pass schema as response_json_schema
+                (JSON Schema format, supports anyOf). If False, pass as
+                response_schema (OpenAPI format, default).
 
         Returns:
             str: Response text from Gemini.
@@ -90,14 +89,20 @@ class GeminiProvider(AIProvider):
         if response_mime_type:
             config_kwargs["response_mime_type"] = response_mime_type
         if response_json_schema is not None:
-            config_kwargs["response_schema"] = response_json_schema
+            if use_json_schema:
+                config_kwargs["response_json_schema"] = (
+                    response_json_schema)
+            else:
+                config_kwargs["response_schema"] = (
+                    response_json_schema)
 
         config = types.GenerateContentConfig(**config_kwargs)
 
         self.logger.debug(
-            f"Gemini call: model={self.model}, turns={len(contents)}, "
-            f"max_tokens={max_tokens}, temperature={temperature}"
-        )
+            f"Gemini call: model={self.model}, "
+            f"turns={len(contents)}, max_tokens={max_tokens}, "
+            f"temperature={temperature}, "
+            f"json_schema={use_json_schema}")
 
         try:
             loop = asyncio.get_event_loop()
@@ -119,11 +124,13 @@ class GeminiProvider(AIProvider):
                     getattr(usage, 'candidates_token_count', 0),
                 )
             else:
-                self.logger.debug("No usage_metadata in Gemini response")
+                self.logger.debug(
+                    "No usage_metadata in Gemini response")
 
             text = getattr(response, 'text', None)
             if not text:
-                self.logger.warning("Gemini returned empty response text")
+                self.logger.warning(
+                    "Gemini returned empty response text")
                 return ""
             return text
 
@@ -132,28 +139,30 @@ class GeminiProvider(AIProvider):
             raise
 
     def _convert_messages(self, messages):
-        """
-        Convert OpenAI-style message list to Gemini (system_instruction, contents).
+        """Convert OpenAI-style messages to Gemini format.
+
+        system → system_instruction (string)
+        user → role "user"
+        assistant → role "model"
 
         Returns:
-            tuple: (system_instruction_str_or_None, list_of_Content_objects)
+            tuple: (system_instruction_str_or_None, list_of_Content)
         """
         system_instruction = None
         contents = []
-
         for msg in messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
-
             if role == "system":
                 system_instruction = content
             elif role == "user":
                 contents.append(
-                    types.Content(role="user", parts=[types.Part(text=content)])
-                )
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=content)]))
             elif role == "assistant":
                 contents.append(
-                    types.Content(role="model", parts=[types.Part(text=content)])
-                )
-
+                    types.Content(
+                        role="model",
+                        parts=[types.Part(text=content)]))
         return system_instruction, contents
