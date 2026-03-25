@@ -1,13 +1,20 @@
 # utils/context_manager.py
-# Version 1.1.0
+# Version 2.0.0
 """
 Token-budget-aware context management and usage tracking.
 
+CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
+- MODIFIED: build_context_for_provider() now injects:
+    Part 1 (always-on): overview, key facts, open action items, open questions
+    Part 2 (retrieved): messages from topics semantically similar to latest msg
+- ADDED: _retrieve_topic_context() — embeds latest user message, finds top-K
+  relevant topics, fetches their linked messages, deduplicates vs recent window
+- FALLBACK: If embedding fails or no topics exist, falls back to full summary
+  injection (v1.1.0 behavior). Bot never fails to respond due to retrieval.
+
 CHANGES v1.1.0: M3 — Inject summary into system prompt
 - MODIFIED: build_context_for_provider() loads channel summary and appends
-  it to the system prompt as a single combined system message. The full
-  summary (decisions, topics, facts, actions, questions) is included.
-  If no summary exists, behavior is unchanged.
+  it to the system prompt as a single combined system message.
 - ADDED: _load_summary_text() — loads and formats the channel summary
 
 CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
@@ -15,7 +22,7 @@ CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT
+from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -71,27 +78,86 @@ def get_channel_usage(channel_id):
         channel_id, {"input": 0, "output": 0, "calls": 0}))
 
 
-def _load_summary_text(channel_id):
-    """Load and format the channel summary for system prompt injection.
-    Returns formatted text string or empty string if no summary."""
+def _load_summary(channel_id):
+    """Load channel summary dict. Returns None if not found."""
     try:
         from utils.summary_store import get_channel_summary
-        from utils.summary_display import format_summary_for_context
         raw, _ = get_channel_summary(channel_id)
-        if not raw:
-            return ""
-        summary = json.loads(raw)
-        return format_summary_for_context(summary)
+        return json.loads(raw) if raw else None
     except Exception as e:
-        logger.warning(f"Failed to load summary for context: {e}")
-        return ""
+        logger.warning(f"Failed to load summary for ch:{channel_id}: {e}")
+        return None
+
+
+def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
+    """Embed the latest user message, find relevant topics, return formatted
+    context string of their linked messages.
+
+    Returns (context_text, tokens_used). Returns ("", 0) on any failure.
+    """
+    try:
+        from utils.embedding_store import (
+            embed_text, find_relevant_topics, get_topic_messages)
+
+        # Find latest non-empty user message
+        query_text = None
+        for msg in reversed(conversation_msgs):
+            if msg.get("role") == "user" and msg.get("content", "").strip():
+                query_text = msg["content"].strip()
+                break
+        if not query_text:
+            return "", 0
+
+        query_vec = embed_text(query_text)
+        if query_vec is None:
+            return "", 0
+
+        topics = find_relevant_topics(query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
+        if not topics:
+            return "", 0
+
+        # IDs already in the recent window — avoid duplication
+        recent_ids = set()
+        for msg in conversation_msgs:
+            if "_msg_id" in msg:
+                recent_ids.add(msg["_msg_id"])
+
+        lines = []
+        tokens_used = 0
+        for topic_id, title, score in topics:
+            msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
+            if not msgs:
+                continue
+            section = f"[Topic: {title}]\n"
+            section += "\n".join(
+                f"{author}: {content}"
+                for _, author, content, _ in msgs
+            )
+            section_tokens = estimate_tokens(section)
+            if tokens_used + section_tokens > token_budget:
+                break
+            lines.append(section)
+            tokens_used += section_tokens
+
+        if not lines:
+            return "", 0
+
+        logger.debug(
+            f"Retrieved {len(lines)} topics for ch:{channel_id} "
+            f"({tokens_used} tokens, query: {query_text[:60]!r})")
+        return "\n\n".join(lines), tokens_used
+
+    except Exception as e:
+        logger.warning(f"Topic retrieval failed for ch:{channel_id}: {e}")
+        return "", 0
 
 
 def build_context_for_provider(channel_id, provider):
     """Build a token-budget-aware message list for an AI provider call.
 
-    Loads the channel summary and appends it to the system prompt.
-    Then trims oldest conversation messages to fit within budget.
+    Injects always-on context (overview, facts, actions, questions) plus
+    semantically retrieved topic messages. Falls back to full summary
+    injection if retrieval is unavailable.
     """
     all_messages = prepare_messages_for_api(channel_id)
 
@@ -104,33 +170,57 @@ def build_context_for_provider(channel_id, provider):
     budget = int(context_window * CONTEXT_BUDGET_PERCENT / 100) - max_output
 
     if budget <= 0:
-        logger.warning(f"Token budget non-positive ({budget}) for {provider.name}")
+        logger.warning(
+            f"Token budget non-positive ({budget}) for {provider.name}")
         return all_messages
 
-    # Build combined system prompt with summary
     system_msg = all_messages[0]
-    summary_text = _load_summary_text(channel_id)
-
-    if summary_text:
-        combined = (
-            f"{system_msg['content']}\n\n"
-            f"--- CONVERSATION CONTEXT ---\n"
-            f"The following is a summary of this channel's conversation "
-            f"history. Use it to inform your responses.\n\n"
-            f"{summary_text}"
-        )
-        system_msg = {"role": "system", "content": combined}
-        summary_tokens = estimate_tokens(summary_text)
-        logger.debug(
-            f"Summary injected: {summary_tokens} tokens for ch:{channel_id}")
-
     conversation_msgs = all_messages[1:]
+    summary = _load_summary(channel_id)
+
+    if summary:
+        from utils.summary_display import (
+            format_always_on_context, format_summary_for_context)
+
+        always_on = format_always_on_context(summary)
+        always_on_tokens = estimate_tokens(always_on)
+
+        # Budget for retrieved context: up to 40% of remaining after always-on
+        system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
+        retrieval_budget = max(
+            0, int((budget - system_base_tokens - always_on_tokens) * 0.4))
+
+        retrieved, retrieved_tokens = _retrieve_topic_context(
+            channel_id, conversation_msgs, retrieval_budget)
+
+        if retrieved:
+            context_block = (
+                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
+                f"--- RELEVANT HISTORY ---\n{retrieved}"
+            )
+            logger.debug(
+                f"Semantic context: {always_on_tokens} always-on + "
+                f"{retrieved_tokens} retrieved tokens for ch:{channel_id}")
+        else:
+            # No topics retrieved — fall back to full summary
+            full = format_summary_for_context(summary)
+            context_block = (
+                f"--- CONVERSATION CONTEXT ---\n"
+                f"The following is a summary of this channel's conversation "
+                f"history. Use it to inform your responses.\n\n{full}"
+            )
+            logger.debug(
+                f"Fallback: full summary injected for ch:{channel_id}")
+
+        combined = f"{system_msg['content']}\n\n{context_block}"
+        system_msg = {"role": "system", "content": combined}
+
     system_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
     remaining_budget = budget - system_tokens
 
     if remaining_budget <= 0:
         logger.warning(
-            f"System prompt + summary ({system_tokens} tokens) exceeds "
+            f"System prompt ({system_tokens} tokens) exceeds "
             f"budget ({budget}) for {provider.name}")
         return [system_msg]
 
@@ -147,14 +237,13 @@ def build_context_for_provider(channel_id, provider):
     total_tokens = system_tokens + tokens_used
     dropped = len(conversation_msgs) - len(selected)
 
-    logger.debug(
-        f"Context for {provider.name}: {total_tokens} tokens, "
-        f"{len(selected)}/{len(conversation_msgs)} msgs, "
-        f"{dropped} dropped")
-
     if dropped > 0:
         logger.info(
             f"Token budget trim: dropped {dropped} oldest messages "
             f"for ch:{channel_id} ({provider.name})")
+    else:
+        logger.debug(
+            f"Context for {provider.name}: {total_tokens} tokens, "
+            f"{len(selected)} msgs")
 
     return [system_msg] + selected

@@ -1,11 +1,16 @@
 # utils/summarizer_authoring.py
-# Version 1.9.0
+# Version 1.10.0
 """
 Three-pass authoring pipeline for summarization (cold start + incremental).
 
 Pass 1 (Secretary): Natural language minutes authoring/updating.
 Pass 2 (Structurer): Converts minutes to JSON delta ops via anyOf schema.
 Pass 3 (Classifier): GPT-5.4 nano validates each op — KEEP/DROP/RECLASSIFY.
+
+CHANGES v1.10.0: Store topics + link to messages by embedding (SOW v4.0.0)
+- ADDED: After save_channel_summary(), write active_topics to topics table
+  and call link_topic_to_messages() for each topic. Fail-safe: topic storage
+  failure does not affect the summary save.
 
 CHANGES v1.9.0: Pass existing summary to classifier for dedup
 - MODIFIED: classify_ops() receives current_json so it can detect ops
@@ -191,6 +196,22 @@ async def _run_pipeline(channel_id, provider, prov_name, model_name,
     await asyncio.to_thread(
         save_channel_summary, channel_id, json.dumps(updated),
         updated["meta"]["message_range"]["count"], last_id)
+
+    # Store topics and link to messages by embedding similarity
+    try:
+        from utils.embedding_store import store_topic, link_topic_to_messages
+        for topic in updated.get("active_topics", []):
+            await asyncio.to_thread(
+                store_topic, channel_id, topic["id"],
+                topic["title"], topic.get("summary", ""),
+                topic.get("status", "active"))
+            await asyncio.to_thread(
+                link_topic_to_messages, topic["id"], channel_id)
+        logger.info(
+            f"Stored {len(updated.get('active_topics', []))} topics "
+            f"with embeddings for ch:{channel_id}")
+    except Exception as e:
+        logger.warning(f"Topic embedding storage failed: {e}")
 
     if token_count > 2000:
         logger.warning(f"Token count {token_count} exceeds target")

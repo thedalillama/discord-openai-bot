@@ -1,7 +1,12 @@
 # utils/summary_display.py
-# Version 1.2.1
+# Version 1.3.0
 """
 Summary display formatting and pagination for Discord output.
+
+CHANGES v1.3.0: Always-on context formatter for semantic retrieval (SOW v4.0.0)
+- ADDED: format_always_on_context() — slim context block injected every response:
+  overview, key facts, open action items, open questions. No topics (retrieved
+  semantically by context_manager.py v2.0.0).
 
 CHANGES v1.2.1: Key Facts in default !summary view
 - MOVED: Key Facts from full-only to default display
@@ -34,6 +39,30 @@ async def send_paginated(ctx, lines):
             buffer += entry
     if buffer.strip():
         await ctx.send(f"{_PFX}{buffer.strip()}")
+
+
+def format_always_on_context(summary):
+    """Slim always-on context: overview, key facts, open actions, open questions.
+    Topics excluded — retrieved semantically per query by context_manager."""
+    parts = []
+    if summary.get("overview"):
+        parts.append(f"Overview: {summary['overview']}")
+    facts = [f for f in summary.get("key_facts", [])
+             if f.get("status") == "active" and f.get("fact")]
+    if facts:
+        parts.append("Key facts:\n" + "\n".join(f"- {f['fact']}" for f in facts))
+    actions = [a for a in summary.get("action_items", [])
+               if a.get("status") in ("open", "in_progress")]
+    if actions:
+        parts.append("Open action items:\n" + "\n".join(
+            f"- {a.get('task','?')} (owner: {a.get('owner','unassigned')})"
+            for a in actions))
+    questions = [q for q in summary.get("open_questions", [])
+                 if q.get("status") == "open"]
+    if questions:
+        parts.append("Open questions:\n" + "\n".join(
+            f"- {q.get('question','?')}" for q in questions))
+    return "\n\n".join(parts)
 
 
 def format_summary_for_context(summary):
