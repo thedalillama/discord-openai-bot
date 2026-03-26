@@ -1,8 +1,10 @@
 # config.py
-# Version 1.12.2
+# Version 1.12.3
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.12.3: Add MAX_RECENT_MESSAGES config (default 5)
 
 CHANGES v1.12.2: Switch embedding provider to OpenAI
 - CHANGED: EMBEDDING_MODEL default gemini-embedding-001 → text-embedding-3-small
@@ -146,6 +148,9 @@ EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
 # TOPIC_MSG_LIMIT: max messages linked to each topic via embedding similarity.
 TOPIC_MSG_LIMIT = int(os.environ.get('TOPIC_MSG_LIMIT', 20))
+# MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
+# Prevents recent history from overwhelming retrieved topic context.
+MAX_RECENT_MESSAGES = int(os.environ.get('MAX_RECENT_MESSAGES', 5))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
