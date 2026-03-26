@@ -5,112 +5,82 @@
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.0.0
+**Bot version**: v4.0.0 (deployed + tested)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
-**Model**: `gemini-3.1-flash-lite-preview` (in .env)
-**Last deployed**: v3.5.2 (overview inflation fix)
-**Pending deploy**: v4.0.0 (topic-based semantic retrieval)
+**Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
 
-### v4.0.0 — Topic-Based Semantic Retrieval (PENDING DEPLOY)
+### v4.0.0 — Topic-Based Semantic Retrieval (DEPLOYED + TESTED)
 Replaces full summary injection with relevance-based context retrieval.
 
 **Write path**:
-- Messages embedded on arrival via Gemini `text-embedding-004`
-- Topics stored as first-class SQLite entities after every `!summary create`
-- Each topic linked to its top-20 most similar messages by cosine similarity
+- Messages embedded on arrival via OpenAI `text-embedding-3-small`
+- Topics (active + archived) stored as first-class SQLite entities after every `!summary create`
+- Each topic linked to ALL messages above `TOPIC_LINK_MIN_SCORE` (default 0.3) by cosine similarity
 
 **Read path**:
 - Always-on context: overview + key facts + open actions + open questions
-- Per-query retrieval: embed latest user message → find top-5 relevant topics
-  → inject their linked messages
-- Fallback: full summary injection if no topics or embedding fails
+- Per-query retrieval: embed latest user message → filter topics above RETRIEVAL_MIN_SCORE (0.3)
+  → inject their linked messages; framed explicitly as real past messages from this channel
+- Recent messages capped at 5 (MAX_RECENT_MESSAGES) to avoid overwhelming retrieved context
+- Fallback: full summary injection if no topics pass threshold or embedding fails
 
-**New files**: `utils/embedding_store.py` v1.0.0, `schema/004.sql`
-**Modified**: `raw_events.py` v1.3.0, `summarizer_authoring.py` v1.10.0,
-  `summary_display.py` v1.3.0, `context_manager.py` v2.0.0,
-  `config.py` v1.12.0, `debug_commands.py` v1.2.0
+**New files**: `utils/embedding_store.py` v1.2.0, `schema/004.sql`
+**Modified**: `raw_events.py` v1.3.0, `summarizer_authoring.py` v1.10.1,
+  `summary_display.py` v1.3.0, `context_manager.py` v2.0.4,
+  `config.py` v1.12.5, `debug_commands.py` v1.2.0
 
-### v3.5.2 — Overview Inflation Fix (DEPLOYED)
-Investigation confirmed `minutes_text` IS persisted correctly in
-`meta.minutes_text` by `_run_pipeline()`. The Secretary receives prior
-minutes on incremental runs. The overview inflation was caused by the
-Secretary prompt lacking explicit guidance to preserve the existing
-overview. Fix: two lines added to SECRETARY_SYSTEM_PROMPT.
+**Test results** (#openclaw):
+- Gorilla strength, diet (vegetarian), bachelor party toast — all retrieved correctly
+- Common ancestor / DNA similarity — retrieved correctly
+- Bonobos + chimps as human relatives — retrieved correctly
+- Unrelated topics (aerodynamics) filtered by similarity threshold
+- Incremental summarization: 44 new messages → 12 topics stored
 
-- `utils/summary_prompts_authoring.py` v1.5.0 — OVERVIEW section now
-  instructs: "preserve the existing overview unless the conversation's
-  purpose has fundamentally changed"
-
-### v3.5.1 — Pipeline Unification + Classifier Dedup (TESTED)
-Both cold start and incremental paths now use the same pipeline:
-```
-Secretary → Structurer (anyOf schema) → Classifier (dedup) → apply_ops()
-```
-- `utils/summarizer.py` v2.1.0 — delegates to `incremental_pipeline()`
-- `utils/summarizer_authoring.py` v1.9.0 — shared `_run_pipeline()`
-- `utils/summary_classifier.py` v1.3.0 — dedup against existing items
-- `utils/summary_prompts.py` v1.6.0 — camelCase ops in incremental
-
-**Test results**: Cold start 1,180 tokens → incremental 2,097 tokens.
-Classifier dropped 9/9 duplicate items. Growth from overview rewrite
-+ 3 genuinely new items, not duplication. Dedup confirmed working.
-
-### v3.5.0 — anyOf Discriminated Union Schema (COMPLETE)
-Gemini's constrained decoder skipped `add_topic` ops due to flat enum
-+ optional fields FSM complexity. Fixed with anyOf schema, camelCase
-enums, propertyOrdering. Result: 4 active + 7 archived topics.
-
----
-
-## Immediate Next Steps
-
-### 1. Deploy v4.0.0
-```
-1. sudo systemctl stop discord-bot
-2. Deploy all modified files
-3. sudo systemctl start discord-bot
-4. Verify 004.sql migration applied (check logs)
-5. !debug backfill              → embed existing messages + link topics
-6. Ask about databases          → check logs: "Retrieved N topics"
-7. Ask about animals            → verify different topics retrieved
-8. Ask a generic greeting       → verify fallback to always-on only
-```
-
-### 2. Merge claude-code → development
-v3.3.0 through v4.0.0 accumulated on feature branch.
+**Known limitation**: Short exchanges (2–3 messages) that don't get captured as a
+Structurer topic remain orphaned and invisible to retrieval. Planned for v4.1.0.
 
 ---
 
 ## Architecture Overview
 
-### Three-Pass Pipeline (both paths)
+### Semantic Retrieval Flow
+```
+Incoming user message
+  → embed_text() (OpenAI text-embedding-3-small)
+  → find_relevant_topics() (cosine similarity vs topic embeddings)
+  → filter by RETRIEVAL_MIN_SCORE (0.3)
+  → get_topic_messages() for each passing topic
+  → inject as "PAST MESSAGES FROM THIS CHANNEL" in system prompt
+  → token budget trimmer drops oldest recent messages to compensate
+```
+
+### Three-Pass Summarization Pipeline (both cold start + incremental)
 ```
 Raw messages + existing minutes
   → Secretary (Gemini, natural language minutes)
   → Structurer (Gemini, anyOf JSON schema, camelCase ops)
   → translate_ops() (camelCase → snake_case)
-  → Classifier (GPT-5.4 nano, KEEP/DROP/RECLASSIFY, dedup vs existing)
+  → Classifier (GPT-4o-mini, KEEP/DROP/RECLASSIFY, dedup vs existing)
   → apply_ops() → verify hashes → save
+  → store_topic() + link_topic_to_messages() for all active + archived topics
 ```
-
-Cold start: `cold_start_pipeline()` — no existing minutes or summary.
-Incremental: `incremental_pipeline()` — passes existing minutes and
-summary to Secretary and Classifier respectively.
-
-### Schemas
-- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf discriminated
-  union, camelCase enums, propertyOrdering. Used by both paths.
-- `DELTA_SCHEMA` in `summary_schema.py` — old flat schema. Retained for
-  `_process_response()` repair calls.
 
 ### Token Budget Formula
 ```python
-min(existing_tokens + (msg_count * 4) + 1024, 16384)
+budget = int(context_window * CONTEXT_BUDGET_PERCENT / 100) - max_output_tokens
+retrieval_budget = budget - system_base_tokens - always_on_tokens
+# Retrieved content injected into system prompt
+# system_tokens recalculated after injection
+# recent messages trimmed to MAX_RECENT_MESSAGES and remaining token budget
 ```
+
+### Schemas
+- `STRUCTURER_SCHEMA` in `summary_delta_schema.py` — anyOf discriminated union, camelCase enums
+- `DELTA_SCHEMA` in `summary_schema.py` — retained for `_process_response()` repair calls
 
 ### Diagnostic Files
 Each pipeline run saves to `data/`:
@@ -120,77 +90,69 @@ Each pipeline run saves to `data/`:
 
 ---
 
-## Classifier Dedup Test Results (v3.5.1)
+## Immediate Next Steps (v4.1.0)
 
-Cold start: 539 msgs → 22 ops → 1,180 tokens
-Incremental (+4 msgs): 16 ops emitted, 9 dropped as duplicates, 7 kept
-Final: 543 msgs → 2,097 tokens
+### 1. Orphaned Message Retrieval
+Short exchanges that don't become Structurer topics are invisible to retrieval.
+Options:
+- **Message-level fallback**: when no topics pass threshold, query all message
+  embeddings directly and surface top-N most similar messages
+- **Topic discovery pass**: scan unlinked messages, cluster by similarity,
+  propose topics if enough related orphans exist
 
-Structurer reused same IDs for re-emitted items. Classifier correctly
-identified 9 semantically duplicate items. `_add_if_new()` silently
-ignores same-ID re-emits for items the classifier kept. Token growth
-was from overview expansion + 3 genuinely new items.
+### 2. Merge claude-code → development → main when v4.1.0 is ready
+
+---
+
+## File Versions
+
+### Semantic Retrieval Files (v4.0.0)
+| File | Version | Key Role |
+|------|---------|----------|
+| `utils/embedding_store.py` | v1.2.0 | OpenAI embeddings, threshold-based linking |
+| `utils/context_manager.py` | v2.0.4 | Always-on + retrieval, budget, 5-msg cap |
+| `utils/summary_display.py` | v1.3.0 | format_always_on_context() |
+| `utils/raw_events.py` | v1.3.0 | Embed on arrival |
+| `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
+| `commands/debug_commands.py` | v1.2.0 | !debug backfill |
+| `config.py` | v1.12.5 | All retrieval config vars |
+| `schema/004.sql` | — | topics, topic_messages, message_embeddings |
+
+### Summarization Pipeline Files
+| File | Version | Key Role |
+|------|---------|----------|
+| `utils/summarizer.py` | v2.1.0 | Orchestrator, delegates to pipeline |
+| `utils/summarizer_authoring.py` | v1.10.1 | Three-pass pipeline (shared) |
+| `utils/summary_delta_schema.py` | v1.0.0 | anyOf schema + translate_ops() |
+| `utils/summary_classifier.py` | v1.3.0 | GPT-4o-mini + existing dedup |
+| `utils/summary_prompts.py` | v1.6.0 | Incremental prompt (camelCase) |
+| `utils/summary_prompts_authoring.py` | v1.5.0 | Secretary/Structurer prompts |
+| `utils/summary_schema.py` | v1.4.0 | apply_ops(), verify, DELTA_SCHEMA |
+| `utils/summary_store.py` | v1.1.0 | SQLite read/write |
+| `ai_providers/gemini_provider.py` | v1.2.1 | use_json_schema for anyOf |
 
 ---
 
 ## Known Issues
 
-### 1. _build_existing_items() Missing pinned_memory
-The dedup comparison extracts from decisions, key_facts, action_items,
-open_questions, and active_topics — but not pinned_memory. If the
-Structurer re-emits pinned items, they won't be caught by dedup.
-Low priority since pinned_memory is rarely used.
+### 1. Orphaned Messages
+Short exchanges that don't become Structurer topics are invisible to retrieval.
+Example: 3 messages about the movie "Hamnet" — no topic created, no linkage,
+bot answers from training knowledge instead of conversation history.
 
-### 2. config.py Default SUMMARIZER_MODEL
+### 2. _build_existing_items() Missing pinned_memory
+Classifier dedup doesn't check pinned_memory. Low priority — rarely used.
+
+### 3. config.py Default SUMMARIZER_MODEL
 Default `gemini-2.5-flash-lite` is stale. Server runs
-`gemini-3.1-flash-lite-preview` via .env. Consider updating default.
+`gemini-3.1-flash-lite-preview` via .env.
 
-### 3. WAL File Stats Bug
+### 4. WAL File Stats Bug
 `get_database_stats()` reports 0.0 MB — only measures main file, not WAL.
 
 ---
 
-## File Versions on Server
-
-### Pipeline Files
-| File | Version | Key Role |
-|------|---------|----------|
-| `utils/summarizer.py` | v2.1.0 | Orchestrator, delegates to pipeline |
-| `utils/summarizer_authoring.py` | v1.9.0 | Three-pass pipeline (shared) |
-| `utils/summary_delta_schema.py` | v1.0.0 | anyOf schema + translate_ops() |
-| `utils/summary_classifier.py` | v1.3.0 | GPT-5.4 nano + existing dedup |
-| `utils/summary_prompts.py` | v1.6.0 | Incremental prompt (camelCase) |
-| `utils/summary_prompts_authoring.py` | v1.5.0 | Secretary/Structurer prompts |
-| `ai_providers/gemini_provider.py` | v1.2.1 | use_json_schema for anyOf |
-
-### Other Key Files
-| File | Version | Role |
-|------|---------|------|
-| `utils/summary_schema.py` | v1.4.0 | apply_ops(), verify, DELTA_SCHEMA |
-| `utils/summary_display.py` | v1.2.1 | Discord formatting, Key Facts |
-| `utils/summary_store.py` | v1.1.0 | SQLite read/write |
-| `utils/context_manager.py` | v1.1.0 | M3 context injection |
-| `commands/summary_commands.py` | v2.2.0 | !summary commands |
-| `commands/debug_commands.py` | v1.1.0 | !debug status/cleanup/noise |
-
----
-
-## Commands Reference
-
-| Command | Access | Description |
-|---------|--------|-------------|
-| `!summary` | all | Show channel summary |
-| `!summary full` | all | All sections including archived |
-| `!summary raw` | all | Secretary's natural language minutes |
-| `!summary create` | admin | Run summarization |
-| `!summary clear` | admin | Delete stored summary |
-| `!debug noise` | admin | Scan for bot noise |
-| `!debug cleanup` | admin | Delete bot noise from Discord |
-| `!debug status` | admin | Summary internals + classifier drops |
-
----
-
-## .env Configuration
+## .env Configuration (server)
 ```
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=sk-[key]
@@ -201,7 +163,7 @@ SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
 SUMMARIZER_BATCH_SIZE=500
 GEMINI_API_KEY=[key]
 GEMINI_MAX_TOKENS=32768
-OPENAI_API_KEY=[key]   # Required for GPT-5.4 nano classifier
+OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + classifier
 ```
 
 ---
@@ -213,22 +175,21 @@ OPENAI_API_KEY=[key]   # Required for GPT-5.4 nano classifier
 | M0-M3 | ✅ Complete |
 | M3.5 anyOf schema | ✅ Complete (v3.5.0) |
 | M3.5 pipeline unification | ✅ Complete (v3.5.1) |
-| M3.5 classifier dedup | ✅ Tested and working (v3.5.1) |
-| M3.5 overview inflation fix | ✅ Deployed (v3.5.2) |
-| M4 Topic-based semantic retrieval | 🔄 Pending deploy (v4.0.0) |
-| Merge claude-code → development | Pending |
+| M3.5 classifier dedup | ✅ Complete (v3.5.1) |
+| M3.5 overview inflation fix | ✅ Complete (v3.5.2) |
+| M4 Topic-based semantic retrieval | ✅ Complete (v4.0.0) |
+| M4.1 Orphaned message retrieval | 🔄 Planned |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
 
 ---
 
-## Development Rules (from AGENT.md)
+## Development Rules
 1. NO CODE CHANGES WITHOUT APPROVAL
 2. Discuss before coding
 3. ALWAYS provide full files — no partial patches
 4. INCREMENT version numbers in file heading comments
 5. Keep files under 250 lines
-6. Update STATUS.md and HANDOFF.md with every commit
+6. **Update README.md, STATUS.md, and HANDOFF.md with every commit**
 7. Separate logical commits per change
-8. Transcripts from prior sessions at `/mnt/transcripts/`
