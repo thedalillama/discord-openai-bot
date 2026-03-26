@@ -1,7 +1,11 @@
 # commands/debug_commands.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Debug and maintenance commands for the Discord bot.
+
+CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
+- ADDED: !debug backfill — embed all messages in channel lacking embeddings,
+  then re-link all topics. Reports progress and final counts.
 
 CHANGES v1.1.0: Show classifier drops in !debug status
 - ADDED: Classifier Drops section shows items filtered by GPT-5.4 nano
@@ -14,9 +18,10 @@ CREATED v1.0.0: Consolidates cleanup + summary diagnostics
 All subcommands require administrator permissions.
 
 Usage:
-  !debug noise     - Preview deletable bot messages
-  !debug cleanup   - Delete bot noise from Discord history
-  !debug status    - Show summary internals (IDs, hashes, chains)
+  !debug noise      - Preview deletable bot messages
+  !debug cleanup    - Delete bot noise from Discord history
+  !debug status     - Show summary internals (IDs, hashes, chains)
+  !debug backfill   - Embed all messages + re-link topics
 """
 import asyncio
 import json
@@ -100,105 +105,105 @@ def register_debug_commands(bot):
             await ctx.send(f"{_I}Error loading summary: {e}")
             return
 
-        lines = [f"**Summary Debug for #{ctx.channel.name}**", ""]
-        tc = summary.get("summary_token_count", 0)
-        mr = summary.get("meta", {}).get("message_range", {})
-        lines.append(f"Tokens: {tc} | Messages: {mr.get('count', 0)}")
-        lines.append(f"Model: {summary.get('meta', {}).get('model', '?')}")
-        lines.append("")
+        meta = summary.get("meta", {})
+        mr = meta.get("message_range", {})
+        lines = [
+            f"**Summary Debug for #{ctx.channel.name}**", "",
+            f"Tokens: {summary.get('summary_token_count',0)} | "
+            f"Messages: {mr.get('count',0)} | Model: {meta.get('model','?')}", ""]
 
-        # Decisions
-        decisions = summary.get("decisions", [])
-        if decisions:
-            lines.append("**Decisions**")
-            for d in decisions:
-                icon = "✅" if d.get("status") == "active" else "❌"
-                sup = ""
-                if d.get("supersedes_id"):
-                    sup = f" (supersedes {d['supersedes_id']})"
-                lines.append(
-                    f"  {icon} `{d['id']}` [{d.get('status')}] "
-                    f"hash={d.get('text_hash', '?')}{sup}\n"
-                    f"     → {d.get('decision', '?')}")
-            lines.append("")
+        def _section(title, items, fmt):
+            if items:
+                lines.append(f"**{title}**")
+                lines.extend(fmt(i) for i in items)
+                lines.append("")
 
-        # Action Items
-        actions = summary.get("action_items", [])
-        if actions:
-            lines.append("**Action Items**")
-            for a in actions:
-                icon = "📋" if a.get("status") == "open" else "✅"
-                lines.append(
-                    f"  {icon} `{a['id']}` [{a.get('status')}] "
-                    f"hash={a.get('text_hash', '?')}\n"
-                    f"     → {a.get('task', '?')} "
-                    f"(owner: {a.get('owner', '?')})")
-            lines.append("")
+        _section("Decisions", summary.get("decisions", []), lambda d: (
+            f"  {'✅' if d.get('status')=='active' else '❌'} `{d['id']}` "
+            f"[{d.get('status')}] hash={d.get('text_hash','?')}"
+            f"{' (supersedes '+d['supersedes_id']+')' if d.get('supersedes_id') else ''}"
+            f"\n     → {d.get('decision','?')}"))
+        _section("Action Items", summary.get("action_items", []), lambda a: (
+            f"  {'📋' if a.get('status')=='open' else '✅'} `{a['id']}` "
+            f"[{a.get('status')}] hash={a.get('text_hash','?')}"
+            f"\n     → {a.get('task','?')} (owner: {a.get('owner','?')})"))
+        _section("Key Facts", summary.get("key_facts", []), lambda f: (
+            f"  {'📌' if f.get('status')=='active' else '🗄️'} `{f['id']}` "
+            f"[{f.get('status')}] hash={f.get('text_hash','?')}"
+            f"\n     → {f.get('fact','?')}"))
+        _section("Open Questions", summary.get("open_questions", []), lambda q: (
+            f"  {'❓' if q.get('status')=='open' else '✅'} `{q['id']}` "
+            f"[{q.get('status')}]\n     → {q.get('question','?')}"))
+        _section("Topics", summary.get("active_topics", []), lambda t: (
+            f"  {'📂' if t.get('status')=='active' else '🗄️'} `{t['id']}` "
+            f"[{t.get('status')}] {t.get('title','?')}"))
 
-        # Key Facts
-        facts = summary.get("key_facts", [])
-        if facts:
-            lines.append("**Key Facts**")
-            for f in facts:
-                icon = "📌" if f.get("status") == "active" else "🗄️"
-                lines.append(
-                    f"  {icon} `{f['id']}` [{f.get('status')}] "
-                    f"hash={f.get('text_hash', '?')}\n"
-                    f"     → {f.get('fact', '?')}")
-            lines.append("")
-
-        # Open Questions
-        questions = summary.get("open_questions", [])
-        if questions:
-            lines.append("**Open Questions**")
-            for q in questions:
-                icon = "❓" if q.get("status") == "open" else "✅"
-                lines.append(
-                    f"  {icon} `{q['id']}` [{q.get('status')}]\n"
-                    f"     → {q.get('question', '?')}")
-            lines.append("")
-
-        # Active Topics
-        topics = summary.get("active_topics", [])
-        if topics:
-            lines.append("**Topics**")
-            for t in topics:
-                icon = "📂" if t.get("status") == "active" else "🗄️"
-                lines.append(
-                    f"  {icon} `{t['id']}` [{t.get('status')}] "
-                    f"{t.get('title', '?')}")
-            lines.append("")
-
-        # Participants
         parts = summary.get("participants", [])
         if parts:
-            names = ", ".join(p.get("display_name", p["id"]) for p in parts)
-            lines.append(f"**Participants:** {names}")
+            lines.append("**Participants:** " +
+                         ", ".join(p.get("display_name", p["id"]) for p in parts))
             lines.append("")
 
-        # Verification
-        v = summary.get("meta", {}).get("verification", {})
+        v = meta.get("verification", {})
         if v:
-            lines.append(
-                f"**Verification:** {v.get('hashes_verified', 0)} verified, "
-                f"{v.get('mismatches', 0)} mismatches, "
-                f"{v.get('source_checks_passed', 0)} src pass, "
-                f"{v.get('source_checks_failed', 0)} src fail")
+            lines.append(f"**Verification:** {v.get('hashes_verified',0)} verified, "
+                         f"{v.get('mismatches',0)} mismatches")
             lines.append("")
 
-        # Classifier drops
-        drops = summary.get("meta", {}).get("classifier_drops", [])
+        drops = meta.get("classifier_drops", [])
         if drops:
             lines.append(f"**Classifier Drops ({len(drops)})**")
-            for d in drops:
-                lines.append(
-                    f"  🗑️ `{d.get('id', '?')}` [{d.get('op', '?')}] "
-                    f"{d.get('text', '?')[:60]}")
+            lines.extend(f"  🗑️ `{d.get('id','?')}` [{d.get('op','?')}] "
+                         f"{d.get('text','?')[:60]}" for d in drops)
             lines.append("")
 
         # Send paginated
         from utils.summary_display import send_paginated
         await send_paginated(ctx, lines)
+
+    @debug_cmd.command(name='backfill')
+    async def debug_backfill(ctx):
+        """Embed all messages lacking embeddings, then re-link all topics."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        channel_id = ctx.channel.id
+        await ctx.send(f"{_I}Starting embedding backfill for #{ctx.channel.name}...")
+        try:
+            from utils.embedding_store import (
+                get_messages_without_embeddings, embed_and_store_message,
+                link_topic_to_messages)
+            # Phase 1: embed missing messages
+            pending = await asyncio.to_thread(
+                get_messages_without_embeddings, channel_id, 2000)
+            await ctx.send(f"{_I}Found {len(pending)} messages to embed...")
+            embedded = failed = 0
+            for msg_id, content in pending:
+                try:
+                    await asyncio.to_thread(embed_and_store_message, msg_id, content)
+                    embedded += 1
+                except Exception as e:
+                    failed += 1
+                    logger.warning(f"Backfill embed failed {msg_id}: {e}")
+            await ctx.send(f"{_I}Embedded {embedded}/{len(pending)} ({failed} failed).")
+            # Phase 2: re-link topics
+            from utils.summary_store import get_channel_summary
+            raw, _ = await asyncio.to_thread(get_channel_summary, channel_id)
+            if not raw:
+                await ctx.send(f"{_I}No summary — run `!summary create` first.")
+                return
+            topics = json.loads(raw).get("active_topics", [])
+            relinked = 0
+            for topic in topics:
+                try:
+                    await asyncio.to_thread(link_topic_to_messages, topic["id"], channel_id)
+                    relinked += 1
+                except Exception as e:
+                    logger.warning(f"Re-link failed {topic['id']}: {e}")
+            await ctx.send(f"{_I}Re-linked {relinked} topics. Backfill complete.")
+        except Exception as e:
+            await ctx.send(f"{_I}Backfill failed: {e}")
+            logger.error(f"Backfill error for ch:{channel_id}: {e}")
 
 
 async def _find_noise(channel, bot_user_id):
