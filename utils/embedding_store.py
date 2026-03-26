@@ -5,7 +5,7 @@ Embedding storage and semantic retrieval (SOW v4.0.0).
 
 CHANGES v1.0.1: Fix Gemini embedding API call
 - FIXED: model name now uses "models/" prefix (models/gemini-embedding-001)
-- FIXED: parameter renamed contents= → content= per Gemini SDK
+- FIXED: contents= is correct (not content=); reverted incorrect rename
 
 CREATED v1.0.0: Topic-based semantic retrieval
 - Gemini gemini-embedding-001 via existing GEMINI_API_KEY
@@ -48,7 +48,7 @@ def embed_text(text):
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
         result = client.models.embed_content(
-            model=f"models/{EMBEDDING_MODEL}", content=text)
+            model=f"models/{EMBEDDING_MODEL}", contents=text)
         return result.embeddings[0].values
     except Exception as e:
         logger.warning(f"embed_text failed: {e}")
