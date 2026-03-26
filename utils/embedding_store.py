@@ -1,15 +1,21 @@
 # utils/embedding_store.py
-# Version 1.0.1
+# Version 1.1.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.1.0: Switch embedding provider from Gemini to OpenAI
+- CHANGED: embed_text() now uses openai.OpenAI client with text-embedding-3-small
+- REMOVED: Gemini genai import and models/ prefix logic
+- NOTE: existing Gemini vectors are incompatible — clear message_embeddings,
+  topics.embedding, topic_messages and re-run backfill + summary create
 
 CHANGES v1.0.1: Fix Gemini embedding API call
 - FIXED: model name now uses "models/" prefix (models/gemini-embedding-001)
 - FIXED: contents= is correct (not content=); reverted incorrect rename
 
 CREATED v1.0.0: Topic-based semantic retrieval
-- Gemini gemini-embedding-001 via existing GEMINI_API_KEY
-- pack/unpack: float list ↔ SQLite BLOB (struct, 3072 × 4 bytes = 12KB)
+- OpenAI text-embedding-3-small, 1536 dimensions (6KB/blob)
+- pack/unpack: float list ↔ SQLite BLOB (struct, dynamic size)
 - cosine_similarity: pure Python, no dependencies
 - embed_and_store_message: embed + persist, idempotent
 - store_topic / store_topic_embedding: upsert topic record
@@ -41,15 +47,15 @@ def cosine_similarity(a, b):
 
 
 def embed_text(text):
-    """Call Gemini embedding API. Synchronous — wrap in to_thread(). Returns None on failure."""
+    """Call OpenAI embedding API. Synchronous — wrap in to_thread(). Returns None on failure."""
     if not text or not text.strip():
         return None
     try:
-        from google import genai
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        result = client.models.embed_content(
-            model=f"models/{EMBEDDING_MODEL}", contents=text)
-        return result.embeddings[0].values
+        import os
+        from openai import OpenAI
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        response = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+        return response.data[0].embedding
     except Exception as e:
         logger.warning(f"embed_text failed: {e}")
         return None
