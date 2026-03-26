@@ -1,8 +1,22 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 3.5.2
+# Version 4.0.0
 
 ## Current Version Features
+
+### Version 4.0.0 - Topic-Based Semantic Retrieval (SOW v4.0.0)
+- **NEW**: `utils/embedding_store.py` v1.0.0 — Gemini text-embedding-004,
+  cosine similarity, topic storage, embedding-based topic-message linkage,
+  find_relevant_topics, backfill helpers
+- **NEW**: `schema/004.sql` — topics, topic_messages, message_embeddings tables
+- **MODIFIED**: `utils/raw_events.py` v1.3.0 — embed messages on arrival (skip noise)
+- **MODIFIED**: `utils/summarizer_authoring.py` v1.10.0 — store topics + link by
+  embedding similarity after pipeline runs
+- **MODIFIED**: `utils/summary_display.py` v1.3.0 — format_always_on_context()
+- **MODIFIED**: `utils/context_manager.py` v2.0.0 — always-on + semantic retrieval;
+  fallback to full summary injection if no topics or embedding fails
+- **MODIFIED**: `config.py` v1.12.0 — EMBEDDING_MODEL, RETRIEVAL_TOP_K, TOPIC_MSG_LIMIT
+- **MODIFIED**: `commands/debug_commands.py` v1.2.0 — !debug backfill command
 
 ### Version 3.5.2 - Overview Inflation Fix (DEPLOYED)
 - **MODIFIED**: `utils/summary_prompts_authoring.py` v1.5.0 — SECRETARY_SYSTEM_PROMPT
@@ -125,6 +139,7 @@ discord-bot/
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.6.0
 │   ├── summary_prompts_authoring.py  # v1.5.0
+│   ├── embedding_store.py            # v1.0.0
 │   ├── summary_display.py         # v1.2.1
 │   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
@@ -173,9 +188,9 @@ discord-bot/
 
 ## Current Priority Issues
 
-### 1. config.py Default SUMMARIZER_MODEL
+### 1. v4.0.0 Not Yet Deployed
+Deploy to server, run !debug backfill, validate retrieval quality.
+
+### 2. config.py Default SUMMARIZER_MODEL
 Default `gemini-2.5-flash-lite` is stale. Server runs
 `gemini-3.1-flash-lite-preview` via .env override. Consider updating.
-
-### 2. Merge claude-code → development
-Feature branch has accumulated v3.3.0 through v3.5.2. Ready for merge.
