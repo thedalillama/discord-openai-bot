@@ -1,12 +1,14 @@
 # config.py
-# Version 1.12.1
+# Version 1.12.2
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
 
+CHANGES v1.12.2: Switch embedding provider to OpenAI
+- CHANGED: EMBEDDING_MODEL default gemini-embedding-001 → text-embedding-3-small
+
 CHANGES v1.12.1: Fix EMBEDDING_MODEL default
 - FIXED: default changed from text-embedding-004 → gemini-embedding-001
-  (text-embedding-004 does not exist; stable model is gemini-embedding-001)
 
 CHANGES v1.12.0: Semantic retrieval configuration (SOW v4.0.0)
 - ADDED: EMBEDDING_MODEL — Gemini embedding model (default gemini-embedding-001)
@@ -137,9 +139,9 @@ SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-2.5-flash-lite')
 SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 
 # Semantic retrieval configuration (SOW v4.0.0)
-# EMBEDDING_MODEL: Gemini embedding model. gemini-embedding-001 is the stable
-# model (3072 dimensions). API requires "models/" prefix at call time.
-EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'gemini-embedding-001')
+# EMBEDDING_MODEL: OpenAI embedding model. text-embedding-3-small is 1536
+# dimensions, fast, and inexpensive. Uses OPENAI_API_KEY.
+EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 # RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
 # TOPIC_MSG_LIMIT: max messages linked to each topic via embedding similarity.
