@@ -1,7 +1,11 @@
 # utils/context_manager.py
-# Version 2.0.2
+# Version 2.0.3
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.0.3: Cap recent messages at MAX_RECENT_MESSAGES (default 5)
+- ADDED: hard count cap in trimming loop to prevent recent history from
+  overwhelming retrieved topic context
 
 CHANGES v2.0.2: Fix retrieval budget — use full remaining budget not 40% slice
 - CHANGED: retrieval_budget now = budget - system_base - always_on (was * 0.4)
@@ -33,7 +37,7 @@ CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K
+from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -248,6 +252,8 @@ def build_context_for_provider(channel_id, provider):
     selected = []
     tokens_used = 0
     for msg in reversed(conversation_msgs):
+        if len(selected) >= MAX_RECENT_MESSAGES:
+            break
         msg_tokens = estimate_tokens(msg["content"]) + MSG_OVERHEAD
         if tokens_used + msg_tokens > remaining_budget:
             break
