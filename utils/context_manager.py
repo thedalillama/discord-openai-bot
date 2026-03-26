@@ -1,7 +1,12 @@
 # utils/context_manager.py
-# Version 2.0.3
+# Version 2.0.4
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.0.4: Similarity threshold + clearer retrieved history framing
+- ADDED: RETRIEVAL_MIN_SCORE filter — topics below threshold dropped before injection
+- CHANGED: retrieved block header now explicitly states these are real past messages
+  from this channel, preventing the model from treating them as external docs
 
 CHANGES v2.0.3: Cap recent messages at MAX_RECENT_MESSAGES (default 5)
 - ADDED: hard count cap in trimming loop to prevent recent history from
@@ -37,7 +42,7 @@ CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES
+from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES, RETRIEVAL_MIN_SCORE
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -134,7 +139,13 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
             logger.debug(f"Retrieval skip ch:{channel_id}: find_relevant_topics returned empty (no topic embeddings?)")
             return "", 0
 
-        logger.debug(f"Retrieval ch:{channel_id}: {len(topics)} topics found, scores: {[round(s,3) for _,_,s in topics]}")
+        # Filter to topics above similarity threshold — drop unrelated noise
+        topics = [(tid, title, score) for tid, title, score in topics
+                  if score >= RETRIEVAL_MIN_SCORE]
+        logger.debug(f"Retrieval ch:{channel_id}: {len(topics)} topics above threshold, scores: {[round(s,3) for _,_,s in topics]}")
+        if not topics:
+            logger.debug(f"Retrieval skip ch:{channel_id}: no topics above min score {RETRIEVAL_MIN_SCORE}")
+            return "", 0
 
         # IDs already in the recent window — avoid duplication
         recent_ids = set()
@@ -220,7 +231,10 @@ def build_context_for_provider(channel_id, provider):
         if retrieved:
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
-                f"--- RELEVANT HISTORY ---\n{retrieved}"
+                f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
+                f"The following are real messages previously sent in this channel, "
+                f"retrieved because they are relevant to the current query. "
+                f"They ARE part of this conversation's history.\n\n{retrieved}"
             )
             logger.debug(
                 f"Semantic context: {always_on_tokens} always-on + "
