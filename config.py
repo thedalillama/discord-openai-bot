@@ -150,7 +150,7 @@ EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
 # RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
 # Filters out low-relevance topics that would otherwise pollute context.
-RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.4))
+RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.3))
 # TOPIC_MSG_LIMIT: max messages linked to each topic via embedding similarity.
 TOPIC_MSG_LIMIT = int(os.environ.get('TOPIC_MSG_LIMIT', 20))
 # MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
