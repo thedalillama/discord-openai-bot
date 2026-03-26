@@ -1,7 +1,12 @@
 # utils/context_manager.py
-# Version 2.0.0
+# Version 2.0.1
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.0.1: Debug logging for retrieval fallback path
+- ADDED: per-step DEBUG logs in _retrieve_topic_context() explaining why
+  retrieval returns empty (no query, embed failed, no topics, budget exceeded,
+  all msgs excluded)
 
 CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
 - MODIFIED: build_context_for_provider() now injects:
@@ -106,15 +111,20 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
                 query_text = msg["content"].strip()
                 break
         if not query_text:
+            logger.debug(f"Retrieval skip ch:{channel_id}: no user message in window")
             return "", 0
 
         query_vec = embed_text(query_text)
         if query_vec is None:
+            logger.debug(f"Retrieval skip ch:{channel_id}: embed_text returned None for query {query_text[:60]!r}")
             return "", 0
 
         topics = find_relevant_topics(query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
         if not topics:
+            logger.debug(f"Retrieval skip ch:{channel_id}: find_relevant_topics returned empty (no topic embeddings?)")
             return "", 0
+
+        logger.debug(f"Retrieval ch:{channel_id}: {len(topics)} topics found, scores: {[round(s,3) for _,_,s in topics]}")
 
         # IDs already in the recent window — avoid duplication
         recent_ids = set()
@@ -127,6 +137,7 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
         for topic_id, title, score in topics:
             msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
             if not msgs:
+                logger.debug(f"  topic {topic_id!r}: 0 messages (all excluded or none linked)")
                 continue
             section = f"[Topic: {title}]\n"
             section += "\n".join(
@@ -135,11 +146,13 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
             )
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
+                logger.debug(f"  topic {topic_id!r}: budget exceeded ({tokens_used}+{section_tokens}>{token_budget}), stopping")
                 break
             lines.append(section)
             tokens_used += section_tokens
 
         if not lines:
+            logger.debug(f"Retrieval skip ch:{channel_id}: all {len(topics)} topics had 0 usable messages")
             return "", 0
 
         logger.debug(
@@ -210,7 +223,8 @@ def build_context_for_provider(channel_id, provider):
                 f"history. Use it to inform your responses.\n\n{full}"
             )
             logger.debug(
-                f"Fallback: full summary injected for ch:{channel_id}")
+                f"Fallback to full summary for ch:{channel_id} "
+                f"(retrieval returned empty — see above for reason)")
 
         combined = f"{system_msg['content']}\n\n{context_block}"
         system_msg = {"role": "system", "content": combined}
