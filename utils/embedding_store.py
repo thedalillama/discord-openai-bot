@@ -1,11 +1,15 @@
 # utils/embedding_store.py
-# Version 1.0.0
+# Version 1.0.1
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
 
+CHANGES v1.0.1: Fix Gemini embedding API call
+- FIXED: model name now uses "models/" prefix (models/gemini-embedding-001)
+- FIXED: parameter renamed contents= → content= per Gemini SDK
+
 CREATED v1.0.0: Topic-based semantic retrieval
-- Gemini text-embedding-004 via existing GEMINI_API_KEY (free tier)
-- pack/unpack: float list ↔ SQLite BLOB (struct, 768 × 4 bytes = 3KB)
+- Gemini gemini-embedding-001 via existing GEMINI_API_KEY
+- pack/unpack: float list ↔ SQLite BLOB (struct, 3072 × 4 bytes = 12KB)
 - cosine_similarity: pure Python, no dependencies
 - embed_and_store_message: embed + persist, idempotent
 - store_topic / store_topic_embedding: upsert topic record
@@ -43,7 +47,8 @@ def embed_text(text):
     try:
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
-        result = client.models.embed_content(model=EMBEDDING_MODEL, contents=text)
+        result = client.models.embed_content(
+            model=f"models/{EMBEDDING_MODEL}", content=text)
         return result.embeddings[0].values
     except Exception as e:
         logger.warning(f"embed_text failed: {e}")
