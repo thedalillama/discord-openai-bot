@@ -1,7 +1,12 @@
 # utils/embedding_store.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.2.0: Replace TOPIC_MSG_LIMIT count cap with TOPIC_LINK_MIN_SCORE threshold
+- CHANGED: link_topic_to_messages links ALL messages above similarity threshold
+  instead of top-N; token budget in context_manager handles injection limits
+- REMOVED: TOPIC_MSG_LIMIT import
 
 CHANGES v1.1.0: Switch embedding provider from Gemini to OpenAI
 - CHANGED: embed_text() now uses openai.OpenAI client with text-embedding-3-small
@@ -26,7 +31,7 @@ CREATED v1.0.0: Topic-based semantic retrieval
 """
 import math, struct, sqlite3
 from datetime import datetime, timezone
-from config import DATABASE_PATH, GEMINI_API_KEY, EMBEDDING_MODEL, TOPIC_MSG_LIMIT
+from config import DATABASE_PATH, EMBEDDING_MODEL, TOPIC_LINK_MIN_SCORE
 from utils.logging_utils import get_logger
 
 logger = get_logger('embedding_store')
@@ -141,7 +146,7 @@ def get_topic_embeddings(channel_id):
 
 
 def link_topic_to_messages(topic_id, channel_id):
-    """Embed topic, find top-N similar messages, write to topic_messages."""
+    """Embed topic, link all messages above similarity threshold, write to topic_messages."""
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         row = conn.execute("SELECT title,summary FROM topics WHERE id=?",
@@ -164,18 +169,17 @@ def link_topic_to_messages(topic_id, channel_id):
     if not msg_embeddings:
         return
 
-    scored = sorted(
-        ((mid, cosine_similarity(topic_vec, vec)) for mid, vec in msg_embeddings),
-        key=lambda x: x[1], reverse=True)[:TOPIC_MSG_LIMIT]
+    scored = [(mid, cosine_similarity(topic_vec, vec)) for mid, vec in msg_embeddings]
+    linked = [(mid, s) for mid, s in scored if s >= TOPIC_LINK_MIN_SCORE]
 
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         conn.execute("DELETE FROM topic_messages WHERE topic_id=?", (topic_id,))
         conn.executemany("INSERT OR IGNORE INTO topic_messages(topic_id,message_id) VALUES(?,?)",
-                         [(topic_id, mid) for mid, _ in scored])
+                         [(topic_id, mid) for mid, _ in linked])
         conn.commit()
-        logger.debug(f"Linked topic {topic_id} → {len(scored)} messages"
-                     + (f" (best: {scored[0][1]:.3f})" if scored else ""))
+        best = max((s for _, s in linked), default=0)
+        logger.debug(f"Linked topic {topic_id} → {len(linked)} messages (best: {best:.3f})")
     finally:
         conn.close()
 
