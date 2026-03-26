@@ -1,18 +1,38 @@
 # HANDOFF.md
-# Version 3.5.2
+# Version 4.0.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v3.5.2
+**Bot version**: v4.0.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Model**: `gemini-3.1-flash-lite-preview` (in .env)
 **Last deployed**: v3.5.2 (overview inflation fix)
+**Pending deploy**: v4.0.0 (topic-based semantic retrieval)
 
 ---
 
 ## What Just Happened
+
+### v4.0.0 — Topic-Based Semantic Retrieval (PENDING DEPLOY)
+Replaces full summary injection with relevance-based context retrieval.
+
+**Write path**:
+- Messages embedded on arrival via Gemini `text-embedding-004`
+- Topics stored as first-class SQLite entities after every `!summary create`
+- Each topic linked to its top-20 most similar messages by cosine similarity
+
+**Read path**:
+- Always-on context: overview + key facts + open actions + open questions
+- Per-query retrieval: embed latest user message → find top-5 relevant topics
+  → inject their linked messages
+- Fallback: full summary injection if no topics or embedding fails
+
+**New files**: `utils/embedding_store.py` v1.0.0, `schema/004.sql`
+**Modified**: `raw_events.py` v1.3.0, `summarizer_authoring.py` v1.10.0,
+  `summary_display.py` v1.3.0, `context_manager.py` v2.0.0,
+  `config.py` v1.12.0, `debug_commands.py` v1.2.0
 
 ### v3.5.2 — Overview Inflation Fix (DEPLOYED)
 Investigation confirmed `minutes_text` IS persisted correctly in
@@ -48,8 +68,20 @@ enums, propertyOrdering. Result: 4 active + 7 archived topics.
 
 ## Immediate Next Steps
 
-### 1. Merge claude-code → development
-Accumulated v3.3.0 through v3.5.2. All on feature branch.
+### 1. Deploy v4.0.0
+```
+1. sudo systemctl stop discord-bot
+2. Deploy all modified files
+3. sudo systemctl start discord-bot
+4. Verify 004.sql migration applied (check logs)
+5. !debug backfill              → embed existing messages + link topics
+6. Ask about databases          → check logs: "Retrieved N topics"
+7. Ask about animals            → verify different topics retrieved
+8. Ask a generic greeting       → verify fallback to always-on only
+```
+
+### 2. Merge claude-code → development
+v3.3.0 through v4.0.0 accumulated on feature branch.
 
 ---
 
@@ -183,8 +215,8 @@ OPENAI_API_KEY=[key]   # Required for GPT-5.4 nano classifier
 | M3.5 pipeline unification | ✅ Complete (v3.5.1) |
 | M3.5 classifier dedup | ✅ Tested and working (v3.5.1) |
 | M3.5 overview inflation fix | ✅ Deployed (v3.5.2) |
+| M4 Topic-based semantic retrieval | 🔄 Pending deploy (v4.0.0) |
 | Merge claude-code → development | Pending |
-| M4 Episode segmentation | Planned |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
