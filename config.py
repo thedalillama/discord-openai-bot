@@ -1,8 +1,12 @@
 # config.py
-# Version 1.12.4
+# Version 1.12.5
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.12.5: Replace TOPIC_MSG_LIMIT with TOPIC_LINK_MIN_SCORE
+- REMOVED: TOPIC_MSG_LIMIT — arbitrary count cap replaced by similarity threshold
+- ADDED: TOPIC_LINK_MIN_SCORE (default 0.3) — links all messages above threshold
 
 CHANGES v1.12.4: Add RETRIEVAL_MIN_SCORE config (default 0.4)
 
@@ -151,8 +155,10 @@ RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
 # RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
 # Filters out low-relevance topics that would otherwise pollute context.
 RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.3))
-# TOPIC_MSG_LIMIT: max messages linked to each topic via embedding similarity.
-TOPIC_MSG_LIMIT = int(os.environ.get('TOPIC_MSG_LIMIT', 20))
+# TOPIC_LINK_MIN_SCORE: minimum cosine similarity to link a message to a topic.
+# All messages above this threshold are linked — no arbitrary count cap.
+# Token budget in context_manager limits how many are injected at response time.
+TOPIC_LINK_MIN_SCORE = float(os.environ.get('TOPIC_LINK_MIN_SCORE', 0.3))
 # MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
 # Prevents recent history from overwhelming retrieved topic context.
 MAX_RECENT_MESSAGES = int(os.environ.get('MAX_RECENT_MESSAGES', 5))
