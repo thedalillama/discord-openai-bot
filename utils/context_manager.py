@@ -1,7 +1,13 @@
 # utils/context_manager.py
-# Version 2.0.1
+# Version 2.0.2
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.0.2: Fix retrieval budget — use full remaining budget not 40% slice
+- CHANGED: retrieval_budget now = budget - system_base - always_on (was * 0.4)
+  The 40% cap caused only ~586 tokens to be available for retrieval. Retrieved
+  content lands in the system prompt, so system_tokens is recalculated after
+  and the recent-message trimmer drops oldest messages to make room naturally.
 
 CHANGES v2.0.1: Debug logging for retrieval fallback path
 - ADDED: per-step DEBUG logs in _retrieve_topic_context() explaining why
@@ -198,10 +204,11 @@ def build_context_for_provider(channel_id, provider):
         always_on = format_always_on_context(summary)
         always_on_tokens = estimate_tokens(always_on)
 
-        # Budget for retrieved context: up to 40% of remaining after always-on
+        # Full remaining budget goes to retrieval. Retrieved content is injected
+        # into the system prompt, so system_tokens is recalculated below and the
+        # recent-message trimmer naturally drops oldest messages to compensate.
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
-        retrieval_budget = max(
-            0, int((budget - system_base_tokens - always_on_tokens) * 0.4))
+        retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
         retrieved, retrieved_tokens = _retrieve_topic_context(
             channel_id, conversation_msgs, retrieval_budget)
