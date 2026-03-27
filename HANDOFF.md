@@ -1,17 +1,39 @@
 # HANDOFF.md
-# Version 4.0.0
+# Version 4.1.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.0.0 (deployed + tested)
+**Bot version**: v4.1.0 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.0 — Direct Message Embedding Fallback (PENDING DEPLOY)
+When topic retrieval returns empty (no topics above RETRIEVAL_MIN_SCORE, or all
+matched topics have 0 linked messages), `_retrieve_topic_context()` now falls
+back to direct cosine similarity search across all `message_embeddings`.
+
+**New function**: `find_similar_messages()` in `embedding_store.py` — queries
+`message_embeddings` joined with `messages`, scores each against the query vector,
+filters noise/commands, returns top-N sorted by score.
+
+**New helper**: `_fallback_msg_search()` in `context_manager.py` — calls
+`find_similar_messages()`, trims results to fit token budget, returns formatted
+section `[Retrieved by message similarity]`.
+
+**Two call sites** in `_retrieve_topic_context()`:
+1. After topic threshold filter returns empty list
+2. After topic loop produces no usable messages
+
+`recent_ids` moved before the threshold filter so it's available at both sites.
+
+**Files changed**: `embedding_store.py` v1.3.0, `context_manager.py` v2.1.0,
+`config.py` v1.12.6 (RETRIEVAL_MSG_FALLBACK default 15)
 
 ### v4.0.0 — Topic-Based Semantic Retrieval (DEPLOYED + TESTED)
 Replaces full summary injection with relevance-based context retrieval.
@@ -90,32 +112,35 @@ Each pipeline run saves to `data/`:
 
 ---
 
-## Immediate Next Steps (v4.1.0)
+## Immediate Next Steps
 
-### 1. Orphaned Message Retrieval
-Short exchanges that don't become Structurer topics are invisible to retrieval.
-Options:
-- **Message-level fallback**: when no topics pass threshold, query all message
-  embeddings directly and surface top-N most similar messages
-- **Topic discovery pass**: scan unlinked messages, cluster by similarity,
-  propose topics if enough related orphans exist
+### 1. Deploy and test v4.1.0
+```
+1. sudo systemctl restart discord-bot
+2. Ask about Hamnet (movie discussion — no topic created)
+   → Expect: fallback fires, Hamnet messages surface
+3. Ask about gorillas (topic exists)
+   → Expect: topic retrieval fires as before (regression check)
+4. Ask about quantum physics (not discussed)
+   → Expect: both paths empty, full summary fallback
+```
 
-### 2. Merge claude-code → development → main when v4.1.0 is ready
+### 2. Merge claude-code → development → main as v4.1.0
 
 ---
 
 ## File Versions
 
-### Semantic Retrieval Files (v4.0.0)
+### Semantic Retrieval Files (v4.1.0)
 | File | Version | Key Role |
 |------|---------|----------|
-| `utils/embedding_store.py` | v1.2.0 | OpenAI embeddings, threshold-based linking |
-| `utils/context_manager.py` | v2.0.4 | Always-on + retrieval, budget, 5-msg cap |
+| `utils/embedding_store.py` | v1.3.0 | OpenAI embeddings, topic linking, direct fallback search |
+| `utils/context_manager.py` | v2.1.0 | Always-on + retrieval + fallback, budget, 5-msg cap |
 | `utils/summary_display.py` | v1.3.0 | format_always_on_context() |
 | `utils/raw_events.py` | v1.3.0 | Embed on arrival |
 | `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
 | `commands/debug_commands.py` | v1.2.0 | !debug backfill |
-| `config.py` | v1.12.5 | All retrieval config vars |
+| `config.py` | v1.12.6 | All retrieval config vars incl. RETRIEVAL_MSG_FALLBACK |
 | `schema/004.sql` | — | topics, topic_messages, message_embeddings |
 
 ### Summarization Pipeline Files
@@ -178,7 +203,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M3.5 classifier dedup | ✅ Complete (v3.5.1) |
 | M3.5 overview inflation fix | ✅ Complete (v3.5.2) |
 | M4 Topic-based semantic retrieval | ✅ Complete (v4.0.0) |
-| M4.1 Orphaned message retrieval | 🔄 Planned |
+| M4.1 Direct message fallback retrieval | 🔄 Pending deploy (v4.1.0) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |

@@ -1,21 +1,25 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.0.0
+# Version 4.1.0
 
 ## Current Version Features
 
+### Version 4.1.0 - Direct Message Embedding Fallback (SOW v4.1.0)
+- **MODIFIED**: `utils/embedding_store.py` v1.3.0 — added `find_similar_messages()`;
+  searches message_embeddings directly by cosine similarity for fallback retrieval
+- **MODIFIED**: `utils/context_manager.py` v2.1.0 — added `_fallback_msg_search()`;
+  fires at both failure points in `_retrieve_topic_context()` (no topics above
+  threshold, and topics found but all had 0 linked messages)
+- **MODIFIED**: `config.py` v1.12.6 — added RETRIEVAL_MSG_FALLBACK (default 15)
+
 ### Version 4.0.0 - Topic-Based Semantic Retrieval (DEPLOYED + TESTED)
 - **NEW**: `utils/embedding_store.py` v1.2.0 — OpenAI text-embedding-3-small,
-  cosine similarity, threshold-based topic-message linkage (all messages above
-  TOPIC_LINK_MIN_SCORE), find_relevant_topics, backfill helpers
+  cosine similarity, threshold-based topic-message linkage
 - **NEW**: `schema/004.sql` — topics, topic_messages, message_embeddings tables
-- **MODIFIED**: `utils/raw_events.py` v1.3.0 — embed messages on arrival (skip noise/commands)
+- **MODIFIED**: `utils/raw_events.py` v1.3.0 — embed messages on arrival
 - **MODIFIED**: `utils/summarizer_authoring.py` v1.10.1 — store active + archived topics
-  + link by embedding similarity after pipeline runs
 - **MODIFIED**: `utils/summary_display.py` v1.3.0 — format_always_on_context()
-- **MODIFIED**: `utils/context_manager.py` v2.0.4 — always-on + semantic retrieval;
-  similarity threshold filter; 5-message recent cap; explicit framing of retrieved
-  history; fallback to full summary if no topics pass threshold
+- **MODIFIED**: `utils/context_manager.py` v2.0.4 — always-on + semantic retrieval
 - **MODIFIED**: `config.py` v1.12.5 — EMBEDDING_MODEL, RETRIEVAL_TOP_K,
   RETRIEVAL_MIN_SCORE (0.3), TOPIC_LINK_MIN_SCORE (0.3), MAX_RECENT_MESSAGES (5)
 - **MODIFIED**: `commands/debug_commands.py` v1.2.0 — !debug backfill command
@@ -57,7 +61,7 @@
 ```
 discord-bot/
 ├── bot.py                         # v3.1.0
-├── config.py                      # v1.12.5
+├── config.py                      # v1.12.6
 ├── main.py
 ├── .env
 ├── data/
@@ -91,8 +95,8 @@ discord-bot/
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.3.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.2.0
-│   ├── context_manager.py         # v2.0.4
+│   ├── embedding_store.py         # v1.3.0
+│   ├── context_manager.py         # v2.1.0
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v2.1.0
 │   ├── summarizer_authoring.py    # v1.10.1
@@ -154,12 +158,11 @@ discord-bot/
 
 ## Known Limitations / Next Priorities
 
-### 1. Orphaned Messages (v4.1.0 candidate)
-Short exchanges (2–3 messages) that don't get captured as topics by the
-Structurer are invisible to retrieval. If messages about a subject never
-accumulate enough in one batch to trigger topic creation, they remain
-unlinked forever. Message-level fallback retrieval or a topic discovery
-pass would address this.
+### 1. Orphaned Messages — partially addressed in v4.1.0
+Direct message fallback now surfaces orphaned messages via embedding similarity
+when no topics match. However, messages with very low similarity scores (below
+RETRIEVAL_MIN_SCORE=0.3) will still be missed. A future topic discovery pass
+could cluster orphaned messages into new topics.
 
 ### 2. config.py Default SUMMARIZER_MODEL
 Default `gemini-2.5-flash-lite` is stale. Server runs

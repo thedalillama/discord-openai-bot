@@ -1,8 +1,10 @@
 # config.py
-# Version 1.12.5
+# Version 1.12.6
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.12.6: Add RETRIEVAL_MSG_FALLBACK (default 15) for direct message fallback
 
 CHANGES v1.12.5: Replace TOPIC_MSG_LIMIT with TOPIC_LINK_MIN_SCORE
 - REMOVED: TOPIC_MSG_LIMIT — arbitrary count cap replaced by similarity threshold
@@ -162,6 +164,9 @@ TOPIC_LINK_MIN_SCORE = float(os.environ.get('TOPIC_LINK_MIN_SCORE', 0.3))
 # MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
 # Prevents recent history from overwhelming retrieved topic context.
 MAX_RECENT_MESSAGES = int(os.environ.get('MAX_RECENT_MESSAGES', 5))
+# RETRIEVAL_MSG_FALLBACK: max messages returned by direct embedding fallback
+# when topic retrieval returns empty (SOW v4.1.0).
+RETRIEVAL_MSG_FALLBACK = int(os.environ.get('RETRIEVAL_MSG_FALLBACK', 15))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
