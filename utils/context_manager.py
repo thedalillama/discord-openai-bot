@@ -1,48 +1,26 @@
 # utils/context_manager.py
-# Version 2.0.4
+# Version 2.1.0
 """
 Token-budget-aware context management and usage tracking.
 
+CHANGES v2.1.0: Direct message embedding fallback (SOW v4.1.0)
+- ADDED: _fallback_msg_search() — searches message_embeddings directly when
+  no topics pass RETRIEVAL_MIN_SCORE or all matched topics have 0 usable messages
+- MODIFIED: _retrieve_topic_context() calls fallback at both failure points;
+  recent_ids computed before threshold filter so it's available at both sites
+- NOTE: file exceeds 250-line target; retrieval logic is a candidate for
+  extraction into utils/retrieval.py in a future cleanup pass
+
 CHANGES v2.0.4: Similarity threshold + clearer retrieved history framing
-- ADDED: RETRIEVAL_MIN_SCORE filter — topics below threshold dropped before injection
-- CHANGED: retrieved block header now explicitly states these are real past messages
-  from this channel, preventing the model from treating them as external docs
-
 CHANGES v2.0.3: Cap recent messages at MAX_RECENT_MESSAGES (default 5)
-- ADDED: hard count cap in trimming loop to prevent recent history from
-  overwhelming retrieved topic context
-
 CHANGES v2.0.2: Fix retrieval budget — use full remaining budget not 40% slice
-- CHANGED: retrieval_budget now = budget - system_base - always_on (was * 0.4)
-  The 40% cap caused only ~586 tokens to be available for retrieval. Retrieved
-  content lands in the system prompt, so system_tokens is recalculated after
-  and the recent-message trimmer drops oldest messages to make room naturally.
-
-CHANGES v2.0.1: Debug logging for retrieval fallback path
-- ADDED: per-step DEBUG logs in _retrieve_topic_context() explaining why
-  retrieval returns empty (no query, embed failed, no topics, budget exceeded,
-  all msgs excluded)
-
 CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
-- MODIFIED: build_context_for_provider() now injects:
-    Part 1 (always-on): overview, key facts, open action items, open questions
-    Part 2 (retrieved): messages from topics semantically similar to latest msg
-- ADDED: _retrieve_topic_context() — embeds latest user message, finds top-K
-  relevant topics, fetches their linked messages, deduplicates vs recent window
-- FALLBACK: If embedding fails or no topics exist, falls back to full summary
-  injection (v1.1.0 behavior). Bot never fails to respond due to retrieval.
-
-CHANGES v1.1.0: M3 — Inject summary into system prompt
-- MODIFIED: build_context_for_provider() loads channel summary and appends
-  it to the system prompt as a single combined system message.
-- ADDED: _load_summary_text() — loads and formats the channel summary
-
 CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
-- estimate_tokens(), build_context_for_provider(), record_usage()
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES, RETRIEVAL_MIN_SCORE
+from config import (CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES,
+                    RETRIEVAL_MIN_SCORE, RETRIEVAL_MSG_FALLBACK)
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -109,9 +87,40 @@ def _load_summary(channel_id):
         return None
 
 
+def _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids):
+    """Direct message embedding search when topic retrieval returns empty.
+    Returns (context_text, tokens_used) or ("", 0).
+    """
+    try:
+        from utils.embedding_store import find_similar_messages
+        msgs = find_similar_messages(
+            query_vec, channel_id,
+            top_n=RETRIEVAL_MSG_FALLBACK,
+            exclude_ids=recent_ids)
+        if not msgs:
+            return "", 0
+        parts, used = [], 0
+        for _, author, content, _ in msgs:
+            line = f"{author}: {content}"
+            lt = estimate_tokens(line) + 1
+            if used + lt > token_budget:
+                break
+            parts.append(line)
+            used += lt
+        if not parts:
+            return "", 0
+        section = "[Retrieved by message similarity]\n" + "\n".join(parts)
+        logger.debug(f"Fallback: {len(parts)} msgs ({used} tokens) ch:{channel_id}")
+        return section, used
+    except Exception as e:
+        logger.warning(f"Fallback search failed ch:{channel_id}: {e}")
+        return "", 0
+
+
 def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
     """Embed the latest user message, find relevant topics, return formatted
-    context string of their linked messages.
+    context string of their linked messages. Falls back to direct message
+    embedding search if no topics pass threshold.
 
     Returns (context_text, tokens_used). Returns ("", 0) on any failure.
     """
@@ -119,70 +128,53 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
         from utils.embedding_store import (
             embed_text, find_relevant_topics, get_topic_messages)
 
-        # Find latest non-empty user message
         query_text = None
         for msg in reversed(conversation_msgs):
             if msg.get("role") == "user" and msg.get("content", "").strip():
                 query_text = msg["content"].strip()
                 break
         if not query_text:
-            logger.debug(f"Retrieval skip ch:{channel_id}: no user message in window")
             return "", 0
 
         query_vec = embed_text(query_text)
         if query_vec is None:
-            logger.debug(f"Retrieval skip ch:{channel_id}: embed_text returned None for query {query_text[:60]!r}")
             return "", 0
+
+        # Compute recent_ids before threshold filter — needed by both failure paths
+        recent_ids = {msg["_msg_id"] for msg in conversation_msgs if "_msg_id" in msg}
 
         topics = find_relevant_topics(query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
+        topics = [(tid, title, s) for tid, title, s in topics if s >= RETRIEVAL_MIN_SCORE]
+        logger.debug(
+            f"Topics above threshold ch:{channel_id}: {len(topics)}, "
+            f"scores: {[round(s, 3) for _, _, s in topics]}")
+
         if not topics:
-            logger.debug(f"Retrieval skip ch:{channel_id}: find_relevant_topics returned empty (no topic embeddings?)")
-            return "", 0
+            return _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids)
 
-        # Filter to topics above similarity threshold — drop unrelated noise
-        topics = [(tid, title, score) for tid, title, score in topics
-                  if score >= RETRIEVAL_MIN_SCORE]
-        logger.debug(f"Retrieval ch:{channel_id}: {len(topics)} topics above threshold, scores: {[round(s,3) for _,_,s in topics]}")
-        if not topics:
-            logger.debug(f"Retrieval skip ch:{channel_id}: no topics above min score {RETRIEVAL_MIN_SCORE}")
-            return "", 0
-
-        # IDs already in the recent window — avoid duplication
-        recent_ids = set()
-        for msg in conversation_msgs:
-            if "_msg_id" in msg:
-                recent_ids.add(msg["_msg_id"])
-
-        lines = []
-        tokens_used = 0
+        lines, tokens_used = [], 0
         for topic_id, title, score in topics:
             msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
             if not msgs:
-                logger.debug(f"  topic {topic_id!r}: 0 messages (all excluded or none linked)")
                 continue
-            section = f"[Topic: {title}]\n"
-            section += "\n".join(
-                f"{author}: {content}"
-                for _, author, content, _ in msgs
-            )
+            section = f"[Topic: {title}]\n" + "\n".join(
+                f"{author}: {content}" for _, author, content, _ in msgs)
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
-                logger.debug(f"  topic {topic_id!r}: budget exceeded ({tokens_used}+{section_tokens}>{token_budget}), stopping")
                 break
             lines.append(section)
             tokens_used += section_tokens
 
         if not lines:
-            logger.debug(f"Retrieval skip ch:{channel_id}: all {len(topics)} topics had 0 usable messages")
-            return "", 0
+            return _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids)
 
         logger.debug(
-            f"Retrieved {len(lines)} topics for ch:{channel_id} "
-            f"({tokens_used} tokens, query: {query_text[:60]!r})")
+            f"Retrieved {len(lines)} topics ({tokens_used} tokens) "
+            f"ch:{channel_id} query:{query_text[:50]!r}")
         return "\n\n".join(lines), tokens_used
 
     except Exception as e:
-        logger.warning(f"Topic retrieval failed for ch:{channel_id}: {e}")
+        logger.warning(f"Topic retrieval failed ch:{channel_id}: {e}")
         return "", 0
 
 

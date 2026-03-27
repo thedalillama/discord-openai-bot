@@ -1,33 +1,16 @@
 # utils/embedding_store.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
 
+CHANGES v1.3.0: Add find_similar_messages() for direct fallback retrieval (SOW v4.1.0)
+- ADDED: find_similar_messages() — searches message_embeddings directly by cosine
+  similarity; used as fallback when topic retrieval returns empty
+
 CHANGES v1.2.0: Replace TOPIC_MSG_LIMIT count cap with TOPIC_LINK_MIN_SCORE threshold
-- CHANGED: link_topic_to_messages links ALL messages above similarity threshold
-  instead of top-N; token budget in context_manager handles injection limits
-- REMOVED: TOPIC_MSG_LIMIT import
-
-CHANGES v1.1.0: Switch embedding provider from Gemini to OpenAI
-- CHANGED: embed_text() now uses openai.OpenAI client with text-embedding-3-small
-- REMOVED: Gemini genai import and models/ prefix logic
-- NOTE: existing Gemini vectors are incompatible — clear message_embeddings,
-  topics.embedding, topic_messages and re-run backfill + summary create
-
-CHANGES v1.0.1: Fix Gemini embedding API call
-- FIXED: model name now uses "models/" prefix (models/gemini-embedding-001)
-- FIXED: contents= is correct (not content=); reverted incorrect rename
-
+CHANGES v1.1.0: Switch embedding provider from Gemini to OpenAI (text-embedding-3-small)
+CHANGES v1.0.1: Fix Gemini embedding API call (models/ prefix, contents= param)
 CREATED v1.0.0: Topic-based semantic retrieval
-- OpenAI text-embedding-3-small, 1536 dimensions (6KB/blob)
-- pack/unpack: float list ↔ SQLite BLOB (struct, dynamic size)
-- cosine_similarity: pure Python, no dependencies
-- embed_and_store_message: embed + persist, idempotent
-- store_topic / store_topic_embedding: upsert topic record
-- link_topic_to_messages: embed topic, top-N message similarity → topic_messages
-- find_relevant_topics: rank stored topics by query similarity
-- get_topic_messages: fetch linked messages for retrieval injection
-- get_messages_without_embeddings: backfill query
 """
 import math, struct, sqlite3
 from datetime import datetime, timezone
@@ -209,6 +192,38 @@ def get_topic_messages(topic_id, exclude_ids=None):
         return [(r[0], r[1], r[2], r[3]) for r in rows if r[0] not in exclude_ids]
     finally:
         conn.close()
+
+
+def find_similar_messages(query_vec, channel_id, top_n=15,
+                          min_score=0.0, exclude_ids=None):
+    """Search message_embeddings directly for messages similar to query vector.
+
+    Used as fallback when topic-based retrieval returns empty. Filters out
+    noise/command messages. Returns list of (message_id, author_name, content,
+    score) sorted by score descending.
+    """
+    exclude_ids = set(exclude_ids or [])
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT me.message_id, m.author_name, m.content, me.embedding "
+            "FROM message_embeddings me JOIN messages m ON m.id=me.message_id "
+            "WHERE m.channel_id=? AND m.is_deleted=0 AND m.content!='' "
+            "  AND m.content NOT LIKE '!%' "
+            "  AND m.content NOT LIKE '\u2139\ufe0f%' "
+            "  AND m.content NOT LIKE '\u2699\ufe0f%'",
+            (channel_id,)).fetchall()
+    finally:
+        conn.close()
+    scored = []
+    for mid, author, content, blob in rows:
+        if mid in exclude_ids:
+            continue
+        score = cosine_similarity(query_vec, unpack_embedding(blob))
+        if score >= min_score:
+            scored.append((mid, author, content, score))
+    scored.sort(key=lambda x: x[3], reverse=True)
+    return scored[:top_n]
 
 
 def get_messages_without_embeddings(channel_id, limit=500):
