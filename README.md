@@ -1,5 +1,5 @@
 # README.md
-# Version 4.0.0
+# Version 4.1.0
 
 # Synthergy Discord Bot
 
@@ -108,7 +108,9 @@ Every response is built from two context layers:
 
 **Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.3) are included. The token budget trimmer drops oldest recent messages to make room.
 
-**Fallback**: if no topics score above threshold, or embedding fails, the full summary is injected (v3 behavior).
+**Message fallback** (v4.1.0): if no topics score above threshold, the query embedding is used to search `message_embeddings` directly and the top-N most similar messages are injected instead.
+
+**Summary fallback**: if both topic and message search return empty, or embedding fails, the full summary is injected (v3 behavior).
 
 ## Summarization System
 
@@ -146,6 +148,7 @@ Key variables:
 | `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.3` |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
+| `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
 ## Deployment
 

@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 4.0.0
+# Version 4.1.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -65,6 +65,7 @@ The `data/` directory is created automatically on first run.
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
 | `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.3` |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
+| `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
 All messages scoring above `TOPIC_LINK_MIN_SCORE` against a topic's embedding
 are linked to that topic. At query time, only topics scoring above
