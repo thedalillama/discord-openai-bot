@@ -1,21 +1,38 @@
 # utils/context_manager.py
-# Version 1.1.0
+# Version 2.1.3
 """
 Token-budget-aware context management and usage tracking.
 
-CHANGES v1.1.0: M3 — Inject summary into system prompt
-- MODIFIED: build_context_for_provider() loads channel summary and appends
-  it to the system prompt as a single combined system message. The full
-  summary (decisions, topics, facts, actions, questions) is included.
-  If no summary exists, behavior is unchanged.
-- ADDED: _load_summary_text() — loads and formats the channel summary
+CHANGES v2.1.3: Restore always-on context injection
+- RESTORED: always-on block (overview, key facts, actions, questions) injected
+  alongside retrieved content; covers personal/project facts not in any topic
 
+CHANGES v2.1.2: Full summary fallback logs WARNING instead of DEBUG
+- CHANGED: branch 4 (no topics + no message embeddings) now logs at WARNING
+  so degraded retrieval state is visible in monitoring
+
+CHANGES v2.1.1: Richer retrieval debug logging
+- ADDED: topic titles + per-topic message counts in _retrieve_topic_context() logs
+- ADDED: context block preview logged at DEBUG so model input is visible
+
+CHANGES v2.1.0: Direct message embedding fallback (SOW v4.1.0)
+- ADDED: _fallback_msg_search() — searches message_embeddings directly when
+  no topics pass RETRIEVAL_MIN_SCORE or all matched topics have 0 usable messages
+- MODIFIED: _retrieve_topic_context() calls fallback at both failure points;
+  recent_ids computed before threshold filter so it's available at both sites
+- NOTE: file exceeds 250-line target; retrieval logic is a candidate for
+  extraction into utils/retrieval.py in a future cleanup pass
+
+CHANGES v2.0.4: Similarity threshold + clearer retrieved history framing
+CHANGES v2.0.3: Cap recent messages at MAX_RECENT_MESSAGES (default 5)
+CHANGES v2.0.2: Fix retrieval budget — use full remaining budget not 40% slice
+CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
 CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
-- estimate_tokens(), build_context_for_provider(), record_usage()
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT
+from config import (CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES,
+                    RETRIEVAL_MIN_SCORE, RETRIEVAL_MSG_FALLBACK)
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -71,27 +88,124 @@ def get_channel_usage(channel_id):
         channel_id, {"input": 0, "output": 0, "calls": 0}))
 
 
-def _load_summary_text(channel_id):
-    """Load and format the channel summary for system prompt injection.
-    Returns formatted text string or empty string if no summary."""
+def _load_summary(channel_id):
+    """Load channel summary dict. Returns None if not found."""
     try:
         from utils.summary_store import get_channel_summary
-        from utils.summary_display import format_summary_for_context
         raw, _ = get_channel_summary(channel_id)
-        if not raw:
-            return ""
-        summary = json.loads(raw)
-        return format_summary_for_context(summary)
+        return json.loads(raw) if raw else None
     except Exception as e:
-        logger.warning(f"Failed to load summary for context: {e}")
-        return ""
+        logger.warning(f"Failed to load summary for ch:{channel_id}: {e}")
+        return None
+
+
+def _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids):
+    """Direct message embedding search when topic retrieval returns empty.
+    Returns (context_text, tokens_used) or ("", 0).
+    """
+    try:
+        from utils.embedding_store import find_similar_messages
+        msgs = find_similar_messages(
+            query_vec, channel_id,
+            top_n=RETRIEVAL_MSG_FALLBACK,
+            exclude_ids=recent_ids)
+        if not msgs:
+            return "", 0
+        parts, used = [], 0
+        for _, author, content, _ in msgs:
+            line = f"{author}: {content}"
+            lt = estimate_tokens(line) + 1
+            if used + lt > token_budget:
+                break
+            parts.append(line)
+            used += lt
+        if not parts:
+            return "", 0
+        section = "[Retrieved by message similarity]\n" + "\n".join(parts)
+        logger.debug(f"Fallback: {len(parts)} msgs ({used} tokens) ch:{channel_id}")
+        return section, used
+    except Exception as e:
+        logger.warning(f"Fallback search failed ch:{channel_id}: {e}")
+        return "", 0
+
+
+def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
+    """Embed the latest user message, find relevant topics, return formatted
+    context string of their linked messages. Falls back to direct message
+    embedding search if no topics pass threshold.
+
+    Returns (context_text, tokens_used). Returns ("", 0) on any failure.
+    """
+    try:
+        from utils.embedding_store import (
+            embed_text, find_relevant_topics, get_topic_messages)
+
+        query_text = None
+        for msg in reversed(conversation_msgs):
+            if msg.get("role") == "user" and msg.get("content", "").strip():
+                query_text = msg["content"].strip()
+                break
+        if not query_text:
+            return "", 0
+
+        query_vec = embed_text(query_text)
+        if query_vec is None:
+            return "", 0
+
+        # Compute recent_ids before threshold filter — needed by both failure paths
+        recent_ids = {msg["_msg_id"] for msg in conversation_msgs if "_msg_id" in msg}
+
+        topics = find_relevant_topics(query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
+        topics = [(tid, title, s) for tid, title, s in topics if s >= RETRIEVAL_MIN_SCORE]
+        logger.debug(
+            f"Topics above threshold ch:{channel_id}: {len(topics)}, "
+            f"scores: {[(title[:30], round(s, 3)) for _, title, s in topics]}")
+
+        if not topics:
+            return _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids)
+
+        lines, tokens_used = [], 0
+        for topic_id, title, score in topics:
+            msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
+            if not msgs:
+                logger.debug(
+                    f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                    f"0 linked messages, skipping")
+                continue
+            section = f"[Topic: {title}]\n" + "\n".join(
+                f"{author}: {content}" for _, author, content, _ in msgs)
+            section_tokens = estimate_tokens(section)
+            if tokens_used + section_tokens > token_budget:
+                logger.debug(
+                    f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                    f"{len(msgs)} msgs, {section_tokens} tokens — exceeds budget, stopping")
+                break
+            logger.debug(
+                f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                f"{len(msgs)} linked messages, {section_tokens} tokens — injected")
+            lines.append(section)
+            tokens_used += section_tokens
+
+        if not lines:
+            return _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids)
+
+        logger.debug(
+            f"Retrieved {len(lines)} topics ({tokens_used} tokens) "
+            f"ch:{channel_id} query:{query_text[:50]!r} "
+            f"topics: {[title[:30] for _, title, _ in topics[:len(lines)]]}")
+        return "\n\n".join(lines), tokens_used
+
+    except Exception as e:
+        logger.warning(f"Topic retrieval failed ch:{channel_id}: {e}")
+        return "", 0
 
 
 def build_context_for_provider(channel_id, provider):
     """Build a token-budget-aware message list for an AI provider call.
 
-    Loads the channel summary and appends it to the system prompt.
-    Then trims oldest conversation messages to fit within budget.
+    Injects always-on context (overview, facts, actions, questions) plus
+    semantically retrieved topic messages. Falls back to full summary
+    injection if retrieval is unavailable.
     """
     all_messages = prepare_messages_for_api(channel_id)
 
@@ -104,39 +218,73 @@ def build_context_for_provider(channel_id, provider):
     budget = int(context_window * CONTEXT_BUDGET_PERCENT / 100) - max_output
 
     if budget <= 0:
-        logger.warning(f"Token budget non-positive ({budget}) for {provider.name}")
+        logger.warning(
+            f"Token budget non-positive ({budget}) for {provider.name}")
         return all_messages
 
-    # Build combined system prompt with summary
     system_msg = all_messages[0]
-    summary_text = _load_summary_text(channel_id)
-
-    if summary_text:
-        combined = (
-            f"{system_msg['content']}\n\n"
-            f"--- CONVERSATION CONTEXT ---\n"
-            f"The following is a summary of this channel's conversation "
-            f"history. Use it to inform your responses.\n\n"
-            f"{summary_text}"
-        )
-        system_msg = {"role": "system", "content": combined}
-        summary_tokens = estimate_tokens(summary_text)
-        logger.debug(
-            f"Summary injected: {summary_tokens} tokens for ch:{channel_id}")
-
     conversation_msgs = all_messages[1:]
+    summary = _load_summary(channel_id)
+
+    if summary:
+        from utils.summary_display import (
+            format_always_on_context, format_summary_for_context)
+
+        always_on = format_always_on_context(summary)
+        always_on_tokens = estimate_tokens(always_on)
+
+        # Full remaining budget goes to retrieval. Retrieved content is injected
+        # into the system prompt, so system_tokens is recalculated below and the
+        # recent-message trimmer naturally drops oldest messages to compensate.
+        system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
+        retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
+
+        retrieved, retrieved_tokens = _retrieve_topic_context(
+            channel_id, conversation_msgs, retrieval_budget)
+
+        if retrieved:
+            context_block = (
+                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
+                f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
+                f"The following are real messages previously sent in this channel, "
+                f"retrieved because they are relevant to the current query. "
+                f"They ARE part of this conversation's history.\n\n{retrieved}"
+            )
+            logger.debug(
+                f"Semantic context: {always_on_tokens} always-on + "
+                f"{retrieved_tokens} retrieved tokens for ch:{channel_id}")
+        else:
+            # Retrieval fully degraded — no topics and no message embeddings.
+            # This should not happen on an active channel; log as warning.
+            full = format_summary_for_context(summary)
+            context_block = (
+                f"--- CONVERSATION CONTEXT ---\n"
+                f"The following is a summary of this channel's conversation "
+                f"history. Use it to inform your responses.\n\n{full}"
+            )
+            logger.warning(
+                f"Retrieval fully degraded for ch:{channel_id} — "
+                f"no topics and no message embeddings found. "
+                f"Falling back to full summary injection.")
+
+        logger.debug(f"Context block injected (first 2000 chars):\n{context_block[:2000]}")
+        combined = f"{system_msg['content']}\n\n{context_block}"
+        system_msg = {"role": "system", "content": combined}
+
     system_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
     remaining_budget = budget - system_tokens
 
     if remaining_budget <= 0:
         logger.warning(
-            f"System prompt + summary ({system_tokens} tokens) exceeds "
+            f"System prompt ({system_tokens} tokens) exceeds "
             f"budget ({budget}) for {provider.name}")
         return [system_msg]
 
     selected = []
     tokens_used = 0
     for msg in reversed(conversation_msgs):
+        if len(selected) >= MAX_RECENT_MESSAGES:
+            break
         msg_tokens = estimate_tokens(msg["content"]) + MSG_OVERHEAD
         if tokens_used + msg_tokens > remaining_budget:
             break
@@ -147,14 +295,13 @@ def build_context_for_provider(channel_id, provider):
     total_tokens = system_tokens + tokens_used
     dropped = len(conversation_msgs) - len(selected)
 
-    logger.debug(
-        f"Context for {provider.name}: {total_tokens} tokens, "
-        f"{len(selected)}/{len(conversation_msgs)} msgs, "
-        f"{dropped} dropped")
-
     if dropped > 0:
         logger.info(
             f"Token budget trim: dropped {dropped} oldest messages "
             f"for ch:{channel_id} ({provider.name})")
+    else:
+        logger.debug(
+            f"Context for {provider.name}: {total_tokens} tokens, "
+            f"{len(selected)} msgs")
 
     return [system_msg] + selected
