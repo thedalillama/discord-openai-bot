@@ -1,8 +1,13 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.2
+# Version 4.1.3
 
 ## Current Version Features
+
+### Version 4.1.3 - Noise Topic Filter at Retrieval Time (Fix 1A)
+- **MODIFIED**: `utils/embedding_store.py` v1.5.0 — added `_is_noise_topic()` and
+  `_NOISE_PATTERNS`; `find_relevant_topics()` skips bot-noise topics before scoring
+  so they cannot consume retrieval budget; filtered topics logged at DEBUG
 
 ### Version 4.1.2 - Topic Deduplication (Fix 2A)
 - **MODIFIED**: `utils/embedding_store.py` v1.4.0 — added `clear_channel_topics()`;
@@ -108,7 +113,7 @@ discord-bot/
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.3.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.4.0
+│   ├── embedding_store.py         # v1.5.0
 │   ├── context_manager.py         # v2.1.0
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v2.1.0

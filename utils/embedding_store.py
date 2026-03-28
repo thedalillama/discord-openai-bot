@@ -1,7 +1,13 @@
 # utils/embedding_store.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.5.0: Noise topic filter in find_relevant_topics() (Fix 1A)
+- ADDED: _is_noise_topic() — case-insensitive check against known bot-noise
+  title patterns; filtered topics logged at DEBUG
+- MODIFIED: find_relevant_topics() skips noise topics before scoring so they
+  cannot consume retrieval budget
 
 CHANGES v1.4.0: clear_channel_topics() for Fix 2A (topic deduplication)
 - ADDED: clear_channel_topics() — deletes all topics + topic_messages for a
@@ -190,11 +196,38 @@ def link_topic_to_messages(topic_id, channel_id):
         conn.close()
 
 
+# Noise topic title patterns — case-insensitive prefix or substring match.
+# Keeps the list small and specific to avoid false positives.
+_NOISE_PATTERNS = (
+    "bot self-",
+    "bot capability",
+    "bot responses to",
+    "initial bot",
+    "bot communication",
+)
+
+
+def _is_noise_topic(title):
+    t = title.lower()
+    return any(t.startswith(p) or p in t for p in _NOISE_PATTERNS)
+
+
 def find_relevant_topics(query_embedding, channel_id, top_k=5):
-    """Return top-K (topic_id, title, score) by cosine similarity."""
-    candidates = get_topic_embeddings(channel_id)
-    if not candidates:
+    """Return top-K (topic_id, title, score) by cosine similarity.
+
+    Noise topics (bot self-descriptions, capability tests, etc.) are excluded
+    before scoring so they cannot consume retrieval budget.
+    """
+    all_candidates = get_topic_embeddings(channel_id)
+    if not all_candidates:
         return []
+    candidates, noise = [], []
+    for item in all_candidates:
+        (noise if _is_noise_topic(item[1]) else candidates).append(item)
+    if noise:
+        logger.debug(
+            f"Noise topics filtered ch:{channel_id}: "
+            f"{[t for _, t, _ in noise]}")
     scored = sorted(
         ((tid, title, cosine_similarity(query_embedding, vec))
          for tid, title, vec in candidates),
