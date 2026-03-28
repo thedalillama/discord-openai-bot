@@ -1,17 +1,28 @@
 # HANDOFF.md
-# Version 4.1.2
+# Version 4.1.3
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.2 (pending deploy)
+**Bot version**: v4.1.3 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.3 — Noise Topic Filter (Fix 1A)
+Bot-noise topics ("Bot self-descriptions", "Bot capability tests", etc.) were
+scoring high against many queries and consuming retrieval budget before relevant
+content topics could be injected.
+
+**Fix**: `_is_noise_topic()` added to `embedding_store.py` with `_NOISE_PATTERNS`
+tuple. `find_relevant_topics()` partitions candidates into noise/content before
+scoring — noise topics never enter the scored list. Filtered topics logged at DEBUG.
+
+**Files changed**: `embedding_store.py` v1.5.0
 
 ### v4.1.2 — Topic Deduplication (Fix 2A)
 Root cause: each `!summary create` upserted topics by ID but never deleted old ones.
@@ -162,7 +173,7 @@ Each pipeline run saves to `data/`:
 | `utils/embedding_store.py` | v1.3.0 | OpenAI embeddings, topic linking, direct fallback search |
 | `utils/context_manager.py` | v2.1.0 | Always-on + retrieval + fallback, budget, 5-msg cap |
 | `utils/summary_display.py` | v1.3.1 | format_always_on_context() — key facts framing fix |
-| `utils/embedding_store.py` | v1.4.0 | clear_channel_topics() — delete before insert |
+| `utils/embedding_store.py` | v1.5.0 | clear_channel_topics() + _is_noise_topic() filter |
 | `utils/summarizer_authoring.py` | v1.10.2 | calls clear_channel_topics() before topic loop |
 | `utils/raw_events.py` | v1.3.0 | Embed on arrival |
 | `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
@@ -233,6 +244,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M4.1 Direct message fallback retrieval | 🔄 Pending deploy (v4.1.0) |
 | M4.1.1 Key facts framing fix | 🔄 Pending deploy (v4.1.1) |
 | M4.1.2 Topic deduplication (Fix 2A) | 🔄 Pending deploy (v4.1.2) |
+| M4.1.3 Noise topic filter (Fix 1A) | 🔄 Pending deploy (v4.1.3) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
