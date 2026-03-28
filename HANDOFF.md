@@ -1,17 +1,28 @@
 # HANDOFF.md
-# Version 4.1.0
+# Version 4.1.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.0 (pending deploy)
+**Bot version**: v4.1.1 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.1 — Key Facts Framing Fix
+Always-on key facts were labelled "Key facts:" without stating they came from the
+conversation. The model treated them as background knowledge, answering "we haven't
+discussed X" even when X appeared in key facts.
+
+**Fix**: Changed label in `format_always_on_context()` to
+`"Key facts established in this conversation:"` — matching the explicit framing
+already used for the retrieved-messages section.
+
+**Files changed**: `summary_display.py` v1.3.1
 
 ### v4.1.0 — Direct Message Embedding Fallback (PENDING DEPLOY)
 When topic retrieval returns empty (no topics above RETRIEVAL_MIN_SCORE, or all
@@ -114,18 +125,18 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Deploy and test v4.1.0
+### 1. Deploy and test v4.1.1
 ```
 1. sudo systemctl restart discord-bot
-2. Ask about Hamnet (movie discussion — no topic created)
-   → Expect: fallback fires, Hamnet messages surface
+2. Ask "what have we said about bonobos?" — key facts framing fix
+   → Expect: model answers from key facts ("common ancestor ~6-8 million years ago")
 3. Ask about gorillas (topic exists)
    → Expect: topic retrieval fires as before (regression check)
 4. Ask about quantum physics (not discussed)
    → Expect: both paths empty, full summary fallback
 ```
 
-### 2. Merge claude-code → development → main as v4.1.0
+### 2. Merge claude-code → development → main as v4.1.1
 
 ---
 
@@ -136,7 +147,7 @@ Each pipeline run saves to `data/`:
 |------|---------|----------|
 | `utils/embedding_store.py` | v1.3.0 | OpenAI embeddings, topic linking, direct fallback search |
 | `utils/context_manager.py` | v2.1.0 | Always-on + retrieval + fallback, budget, 5-msg cap |
-| `utils/summary_display.py` | v1.3.0 | format_always_on_context() |
+| `utils/summary_display.py` | v1.3.1 | format_always_on_context() — key facts framing fix |
 | `utils/raw_events.py` | v1.3.0 | Embed on arrival |
 | `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
 | `commands/debug_commands.py` | v1.2.0 | !debug backfill |
@@ -204,6 +215,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M3.5 overview inflation fix | ✅ Complete (v3.5.2) |
 | M4 Topic-based semantic retrieval | ✅ Complete (v4.0.0) |
 | M4.1 Direct message fallback retrieval | 🔄 Pending deploy (v4.1.0) |
+| M4.1.1 Key facts framing fix | 🔄 Pending deploy (v4.1.1) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |

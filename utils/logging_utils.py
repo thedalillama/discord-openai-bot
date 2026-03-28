@@ -26,13 +26,23 @@ def setup_logging():
     # Configure the handler
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     
-    # Set up the root logger
+    # Filter: pass discord_bot.* at any level; everything else only at WARNING+.
+    # This suppresses httpcore/httpx/openai DEBUG noise without muting our logs.
+    class BotFilter(logging.Filter):
+        def filter(self, record):
+            return (record.name.startswith('discord_bot')
+                    or record.levelno >= logging.WARNING)
+
+    handler.addFilter(BotFilter())
+
+    # Root logger accepts everything — the filter does the real gatekeeping.
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, LOG_LEVEL))
+    root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(handler)
-    
-    # Create bot-specific logger
+
+    # Bot-specific logger at configured level
     bot_logger = logging.getLogger('discord_bot')
+    bot_logger.setLevel(getattr(logging, LOG_LEVEL))
     
     return bot_logger
 
