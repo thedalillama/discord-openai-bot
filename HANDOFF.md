@@ -1,17 +1,31 @@
 # HANDOFF.md
-# Version 4.1.1
+# Version 4.1.2
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.1 (pending deploy)
+**Bot version**: v4.1.2 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.2 — Topic Deduplication (Fix 2A)
+Root cause: each `!summary create` upserted topics by ID but never deleted old ones.
+35 topics accumulated for one channel — ~10 duplicates splitting relevant messages
+across near-identical topics and inflating retrieval noise.
+
+**Fix**: `clear_channel_topics()` added to `embedding_store.py`. Called in
+`summarizer_authoring.py` before the topic storage loop — deletes all existing
+topics + topic_messages for the channel, then inserts the fresh authoritative set.
+
+**Files changed**: `embedding_store.py` v1.4.0, `summarizer_authoring.py` v1.10.2
+
+**Next**: Run `!summary clear` + `!summary create` on test channel, verify topic
+count drops from 35 to ~10-15 with no duplicates.
 
 ### v4.1.1 — Key Facts Framing Fix
 Always-on key facts were labelled "Key facts:" without stating they came from the
@@ -148,6 +162,8 @@ Each pipeline run saves to `data/`:
 | `utils/embedding_store.py` | v1.3.0 | OpenAI embeddings, topic linking, direct fallback search |
 | `utils/context_manager.py` | v2.1.0 | Always-on + retrieval + fallback, budget, 5-msg cap |
 | `utils/summary_display.py` | v1.3.1 | format_always_on_context() — key facts framing fix |
+| `utils/embedding_store.py` | v1.4.0 | clear_channel_topics() — delete before insert |
+| `utils/summarizer_authoring.py` | v1.10.2 | calls clear_channel_topics() before topic loop |
 | `utils/raw_events.py` | v1.3.0 | Embed on arrival |
 | `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
 | `commands/debug_commands.py` | v1.2.0 | !debug backfill |
@@ -216,6 +232,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M4 Topic-based semantic retrieval | ✅ Complete (v4.0.0) |
 | M4.1 Direct message fallback retrieval | 🔄 Pending deploy (v4.1.0) |
 | M4.1.1 Key facts framing fix | 🔄 Pending deploy (v4.1.1) |
+| M4.1.2 Topic deduplication (Fix 2A) | 🔄 Pending deploy (v4.1.2) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
