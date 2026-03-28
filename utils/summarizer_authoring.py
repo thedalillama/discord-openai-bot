@@ -1,11 +1,16 @@
 # utils/summarizer_authoring.py
-# Version 1.10.1
+# Version 1.10.2
 """
 Three-pass authoring pipeline for summarization (cold start + incremental).
 
 Pass 1 (Secretary): Natural language minutes authoring/updating.
 Pass 2 (Structurer): Converts minutes to JSON delta ops via anyOf schema.
 Pass 3 (Classifier): GPT-5.4 nano validates each op — KEEP/DROP/RECLASSIFY.
+
+CHANGES v1.10.2: Clear existing topics before storing new ones (Fix 2A)
+- ADDED: clear_channel_topics() called before topic storage loop so duplicates
+  don't accumulate across summarization runs; each run produces the authoritative
+  topic set for the channel
 
 CHANGES v1.10.1: Store archived topics in addition to active topics
 - CHANGED: topic storage loop now iterates active_topics + archived_topics
@@ -201,9 +206,12 @@ async def _run_pipeline(channel_id, provider, prov_name, model_name,
         save_channel_summary, channel_id, json.dumps(updated),
         updated["meta"]["message_range"]["count"], last_id)
 
-    # Store topics and link to messages by embedding similarity
+    # Store topics and link to messages by embedding similarity.
+    # Clear existing topics first so duplicates don't accumulate across runs.
     try:
-        from utils.embedding_store import store_topic, link_topic_to_messages
+        from utils.embedding_store import (
+            store_topic, link_topic_to_messages, clear_channel_topics)
+        await asyncio.to_thread(clear_channel_topics, channel_id)
         all_topics = (updated.get("active_topics", []) +
                       updated.get("archived_topics", []))
         for topic in all_topics:

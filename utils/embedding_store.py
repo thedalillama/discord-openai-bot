@@ -1,7 +1,12 @@
 # utils/embedding_store.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.4.0: clear_channel_topics() for Fix 2A (topic deduplication)
+- ADDED: clear_channel_topics() — deletes all topics + topic_messages for a
+  channel before a fresh summarization run; keeps topic count bounded and
+  prevents duplicates accumulating across runs
 
 CHANGES v1.3.0: Add find_similar_messages() for direct fallback retrieval (SOW v4.1.0)
 - ADDED: find_similar_messages() — searches message_embeddings directly by cosine
@@ -111,6 +116,24 @@ def store_topic_embedding(topic_id, embedding):
         conn.execute("UPDATE topics SET embedding=? WHERE id=?",
                      (pack_embedding(embedding), topic_id))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_channel_topics(channel_id):
+    """Delete all topics and their message links for a channel.
+
+    Called before storing a fresh set of topics so duplicates don't
+    accumulate across summarization runs.
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        conn.execute(
+            "DELETE FROM topic_messages WHERE topic_id IN "
+            "(SELECT id FROM topics WHERE channel_id=?)", (channel_id,))
+        conn.execute("DELETE FROM topics WHERE channel_id=?", (channel_id,))
+        conn.commit()
+        logger.debug(f"Cleared topics for ch:{channel_id}")
     finally:
         conn.close()
 

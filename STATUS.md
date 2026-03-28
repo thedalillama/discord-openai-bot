@@ -1,8 +1,15 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.1
+# Version 4.1.2
 
 ## Current Version Features
+
+### Version 4.1.2 - Topic Deduplication (Fix 2A)
+- **MODIFIED**: `utils/embedding_store.py` v1.4.0 — added `clear_channel_topics()`;
+  deletes all topics + topic_messages for a channel before inserting fresh set
+- **MODIFIED**: `utils/summarizer_authoring.py` v1.10.2 — calls `clear_channel_topics()`
+  before topic storage loop; each `!summary create` now produces the authoritative
+  topic set with no duplicates accumulating across runs
 
 ### Version 4.1.1 - Key Facts Framing Fix
 - **MODIFIED**: `utils/summary_display.py` v1.3.1 — changed "Key facts:" label to
@@ -101,11 +108,11 @@ discord-bot/
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.3.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.3.0
+│   ├── embedding_store.py         # v1.4.0
 │   ├── context_manager.py         # v2.1.0
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v2.1.0
-│   ├── summarizer_authoring.py    # v1.10.1
+│   ├── summarizer_authoring.py    # v1.10.2
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_delta_schema.py    # v1.0.0
 │   ├── summary_classifier.py      # v1.3.0
