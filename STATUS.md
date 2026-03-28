@@ -1,8 +1,14 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.3
+# Version 4.1.4
 
 ## Current Version Features
+
+### Version 4.1.4 - Secretary Prompt: Ignore Bot Noise (Fix 1B)
+- **MODIFIED**: `utils/summary_prompts_authoring.py` v1.6.0 — added IGNORE section
+  to `SECRETARY_SYSTEM_PROMPT`; instructs Secretary to omit bot self-descriptions,
+  capability statements, diagnostic responses, and conversational filler from
+  minutes; prevents bot-noise topics from being created at summarization time
 
 ### Version 4.1.3 - Noise Topic Filter at Retrieval Time (Fix 1A)
 - **MODIFIED**: `utils/embedding_store.py` v1.5.0 — added `_is_noise_topic()` and
@@ -123,7 +129,7 @@ discord-bot/
 │   ├── summary_classifier.py      # v1.3.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.6.0
-│   ├── summary_prompts_authoring.py  # v1.5.0
+│   ├── summary_prompts_authoring.py  # v1.6.0
 │   ├── summary_display.py         # v1.3.1
 │   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
