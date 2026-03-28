@@ -1,7 +1,11 @@
 # utils/summary_display.py
-# Version 1.3.0
+# Version 1.3.1
 """
 Summary display formatting and pagination for Discord output.
+
+CHANGES v1.3.1: Anchor key facts as conversation-sourced
+- CHANGED: "Key facts:" label → "Key facts established in this conversation:"
+  so the model recognises them as discussed content, not background knowledge.
 
 CHANGES v1.3.0: Always-on context formatter for semantic retrieval (SOW v4.0.0)
 - ADDED: format_always_on_context() — slim context block injected every response:
@@ -50,7 +54,7 @@ def format_always_on_context(summary):
     facts = [f for f in summary.get("key_facts", [])
              if f.get("status") == "active" and f.get("fact")]
     if facts:
-        parts.append("Key facts:\n" + "\n".join(f"- {f['fact']}" for f in facts))
+        parts.append("Key facts established in this conversation:\n" + "\n".join(f"- {f['fact']}" for f in facts))
     actions = [a for a in summary.get("action_items", [])
                if a.get("status") in ("open", "in_progress")]
     if actions:

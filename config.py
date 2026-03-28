@@ -156,7 +156,7 @@ EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
 # RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
 # Filters out low-relevance topics that would otherwise pollute context.
-RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.3))
+RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
 # TOPIC_LINK_MIN_SCORE: minimum cosine similarity to link a message to a topic.
 # All messages above this threshold are linked — no arbitrary count cap.
 # Token budget in context_manager limits how many are injected at response time.
