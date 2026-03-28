@@ -125,6 +125,7 @@ discord-bot/
 │   ├── summary_commands.py        # v2.2.0
 │   └── debug_commands.py          # v1.2.0
 ├── utils/
+│   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.3.0
