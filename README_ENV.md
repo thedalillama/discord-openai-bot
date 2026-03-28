@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 4.1.0
+# Version 4.1.6
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -63,7 +63,7 @@ The `data/` directory is created automatically on first run.
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.3` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
