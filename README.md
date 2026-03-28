@@ -1,16 +1,18 @@
 # README.md
-# Version 3.3.2
+# Version 4.1.6
 
 # Synthergy Discord Bot
 
-A multi-provider AI Discord bot with structured conversational memory. Supports OpenAI, Anthropic, and DeepSeek providers with per-channel configuration, and maintains durable meeting-minutes-style summaries of conversations using Gemini.
+A multi-provider AI Discord bot with semantic conversational memory. Supports OpenAI, Anthropic, and DeepSeek providers with per-channel configuration, maintains structured summaries of conversations, and uses embedding-based retrieval to inject only the most relevant historical context at response time.
 
 ## Features
 
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
-- **Conversational memory** — structured summaries track decisions, action items, topics, and open questions across conversations of any length
-- **Token-budget context** — provider-aware context building ensures every API call fits within the context window
+- **Semantic memory** — topic-based retrieval injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
+- **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
+- **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
 - **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
+- **Message embeddings** — every message embedded with OpenAI text-embedding-3-small on arrival; topics linked to all relevant messages by cosine similarity
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
 - **Settings recovery** — settings restored from Discord message history on startup
 
@@ -42,6 +44,7 @@ python main.py
 | `!debug noise` | admin | Scan for deletable bot noise in channel |
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
+| `!debug backfill` | admin | Embed unembedded messages + re-link all topics |
 | `!status` | all | Show bot settings for this channel |
 | `!autorespond on/off` | admin | Toggle auto-response |
 | `!ai [provider]` | admin | Switch AI provider (openai/anthropic/deepseek) |
@@ -58,7 +61,7 @@ discord-bot/
 ├── main.py                        # Entry point
 ├── bot.py                         # Discord events, message routing
 ├── config.py                      # Environment configuration
-├── schema/                        # SQLite migration files
+├── schema/                        # SQLite migration files (001–004)
 ├── ai_providers/                  # Provider implementations
 │   ├── openai_provider.py             # GPT + image generation
 │   ├── anthropic_provider.py          # Claude models
@@ -66,7 +69,7 @@ discord-bot/
 │   └── gemini_provider.py            # Summarization only
 ├── commands/                      # Command modules
 │   ├── summary_commands.py            # !summary group
-│   ├── debug_commands.py              # !debug group
+│   ├── debug_commands.py              # !debug group (incl. backfill)
 │   ├── auto_respond_commands.py       # !autorespond
 │   ├── ai_provider_commands.py        # !ai
 │   ├── thinking_commands.py           # !thinking
@@ -74,19 +77,22 @@ discord-bot/
 │   ├── status_commands.py             # !status
 │   └── history_commands.py            # !history
 └── utils/
+    ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
     ├── summarizer.py                  # Summarization router
-    ├── summarizer_authoring.py        # Cold start Secretary pipeline
+    ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
     ├── summary_schema.py              # Schema, hashes, delta ops
+    ├── summary_delta_schema.py        # anyOf discriminated union schema
+    ├── summary_classifier.py          # GPT-4o-mini classifier (KEEP/DROP/RECLASSIFY)
     ├── summary_prompts.py             # Incremental delta prompt
     ├── summary_prompts_authoring.py   # Secretary + Structurer prompts
-    ├── summary_display.py             # Paginated Discord output
+    ├── summary_display.py             # Paginated Discord output + always-on formatter
     ├── summary_store.py               # SQLite summary persistence
     ├── summary_normalization.py       # Response parsing + classification
     ├── summary_validation.py          # Domain validation
     ├── models.py                      # StoredMessage dataclass
     ├── message_store.py               # SQLite message persistence
-    ├── raw_events.py                  # Real-time capture + backfill
-    ├── context_manager.py             # Token budget + usage tracking
+    ├── raw_events.py                  # Real-time capture + embedding on arrival
+    ├── context_manager.py             # Token budget, semantic retrieval, usage tracking
     ├── response_handler.py            # AI response processing
     └── history/                       # In-memory history subsystem
         ├── message_processing.py          # Noise filtering (prefix-based)
@@ -94,13 +100,27 @@ discord-bot/
         └── ...
 ```
 
+## Semantic Retrieval System (v4.1.x)
+
+Every response is built from two context layers:
+
+**Always-on** (injected for every message): overview, key facts, open action items, open questions.
+
+**Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.25) are included. Bot-noise topics (self-descriptions, capability tests, etc.) are filtered before scoring. The token budget trimmer drops oldest recent messages to make room.
+
+**Message fallback**: fires when no topics score above threshold, OR when matched topics have no linked messages. The query embedding searches `message_embeddings` directly and the top-N most similar messages are injected.
+
+**Summary fallback**: if both topic and message search return empty (degraded state — no embeddings), the full summary is injected. Logs a WARNING.
+
 ## Summarization System
 
-The bot maintains "living meeting minutes" for each channel — a structured summary that tracks decisions, action items, topics, and open questions.
+The bot maintains "living meeting minutes" for each channel via a three-pass pipeline:
 
-**Cold start** (no prior summary): all messages sent to a "Secretary" AI that writes natural language minutes, then a "Structurer" converts them to JSON.
+**Cold start**: Secretary writes natural language minutes → Structurer converts to JSON delta ops → Classifier validates (KEEP/DROP/RECLASSIFY) with dedup against existing items.
 
-**Incremental updates**: new messages processed as delta operations against the existing summary using Gemini Structured Outputs.
+**Incremental**: same pipeline, but Secretary receives existing minutes and Classifier receives the full existing summary for semantic dedup.
+
+**After each run**: existing topics for the channel are cleared, then the new authoritative topic set is stored with embeddings and linked to their most relevant messages by cosine similarity. This prevents duplicates accumulating across runs.
 
 **Key design choices:**
 - Decision = agreement on a course of action (not fact lookups)
@@ -118,10 +138,17 @@ Key variables:
 |----------|-------------|---------|
 | `DISCORD_TOKEN` | Bot token (required) | — |
 | `AI_PROVIDER` | Default conversation provider | `deepseek` |
+| `OPENAI_API_KEY` | Required for embeddings + classifier | — |
 | `SUMMARIZER_PROVIDER` | Summarization provider | `gemini` |
-| `SUMMARIZER_MODEL` | Gemini model for summaries | `gemini-3.1-flash-lite-preview` |
+| `GEMINI_API_KEY` | Required for summarization | — |
 | `DATABASE_PATH` | SQLite database location | `./data/messages.db` |
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
+| `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
+| `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
+| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
+| `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
+| `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
 ## Deployment
 
@@ -130,6 +157,14 @@ The bot runs as a systemd service (`discord-bot`) on a GCP VM:
 ```bash
 sudo systemctl restart discord-bot    # restart
 sudo journalctl -u discord-bot -f     # follow logs
+sudo journalctl --rotate && sudo journalctl --vacuum-time=1s  # clear logs
+```
+
+After first deploy or embedding provider change:
+```bash
+# In Discord:
+!debug backfill      # embed all messages + re-link topics
+!summary create      # regenerate summary with new topic embeddings
 ```
 
 ## Documentation

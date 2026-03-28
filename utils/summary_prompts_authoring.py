@@ -1,7 +1,13 @@
 # utils/summary_prompts_authoring.py
-# Version 1.5.0
+# Version 1.6.0
 """
 Two-pass authoring prompts: Secretary (natural language) + Structurer (JSON).
+
+CHANGES v1.6.0: Secretary prompt — ignore bot noise (Fix 1B)
+- ADDED: IGNORE section to SECRETARY_SYSTEM_PROMPT instructing the Secretary
+  to skip generic bot self-descriptions, capability statements, diagnostic
+  command responses, and conversational filler; prevents bot-noise topics
+  from being created in the first place
 
 CHANGES v1.5.0: Overview preservation guidance for incremental updates
 - MODIFIED: SECRETARY_SYSTEM_PROMPT OVERVIEW section now instructs the
@@ -36,6 +42,19 @@ PRINCIPLES:
 open items, and active topics from these minutes alone.
 - Organize by topic, not chronologically.
 - Keep it concise — readable in under a minute.
+
+IGNORE:
+Do not create topics or record facts for any of the following — omit them \
+entirely from the minutes:
+- Generic bot self-descriptions ("I am an AI assistant", "I can help with...")
+- Bot capability statements ("I can answer questions about...", "I'm able to...")
+- Bot responses to diagnostic or system commands ("ls", time, weather, \
+  "what can you do?")
+- Conversational filler from the bot ("Sure!", "Of course!", "Let me know if \
+  you need anything else!", "Happy to help!")
+- Meta-commentary about the bot's own limitations or nature
+Focus exclusively on substantive user-driven discussions, decisions, and \
+information exchanges.
 
 OUTPUT FORMAT:
 Use the structure below. Omit empty sections entirely.
