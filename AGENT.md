@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 4.0.0
+# Version 4.1.6
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -71,11 +71,14 @@
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v4.0.0)
+### Semantic Retrieval (v4.1.x)
 - Messages embedded on arrival via OpenAI `text-embedding-3-small`
+- Topics cleared and re-linked on every `!summary create` — no duplicates accumulate
 - Topics linked to all messages above `TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity
+- Bot-noise topics filtered at retrieval time (`_is_noise_topic()` in `embedding_store.py`)
 - At response time: always-on context (overview/facts/actions/questions) + retrieved topic messages
-- Only topics above `RETRIEVAL_MIN_SCORE` (0.3) are injected; recent messages capped at 5
+- Only topics above `RETRIEVAL_MIN_SCORE` (0.25) are injected; recent messages capped at 5
+- Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 
 ### Summarization Pipeline (v3.5+)
 - Three-pass: Secretary (natural language) → Structurer (anyOf JSON) → Classifier (dedup)
