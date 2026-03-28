@@ -1,8 +1,13 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.5
+# Version 4.1.6
 
 ## Current Version Features
+
+### Version 4.1.6 - Restore Always-On Context Injection
+- **MODIFIED**: `utils/context_manager.py` v2.1.3 — always-on block (overview,
+  key facts, open actions, open questions) restored alongside retrieved content;
+  covers personal/project facts not reachable via topic retrieval
 
 ### Version 4.1.5 - Full Summary Fallback as Warning (Branch 4)
 - **MODIFIED**: `utils/context_manager.py` v2.1.2 — branch 4 (no topics + no
@@ -125,7 +130,7 @@ discord-bot/
 │   ├── raw_events.py              # v1.3.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
-│   ├── context_manager.py         # v2.1.2
+│   ├── context_manager.py         # v2.1.3
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v2.1.0
 │   ├── summarizer_authoring.py    # v1.10.2

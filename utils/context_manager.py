@@ -1,7 +1,11 @@
 # utils/context_manager.py
-# Version 2.1.2
+# Version 2.1.3
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.1.3: Restore always-on context injection
+- RESTORED: always-on block (overview, key facts, actions, questions) injected
+  alongside retrieved content; covers personal/project facts not in any topic
 
 CHANGES v2.1.2: Full summary fallback logs WARNING instead of DEBUG
 - CHANGED: branch 4 (no topics + no message embeddings) now logs at WARNING
@@ -240,13 +244,15 @@ def build_context_for_provider(channel_id, provider):
 
         if retrieved:
             context_block = (
+                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
                 f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
                 f"The following are real messages previously sent in this channel, "
                 f"retrieved because they are relevant to the current query. "
                 f"They ARE part of this conversation's history.\n\n{retrieved}"
             )
             logger.debug(
-                f"Semantic context: {retrieved_tokens} retrieved tokens (always-on skipped for test) ch:{channel_id}")
+                f"Semantic context: {always_on_tokens} always-on + "
+                f"{retrieved_tokens} retrieved tokens for ch:{channel_id}")
         else:
             # Retrieval fully degraded — no topics and no message embeddings.
             # This should not happen on an active channel; log as warning.
