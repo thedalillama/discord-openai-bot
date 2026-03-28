@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 4.0.0
+# Version 4.1.6
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -58,18 +58,25 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v4.0.0)
+### Semantic Retrieval (v4.1.x)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
 - **Retrieved**: latest user message embedded → top matching topics by cosine similarity
   → their linked messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
-Topic-message linkage: after every `!summary create`, all active + archived topics are
-embedded and linked to ALL messages above `TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity.
+Topic-message linkage: after every `!summary create`, existing topics are cleared first,
+then all active + archived topics are embedded and linked to ALL messages above
+`TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity. Prevents duplicates accumulating.
 
-Fallback: if no topics score above `RETRIEVAL_MIN_SCORE` (0.3), full summary injected.
+Noise filter: bot-noise topics (self-descriptions, capability tests, etc.) are filtered
+before scoring in `find_relevant_topics()` so they cannot consume retrieval budget.
 
-Key files: `utils/embedding_store.py` (embeddings, linking, retrieval),
+Fallback chain:
+1. Topics above `RETRIEVAL_MIN_SCORE` (0.25) with linked messages → inject topic content
+2. No topics above threshold OR all topics have 0 linked messages → direct message search
+3. Both empty (no embeddings) → full summary injected + WARNING logged
+
+Key files: `utils/embedding_store.py` (embeddings, linking, noise filter, retrieval),
 `utils/context_manager.py` (always-on + retrieval + budget)
 
 ### Summarization Pipeline (v3.5+)

@@ -1,5 +1,5 @@
 # README.md
-# Version 4.1.0
+# Version 4.1.6
 
 # Synthergy Discord Bot
 
@@ -100,17 +100,17 @@ discord-bot/
         └── ...
 ```
 
-## Semantic Retrieval System (v4.0.0)
+## Semantic Retrieval System (v4.1.x)
 
 Every response is built from two context layers:
 
 **Always-on** (injected for every message): overview, key facts, open action items, open questions.
 
-**Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.3) are included. The token budget trimmer drops oldest recent messages to make room.
+**Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.25) are included. Bot-noise topics (self-descriptions, capability tests, etc.) are filtered before scoring. The token budget trimmer drops oldest recent messages to make room.
 
-**Message fallback** (v4.1.0): if no topics score above threshold, the query embedding is used to search `message_embeddings` directly and the top-N most similar messages are injected instead.
+**Message fallback**: fires when no topics score above threshold, OR when matched topics have no linked messages. The query embedding searches `message_embeddings` directly and the top-N most similar messages are injected.
 
-**Summary fallback**: if both topic and message search return empty, or embedding fails, the full summary is injected (v3 behavior).
+**Summary fallback**: if both topic and message search return empty (degraded state — no embeddings), the full summary is injected. Logs a WARNING.
 
 ## Summarization System
 
@@ -120,7 +120,7 @@ The bot maintains "living meeting minutes" for each channel via a three-pass pip
 
 **Incremental**: same pipeline, but Secretary receives existing minutes and Classifier receives the full existing summary for semantic dedup.
 
-**After each run**: all active and archived topics are stored with embeddings and linked to their most relevant messages by cosine similarity.
+**After each run**: existing topics for the channel are cleared, then the new authoritative topic set is stored with embeddings and linked to their most relevant messages by cosine similarity. This prevents duplicates accumulating across runs.
 
 **Key design choices:**
 - Decision = agreement on a course of action (not fact lookups)
@@ -145,7 +145,7 @@ Key variables:
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.3` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
