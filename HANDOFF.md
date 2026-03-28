@@ -1,17 +1,23 @@
 # HANDOFF.md
-# Version 4.1.4
+# Version 4.1.5
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.4 (pending deploy)
+**Bot version**: v4.1.5 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.5 — Full Summary Fallback as Warning
+Branch 4 (no topics + no message embeddings) was logging at DEBUG, making
+degraded retrieval state invisible. Changed to WARNING so monitoring catches it.
+
+**Files changed**: `context_manager.py` v2.1.2
 
 ### v4.1.4 — Secretary Prompt: Ignore Bot Noise (Fix 1B)
 Prevents bot-noise topics from being created at summarization time. The Secretary
@@ -262,6 +268,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M4.1.2 Topic deduplication (Fix 2A) | 🔄 Pending deploy (v4.1.2) |
 | M4.1.3 Noise topic filter (Fix 1A) | 🔄 Pending deploy (v4.1.3) |
 | M4.1.4 Secretary prompt: ignore bot noise (Fix 1B) | 🔄 Pending deploy (v4.1.4) |
+| M4.1.5 Full summary fallback as WARNING | 🔄 Pending deploy (v4.1.5) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |

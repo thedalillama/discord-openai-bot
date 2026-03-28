@@ -1,8 +1,13 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.4
+# Version 4.1.5
 
 ## Current Version Features
+
+### Version 4.1.5 - Full Summary Fallback as Warning (Branch 4)
+- **MODIFIED**: `utils/context_manager.py` v2.1.2 — branch 4 (no topics + no
+  message embeddings) now logs WARNING instead of DEBUG; degraded retrieval
+  state is visible in monitoring without behavior change
 
 ### Version 4.1.4 - Secretary Prompt: Ignore Bot Noise (Fix 1B)
 - **MODIFIED**: `utils/summary_prompts_authoring.py` v1.6.0 — added IGNORE section
@@ -120,7 +125,7 @@ discord-bot/
 │   ├── raw_events.py              # v1.3.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
-│   ├── context_manager.py         # v2.1.0
+│   ├── context_manager.py         # v2.1.2
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v2.1.0
 │   ├── summarizer_authoring.py    # v1.10.2
