@@ -1,17 +1,25 @@
 # HANDOFF.md
-# Version 4.1.5
+# Version 4.1.6
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.5 (pending deploy)
+**Bot version**: v4.1.6 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.6 — Restore Always-On Context Injection
+Always-on was suppressed during testing. Restored now that the topic list is clean
+and the key facts label reads "Key facts established in this conversation:".
+Covers personal/project facts (age, favorite number, database, hosting, rate limit)
+that aren't in any topic and can't be reached via retrieval alone.
+
+**Files changed**: `context_manager.py` v2.1.3
 
 ### v4.1.5 — Full Summary Fallback as Warning
 Branch 4 (no topics + no message embeddings) was logging at DEBUG, making
@@ -269,6 +277,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M4.1.3 Noise topic filter (Fix 1A) | 🔄 Pending deploy (v4.1.3) |
 | M4.1.4 Secretary prompt: ignore bot noise (Fix 1B) | 🔄 Pending deploy (v4.1.4) |
 | M4.1.5 Full summary fallback as WARNING | 🔄 Pending deploy (v4.1.5) |
+| M4.1.6 Restore always-on context | 🔄 Pending deploy (v4.1.6) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
