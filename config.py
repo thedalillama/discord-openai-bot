@@ -1,8 +1,29 @@
 # config.py
-# Version 1.11.0
+# Version 1.12.6
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
+
+CHANGES v1.12.6: Add RETRIEVAL_MSG_FALLBACK (default 15) for direct message fallback
+
+CHANGES v1.12.5: Replace TOPIC_MSG_LIMIT with TOPIC_LINK_MIN_SCORE
+- REMOVED: TOPIC_MSG_LIMIT — arbitrary count cap replaced by similarity threshold
+- ADDED: TOPIC_LINK_MIN_SCORE (default 0.3) — links all messages above threshold
+
+CHANGES v1.12.4: Add RETRIEVAL_MIN_SCORE config (default 0.4)
+
+CHANGES v1.12.3: Add MAX_RECENT_MESSAGES config (default 5)
+
+CHANGES v1.12.2: Switch embedding provider to OpenAI
+- CHANGED: EMBEDDING_MODEL default gemini-embedding-001 → text-embedding-3-small
+
+CHANGES v1.12.1: Fix EMBEDDING_MODEL default
+- FIXED: default changed from text-embedding-004 → gemini-embedding-001
+
+CHANGES v1.12.0: Semantic retrieval configuration (SOW v4.0.0)
+- ADDED: EMBEDDING_MODEL — Gemini embedding model (default gemini-embedding-001)
+- ADDED: RETRIEVAL_TOP_K — topics to retrieve per query (default 5)
+- ADDED: TOPIC_MSG_LIMIT — messages linked per topic via similarity (default 20)
 
 CHANGES v1.11.0: Reduce default batch size to prevent response truncation
 - CHANGED: SUMMARIZER_BATCH_SIZE default 200 → 50 — 200-message batches caused
@@ -126,6 +147,26 @@ SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-2.5-flash-lite')
 # enough to stay within Gemini's response token limit. Default 50 — larger
 # batches cause too many ops in a single response, truncating the JSON.
 SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
+
+# Semantic retrieval configuration (SOW v4.0.0)
+# EMBEDDING_MODEL: OpenAI embedding model. text-embedding-3-small is 1536
+# dimensions, fast, and inexpensive. Uses OPENAI_API_KEY.
+EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
+# RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
+RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
+# RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
+# Filters out low-relevance topics that would otherwise pollute context.
+RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
+# TOPIC_LINK_MIN_SCORE: minimum cosine similarity to link a message to a topic.
+# All messages above this threshold are linked — no arbitrary count cap.
+# Token budget in context_manager limits how many are injected at response time.
+TOPIC_LINK_MIN_SCORE = float(os.environ.get('TOPIC_LINK_MIN_SCORE', 0.3))
+# MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
+# Prevents recent history from overwhelming retrieved topic context.
+MAX_RECENT_MESSAGES = int(os.environ.get('MAX_RECENT_MESSAGES', 5))
+# RETRIEVAL_MSG_FALLBACK: max messages returned by direct embedding fallback
+# when topic retrieval returns empty (SOW v4.1.0).
+RETRIEVAL_MSG_FALLBACK = int(os.environ.get('RETRIEVAL_MSG_FALLBACK', 15))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

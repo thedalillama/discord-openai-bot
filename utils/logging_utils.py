@@ -1,5 +1,14 @@
+# utils/logging_utils.py
+# Version 1.1.0
 """
 Logging utility functions for the Discord bot.
+
+CHANGES v1.1.0: BotFilter suppresses third-party DEBUG noise
+- ADDED: BotFilter on root handler — passes discord_bot.* at any level;
+  all other loggers (httpcore, httpx, openai) only pass WARNING+.
+  Root logger stays at DEBUG so bot logs are unaffected.
+
+CREATED v1.0.0: setup_logging() and get_logger()
 """
 import logging
 import sys
@@ -26,13 +35,23 @@ def setup_logging():
     # Configure the handler
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     
-    # Set up the root logger
+    # Filter: pass discord_bot.* at any level; everything else only at WARNING+.
+    # This suppresses httpcore/httpx/openai DEBUG noise without muting our logs.
+    class BotFilter(logging.Filter):
+        def filter(self, record):
+            return (record.name.startswith('discord_bot')
+                    or record.levelno >= logging.WARNING)
+
+    handler.addFilter(BotFilter())
+
+    # Root logger accepts everything — the filter does the real gatekeeping.
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, LOG_LEVEL))
+    root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(handler)
-    
-    # Create bot-specific logger
+
+    # Bot-specific logger at configured level
     bot_logger = logging.getLogger('discord_bot')
+    bot_logger.setLevel(getattr(logging, LOG_LEVEL))
     
     return bot_logger
 
