@@ -1,7 +1,11 @@
 # utils/context_manager.py
-# Version 2.1.1
+# Version 2.1.2
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.1.2: Full summary fallback logs WARNING instead of DEBUG
+- CHANGED: branch 4 (no topics + no message embeddings) now logs at WARNING
+  so degraded retrieval state is visible in monitoring
 
 CHANGES v2.1.1: Richer retrieval debug logging
 - ADDED: topic titles + per-topic message counts in _retrieve_topic_context() logs
@@ -244,16 +248,18 @@ def build_context_for_provider(channel_id, provider):
             logger.debug(
                 f"Semantic context: {retrieved_tokens} retrieved tokens (always-on skipped for test) ch:{channel_id}")
         else:
-            # No topics retrieved — fall back to full summary
+            # Retrieval fully degraded — no topics and no message embeddings.
+            # This should not happen on an active channel; log as warning.
             full = format_summary_for_context(summary)
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n"
                 f"The following is a summary of this channel's conversation "
                 f"history. Use it to inform your responses.\n\n{full}"
             )
-            logger.debug(
-                f"Fallback to full summary for ch:{channel_id} "
-                f"(retrieval returned empty — see above for reason)")
+            logger.warning(
+                f"Retrieval fully degraded for ch:{channel_id} — "
+                f"no topics and no message embeddings found. "
+                f"Falling back to full summary injection.")
 
         logger.debug(f"Context block injected (first 2000 chars):\n{context_block[:2000]}")
         combined = f"{system_msg['content']}\n\n{context_block}"
