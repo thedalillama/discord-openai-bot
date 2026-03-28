@@ -1,5 +1,14 @@
+# utils/logging_utils.py
+# Version 1.1.0
 """
 Logging utility functions for the Discord bot.
+
+CHANGES v1.1.0: BotFilter suppresses third-party DEBUG noise
+- ADDED: BotFilter on root handler — passes discord_bot.* at any level;
+  all other loggers (httpcore, httpx, openai) only pass WARNING+.
+  Root logger stays at DEBUG so bot logs are unaffected.
+
+CREATED v1.0.0: setup_logging() and get_logger()
 """
 import logging
 import sys
