@@ -1,17 +1,32 @@
 # HANDOFF.md
-# Version 4.1.3
+# Version 4.1.4
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.3 (pending deploy)
+**Bot version**: v4.1.4 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.4 — Secretary Prompt: Ignore Bot Noise (Fix 1B)
+Prevents bot-noise topics from being created at summarization time. The Secretary
+was previously recording bot self-descriptions, capability statements, and
+conversational filler as topics — these then polluted retrieval.
+
+**Fix**: Added IGNORE section to `SECRETARY_SYSTEM_PROMPT` listing what to omit:
+generic self-descriptions, capability statements, diagnostic responses, filler.
+Combined with Fix 1A, noise topics should not appear in retrieval even if
+they somehow get created.
+
+**Files changed**: `summary_prompts_authoring.py` v1.6.0
+
+**To verify**: Run `!summary clear` + `!summary create` — topic list should
+contain no "Bot ..." entries.
 
 ### v4.1.3 — Noise Topic Filter (Fix 1A)
 Bot-noise topics ("Bot self-descriptions", "Bot capability tests", etc.) were
@@ -174,6 +189,7 @@ Each pipeline run saves to `data/`:
 | `utils/context_manager.py` | v2.1.0 | Always-on + retrieval + fallback, budget, 5-msg cap |
 | `utils/summary_display.py` | v1.3.1 | format_always_on_context() — key facts framing fix |
 | `utils/embedding_store.py` | v1.5.0 | clear_channel_topics() + _is_noise_topic() filter |
+| `utils/summary_prompts_authoring.py` | v1.6.0 | IGNORE section in SECRETARY_SYSTEM_PROMPT |
 | `utils/summarizer_authoring.py` | v1.10.2 | calls clear_channel_topics() before topic loop |
 | `utils/raw_events.py` | v1.3.0 | Embed on arrival |
 | `utils/summarizer_authoring.py` | v1.10.1 | Store active + archived topics |
@@ -245,6 +261,7 @@ OPENAI_API_KEY=[key]   # Required for embeddings (text-embedding-3-small) + clas
 | M4.1.1 Key facts framing fix | 🔄 Pending deploy (v4.1.1) |
 | M4.1.2 Topic deduplication (Fix 2A) | 🔄 Pending deploy (v4.1.2) |
 | M4.1.3 Noise topic filter (Fix 1A) | 🔄 Pending deploy (v4.1.3) |
+| M4.1.4 Secretary prompt: ignore bot noise (Fix 1B) | 🔄 Pending deploy (v4.1.4) |
 | M5 Explainability | Planned |
 | M6 Citation-backed generation | Planned |
 | M7 Epoch compression | Planned |
