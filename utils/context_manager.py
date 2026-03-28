@@ -1,7 +1,11 @@
 # utils/context_manager.py
-# Version 2.1.0
+# Version 2.1.1
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.1.1: Richer retrieval debug logging
+- ADDED: topic titles + per-topic message counts in _retrieve_topic_context() logs
+- ADDED: context block preview logged at DEBUG so model input is visible
 
 CHANGES v2.1.0: Direct message embedding fallback (SOW v4.1.0)
 - ADDED: _fallback_msg_search() — searches message_embeddings directly when
@@ -147,7 +151,7 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
         topics = [(tid, title, s) for tid, title, s in topics if s >= RETRIEVAL_MIN_SCORE]
         logger.debug(
             f"Topics above threshold ch:{channel_id}: {len(topics)}, "
-            f"scores: {[round(s, 3) for _, _, s in topics]}")
+            f"scores: {[(title[:30], round(s, 3)) for _, title, s in topics]}")
 
         if not topics:
             return _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids)
@@ -156,12 +160,21 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
         for topic_id, title, score in topics:
             msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
             if not msgs:
+                logger.debug(
+                    f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                    f"0 linked messages, skipping")
                 continue
             section = f"[Topic: {title}]\n" + "\n".join(
                 f"{author}: {content}" for _, author, content, _ in msgs)
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
+                logger.debug(
+                    f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                    f"{len(msgs)} msgs, {section_tokens} tokens — exceeds budget, stopping")
                 break
+            logger.debug(
+                f"Topic '{title[:40]}' (score {round(score, 3)}): "
+                f"{len(msgs)} linked messages, {section_tokens} tokens — injected")
             lines.append(section)
             tokens_used += section_tokens
 
@@ -170,7 +183,8 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
 
         logger.debug(
             f"Retrieved {len(lines)} topics ({tokens_used} tokens) "
-            f"ch:{channel_id} query:{query_text[:50]!r}")
+            f"ch:{channel_id} query:{query_text[:50]!r} "
+            f"topics: {[title[:30] for _, title, _ in topics[:len(lines)]]}")
         return "\n\n".join(lines), tokens_used
 
     except Exception as e:
@@ -222,15 +236,13 @@ def build_context_for_provider(channel_id, provider):
 
         if retrieved:
             context_block = (
-                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
                 f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
                 f"The following are real messages previously sent in this channel, "
                 f"retrieved because they are relevant to the current query. "
                 f"They ARE part of this conversation's history.\n\n{retrieved}"
             )
             logger.debug(
-                f"Semantic context: {always_on_tokens} always-on + "
-                f"{retrieved_tokens} retrieved tokens for ch:{channel_id}")
+                f"Semantic context: {retrieved_tokens} retrieved tokens (always-on skipped for test) ch:{channel_id}")
         else:
             # No topics retrieved — fall back to full summary
             full = format_summary_for_context(summary)
@@ -243,6 +255,7 @@ def build_context_for_provider(channel_id, provider):
                 f"Fallback to full summary for ch:{channel_id} "
                 f"(retrieval returned empty — see above for reason)")
 
+        logger.debug(f"Context block injected (first 2000 chars):\n{context_block[:2000]}")
         combined = f"{system_msg['content']}\n\n{context_block}"
         system_msg = {"role": "system", "content": combined}
 

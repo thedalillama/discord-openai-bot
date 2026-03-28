@@ -1,8 +1,14 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.0
+# Version 4.1.1
 
 ## Current Version Features
+
+### Version 4.1.1 - Key Facts Framing Fix
+- **MODIFIED**: `utils/summary_display.py` v1.3.1 — changed "Key facts:" label to
+  "Key facts established in this conversation:" so the model treats them as discussed
+  content rather than background knowledge; fixes false "we haven't discussed X" replies
+  when X is present in key facts but not in retrieved topic messages
 
 ### Version 4.1.0 - Direct Message Embedding Fallback (SOW v4.1.0)
 - **MODIFIED**: `utils/embedding_store.py` v1.3.0 — added `find_similar_messages()`;
@@ -106,7 +112,7 @@ discord-bot/
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.6.0
 │   ├── summary_prompts_authoring.py  # v1.5.0
-│   ├── summary_display.py         # v1.3.0
+│   ├── summary_display.py         # v1.3.1
 │   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
 │   └── history/
