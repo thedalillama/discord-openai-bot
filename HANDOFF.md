@@ -1,17 +1,74 @@
 # HANDOFF.md
-# Version 4.1.6
+# Version 4.1.10
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.6 (pending deploy)
+**Bot version**: v4.1.10 (pending deploy)
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v4.1.10 — Inject Today's Date into Context
+The model had no way to know the current date, so retrieved message timestamps
+like `[2025-03-01]` were uninterpretable without a reference point.
+
+**Fix**: `date.today().isoformat()` injected as `Today's date: YYYY-MM-DD` at
+the top of the `--- CONVERSATION CONTEXT ---` block. Applied to both the normal
+retrieved path and the full-summary fallback path.
+
+**Files changed**: `context_manager.py` v2.1.5
+
+### v4.1.9 — Timestamps on Retrieved Messages
+Retrieved messages had no date context, making old and new discussions
+indistinguishable to the model.
+
+**Fix**: Each retrieved message line is now prefixed with `[YYYY-MM-DD]`
+extracted from `created_at`. Applied in both `_retrieve_topic_context()` (topic
+path) and `_fallback_msg_search()` (direct message fallback path).
+`find_similar_messages()` updated to return `created_at` as the 4th tuple
+element — score is now internal-only, used for sort before being stripped.
+`get_topic_messages()` already returned `created_at`; no change needed there.
+
+**Files changed**: `embedding_store.py` v1.7.0, `context_manager.py` v2.1.4
+
+### v4.1.8 — Batched Cold Start
+Cold start was passing all messages to `cold_start_pipeline()` at once.
+For channels with 750+ messages this produced a 65K+ token Structurer response.
+The `batch_size` parameter accepted by `cold_start_pipeline()` was never used.
+
+**Fix**: `summarize_channel()` now slices `all_messages[:effective_batch]` before
+calling `cold_start_pipeline()`. If messages remain, it re-reads the saved summary
+from DB and feeds the rest through `_incremental_loop()` (which already handles
+batching correctly). Combined result returned to caller.
+
+**Files changed**: `summarizer.py` v2.2.0
+
+**To verify**: Run `!summary clear` + `!summary create` on a channel with >500
+messages. Logs should show "Cold start: 500 of N msgs" followed by incremental
+batches. No 65K+ token Structurer responses.
+
+### v4.1.7 — Batch Embedding Backfill
+`!debug backfill` was embedding one message at a time — 1,600 sequential API
+calls for a channel with 1,600 messages. OpenAI's embeddings endpoint accepts
+up to 2,048 inputs per call.
+
+**Fix**: Added `embed_texts_batch(texts, batch_size=1000)` to `embedding_store.py`.
+Collects all pending message texts, calls the API once per 1000 messages, logs
+per-batch success/failure counts and total elapsed time.
+
+**Bug fix**: Re-link phase previously only processed `active_topics`. Updated to
+include `archived_topics`, matching `summarizer_authoring.py` behaviour.
+
+**Files changed**: `embedding_store.py` v1.6.0, `debug_commands.py` v1.3.0
+
+**To verify**: Run `!debug backfill` on a channel with many unembedded messages.
+Should complete in seconds rather than minutes; log shows per-batch counts; Discord
+reports elapsed time.
 
 ### v4.1.6 — Restore Always-On Context Injection
 Always-on was suppressed during testing. Restored now that the topic list is clean

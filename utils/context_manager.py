@@ -1,7 +1,16 @@
 # utils/context_manager.py
-# Version 2.1.3
+# Version 2.1.5
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.1.5: Inject today's date into context block
+- ADDED: "Today's date: YYYY-MM-DD" line at top of CONVERSATION CONTEXT block
+  so the model can interpret retrieved message timestamps relative to now
+
+CHANGES v2.1.4: Prepend [YYYY-MM-DD] to retrieved message lines
+- MODIFIED: _retrieve_topic_context() and _fallback_msg_search() prefix each
+  message line with its date so the model can distinguish old from recent
+  discussions; date extracted from created_at[:10]
 
 CHANGES v2.1.3: Restore always-on context injection
 - RESTORED: always-on block (overview, key facts, actions, questions) injected
@@ -31,6 +40,7 @@ CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
 """
 import json
 from collections import defaultdict
+from datetime import date
 from config import (CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES,
                     RETRIEVAL_MIN_SCORE, RETRIEVAL_MSG_FALLBACK)
 from utils.history.message_processing import prepare_messages_for_api
@@ -112,8 +122,8 @@ def _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids):
         if not msgs:
             return "", 0
         parts, used = [], 0
-        for _, author, content, _ in msgs:
-            line = f"{author}: {content}"
+        for _, author, content, created_at in msgs:
+            line = f"[{(created_at or '')[:10]}] {author}: {content}"
             lt = estimate_tokens(line) + 1
             if used + lt > token_budget:
                 break
@@ -173,7 +183,8 @@ def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
                     f"0 linked messages, skipping")
                 continue
             section = f"[Topic: {title}]\n" + "\n".join(
-                f"{author}: {content}" for _, author, content, _ in msgs)
+                f"[{(created_at or '')[:10]}] {author}: {content}"
+                for _, author, content, created_at in msgs)
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
                 logger.debug(
@@ -242,9 +253,11 @@ def build_context_for_provider(channel_id, provider):
         retrieved, retrieved_tokens = _retrieve_topic_context(
             channel_id, conversation_msgs, retrieval_budget)
 
+        today = date.today().isoformat()
         if retrieved:
             context_block = (
-                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
+                f"--- CONVERSATION CONTEXT ---\n"
+                f"Today's date: {today}\n\n{always_on}\n\n"
                 f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
                 f"The following are real messages previously sent in this channel, "
                 f"retrieved because they are relevant to the current query. "
@@ -259,6 +272,7 @@ def build_context_for_provider(channel_id, provider):
             full = format_summary_for_context(summary)
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n"
+                f"Today's date: {today}\n\n"
                 f"The following is a summary of this channel's conversation "
                 f"history. Use it to inform your responses.\n\n{full}"
             )

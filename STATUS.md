@@ -1,8 +1,37 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.6
+# Version 4.1.10
 
 ## Current Version Features
+
+### Version 4.1.10 - Inject Today's Date into Context
+- **MODIFIED**: `utils/context_manager.py` v2.1.5 — `Today's date: YYYY-MM-DD`
+  injected at top of CONVERSATION CONTEXT block in both the retrieved and
+  full-summary fallback paths; model can now interpret retrieved message
+  timestamps relative to the current date
+
+### Version 4.1.9 - Timestamps on Retrieved Messages
+- **MODIFIED**: `utils/embedding_store.py` v1.7.0 — `find_similar_messages()`
+  now returns `created_at` as 4th element instead of score; score used
+  internally for sort only
+- **MODIFIED**: `utils/context_manager.py` v2.1.4 — `_retrieve_topic_context()`
+  and `_fallback_msg_search()` prepend `[YYYY-MM-DD]` to each retrieved message
+  line so the model can distinguish old from recent discussions
+
+### Version 4.1.8 - Batched Cold Start
+- **MODIFIED**: `utils/summarizer.py` v2.2.0 — cold start now slices to
+  `effective_batch` before calling `cold_start_pipeline()`; remaining messages
+  continue through `_incremental_loop()`; prevents 65K+ token Structurer
+  responses on large initial ingest
+
+### Version 4.1.7 - Batch Embedding Backfill
+- **MODIFIED**: `utils/embedding_store.py` v1.6.0 — added `embed_texts_batch()`;
+  calls OpenAI embeddings API in batches of 1000 texts per request; per-batch
+  failures logged and skipped; returns (index, vector) pairs for successes
+- **MODIFIED**: `commands/debug_commands.py` v1.3.0 — `!debug backfill` now
+  collects all pending message texts, calls `embed_texts_batch()` in 1000-message
+  batches, logs per-batch progress and total elapsed time; also fixes re-link to
+  include archived_topics (was active_topics only)
 
 ### Version 4.1.6 - Restore Always-On Context Injection
 - **MODIFIED**: `utils/context_manager.py` v2.1.3 — always-on block (overview,

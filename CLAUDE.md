@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 4.1.6
+# Version 4.1.10
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -76,8 +76,11 @@ Fallback chain:
 2. No topics above threshold OR all topics have 0 linked messages → direct message search
 3. Both empty (no embeddings) → full summary injected + WARNING logged
 
+Timestamps: every retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected
+at the top of the context block so the model can interpret message ages.
+
 Key files: `utils/embedding_store.py` (embeddings, linking, noise filter, retrieval),
-`utils/context_manager.py` (always-on + retrieval + budget)
+`utils/context_manager.py` (always-on + retrieval + budget + timestamps)
 
 ### Summarization Pipeline (v3.5+)
 Both cold start and incremental use the same three-pass pipeline:
@@ -89,6 +92,9 @@ Raw messages + existing minutes
   → apply_ops() → verify hashes → save
   → store topics + link to messages by embedding similarity
 ```
+
+Cold start batches: first `SUMMARIZER_BATCH_SIZE` msgs → cold start pipeline,
+remaining msgs → incremental loop. Prevents 65K+ token Structurer responses.
 
 Key files: `summarizer.py` (router), `summarizer_authoring.py` (pipeline),
 `summary_prompts_authoring.py` (Secretary/Structurer prompts),
