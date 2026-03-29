@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 4.1.6
+# Version 4.1.10
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -79,10 +79,13 @@
 - At response time: always-on context (overview/facts/actions/questions) + retrieved topic messages
 - Only topics above `RETRIEVAL_MIN_SCORE` (0.25) are injected; recent messages capped at 5
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
+- Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
+- `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
 
 ### Summarization Pipeline (v3.5+)
 - Three-pass: Secretary (natural language) → Structurer (anyOf JSON) → Classifier (dedup)
 - Both cold start and incremental use the same shared `_run_pipeline()`
+- Cold start slices to `SUMMARIZER_BATCH_SIZE` then continues via incremental loop — prevents 65K+ token responses
 - After pipeline: all active + archived topics stored with embeddings and linked to messages
 - Provider: Gemini for Secretary/Structurer, GPT-4o-mini for Classifier
 

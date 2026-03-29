@@ -1,7 +1,13 @@
 # commands/debug_commands.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Debug and maintenance commands for the Discord bot.
+
+CHANGES v1.3.0: Batch embedding + archived topic re-link fix
+- CHANGED: debug_backfill uses embed_texts_batch() — 1600 messages now takes
+  ~2 API calls instead of 1600; per-batch progress logged; elapsed time reported
+- FIXED: re-link phase now includes archived_topics (was active_topics only),
+  matching the behaviour of summarizer_authoring.py
 
 CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
 - ADDED: !debug backfill — embed all messages in channel lacking embeddings,
@@ -163,40 +169,65 @@ def register_debug_commands(bot):
 
     @debug_cmd.command(name='backfill')
     async def debug_backfill(ctx):
-        """Embed all messages lacking embeddings, then re-link all topics."""
+        """Embed all messages lacking embeddings (batch), then re-link all topics."""
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}Admin only.")
             return
         channel_id = ctx.channel.id
         await ctx.send(f"{_I}Starting embedding backfill for #{ctx.channel.name}...")
         try:
+            import time
             from utils.embedding_store import (
-                get_messages_without_embeddings, embed_and_store_message,
-                link_topic_to_messages)
-            # Phase 1: embed missing messages
+                get_messages_without_embeddings, embed_texts_batch,
+                store_message_embedding, link_topic_to_messages)
+
+            # Phase 1: batch embed missing messages
             pending = await asyncio.to_thread(
                 get_messages_without_embeddings, channel_id, 2000)
             await ctx.send(f"{_I}Found {len(pending)} messages to embed...")
+            t0 = time.monotonic()
             embedded = failed = 0
-            for msg_id, content in pending:
-                try:
-                    await asyncio.to_thread(embed_and_store_message, msg_id, content)
-                    embedded += 1
-                except Exception as e:
-                    failed += 1
-                    logger.warning(f"Backfill embed failed {msg_id}: {e}")
-            await ctx.send(f"{_I}Embedded {embedded}/{len(pending)} ({failed} failed).")
-            # Phase 2: re-link topics
+            if pending:
+                ids = [mid for mid, _ in pending]
+                texts = [content for _, content in pending]
+                BATCH = 1000
+                for batch_start in range(0, len(texts), BATCH):
+                    batch_ids = ids[batch_start:batch_start + BATCH]
+                    batch_texts = texts[batch_start:batch_start + BATCH]
+                    results = await asyncio.to_thread(
+                        embed_texts_batch, batch_texts, BATCH)
+                    result_map = {idx: vec for idx, vec in results}
+                    for i, mid in enumerate(batch_ids):
+                        if i in result_map:
+                            await asyncio.to_thread(
+                                store_message_embedding, mid, result_map[i])
+                            embedded += 1
+                        else:
+                            failed += 1
+                    batch_end = min(batch_start + BATCH, len(texts))
+                    logger.info(
+                        f"Backfill batch {batch_start}–{batch_end - 1}: "
+                        f"{len(results)} embedded, "
+                        f"{len(batch_texts) - len(results)} failed")
+            elapsed = time.monotonic() - t0
+            await ctx.send(
+                f"{_I}Embedded {embedded}/{len(pending)} "
+                f"({failed} failed) in {elapsed:.1f}s.")
+
+            # Phase 2: re-link all topics (active + archived)
             from utils.summary_store import get_channel_summary
             raw, _ = await asyncio.to_thread(get_channel_summary, channel_id)
             if not raw:
                 await ctx.send(f"{_I}No summary — run `!summary create` first.")
                 return
-            topics = json.loads(raw).get("active_topics", [])
+            data = json.loads(raw)
+            all_topics = (data.get("active_topics", []) +
+                          data.get("archived_topics", []))
             relinked = 0
-            for topic in topics:
+            for topic in all_topics:
                 try:
-                    await asyncio.to_thread(link_topic_to_messages, topic["id"], channel_id)
+                    await asyncio.to_thread(
+                        link_topic_to_messages, topic["id"], channel_id)
                     relinked += 1
                 except Exception as e:
                     logger.warning(f"Re-link failed {topic['id']}: {e}")
