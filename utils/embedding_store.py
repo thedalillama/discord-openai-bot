@@ -1,7 +1,17 @@
 # utils/embedding_store.py
-# Version 1.5.0
+# Version 1.7.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.7.0: find_similar_messages() returns created_at instead of score
+- MODIFIED: find_similar_messages() returns (message_id, author_name, content,
+  created_at) as 4th element; score used internally for sort only; callers
+  in context_manager.py can now prepend timestamps to retrieved messages
+
+CHANGES v1.6.0: Add embed_texts_batch() for bulk backfill
+- ADDED: embed_texts_batch(texts, batch_size=1000) — calls OpenAI embeddings
+  API in batches of up to 1000 texts per request; returns (index, vector) pairs
+  for successes; per-batch failures are logged and skipped
 
 CHANGES v1.5.0: Noise topic filter in find_relevant_topics() (Fix 1A)
 - ADDED: _is_noise_topic() — case-insensitive check against known bot-noise
@@ -58,6 +68,36 @@ def embed_text(text):
     except Exception as e:
         logger.warning(f"embed_text failed: {e}")
         return None
+
+
+def embed_texts_batch(texts, batch_size=1000):
+    """Batch-embed up to batch_size texts per API call.
+
+    Returns list of (index, vector) pairs for successful embeddings only.
+    Failed batches are logged and skipped; partial results are returned.
+    Synchronous — wrap in to_thread().
+    """
+    if not texts:
+        return []
+    try:
+        import os
+        from openai import OpenAI
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    except Exception as e:
+        logger.warning(f"embed_texts_batch: OpenAI init failed: {e}")
+        return []
+    results = []
+    for batch_start in range(0, len(texts), batch_size):
+        batch = texts[batch_start:batch_start + batch_size]
+        try:
+            response = client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
+            for item in response.data:
+                results.append((batch_start + item.index, item.embedding))
+        except Exception as e:
+            logger.warning(
+                f"embed_texts_batch: batch {batch_start}–"
+                f"{batch_start + len(batch) - 1} failed: {e}")
+    return results
 
 
 def embed_and_store_message(message_id, text):
@@ -256,13 +296,13 @@ def find_similar_messages(query_vec, channel_id, top_n=15,
 
     Used as fallback when topic-based retrieval returns empty. Filters out
     noise/command messages. Returns list of (message_id, author_name, content,
-    score) sorted by score descending.
+    created_at) sorted by score descending; score is used internally only.
     """
     exclude_ids = set(exclude_ids or [])
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         rows = conn.execute(
-            "SELECT me.message_id, m.author_name, m.content, me.embedding "
+            "SELECT me.message_id, m.author_name, m.content, m.created_at, me.embedding "
             "FROM message_embeddings me JOIN messages m ON m.id=me.message_id "
             "WHERE m.channel_id=? AND m.is_deleted=0 AND m.content!='' "
             "  AND m.content NOT LIKE '!%' "
@@ -272,14 +312,15 @@ def find_similar_messages(query_vec, channel_id, top_n=15,
     finally:
         conn.close()
     scored = []
-    for mid, author, content, blob in rows:
+    for mid, author, content, created_at, blob in rows:
         if mid in exclude_ids:
             continue
         score = cosine_similarity(query_vec, unpack_embedding(blob))
         if score >= min_score:
-            scored.append((mid, author, content, score))
-    scored.sort(key=lambda x: x[3], reverse=True)
-    return scored[:top_n]
+            scored.append((mid, author, content, created_at, score))
+    scored.sort(key=lambda x: x[4], reverse=True)
+    return [(mid, author, content, created_at)
+            for mid, author, content, created_at, _ in scored[:top_n]]
 
 
 def get_messages_without_embeddings(channel_id, limit=500):

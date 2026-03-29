@@ -1,5 +1,5 @@
 # README.md
-# Version 4.1.6
+# Version 4.1.10
 
 # Synthergy Discord Bot
 
@@ -112,11 +112,13 @@ Every response is built from two context layers:
 
 **Summary fallback**: if both topic and message search return empty (degraded state — no embeddings), the full summary is injected. Logs a WARNING.
 
+**Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
+
 ## Summarization System
 
 The bot maintains "living meeting minutes" for each channel via a three-pass pipeline:
 
-**Cold start**: Secretary writes natural language minutes → Structurer converts to JSON delta ops → Classifier validates (KEEP/DROP/RECLASSIFY) with dedup against existing items.
+**Cold start**: first `SUMMARIZER_BATCH_SIZE` messages run through the cold start pipeline; remaining messages continue through the incremental loop. Prevents 65K+ token Structurer responses on large initial ingests.
 
 **Incremental**: same pipeline, but Secretary receives existing minutes and Classifier receives the full existing summary for semantic dedup.
 
@@ -163,7 +165,7 @@ sudo journalctl --rotate && sudo journalctl --vacuum-time=1s  # clear logs
 After first deploy or embedding provider change:
 ```bash
 # In Discord:
-!debug backfill      # embed all messages + re-link topics
+!debug backfill      # batch-embed all messages (1000/call) + re-link topics
 !summary create      # regenerate summary with new topic embeddings
 ```
 

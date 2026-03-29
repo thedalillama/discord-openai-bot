@@ -1,9 +1,15 @@
 # utils/summarizer.py
-# Version 2.1.0
+# Version 2.2.0
 """
 Summarization pipeline orchestrator. Both cold starts and incremental
 updates use the three-pass Secretary → Structurer → Classifier pipeline
 via summarizer_authoring.py.
+
+CHANGES v2.2.0: Batched cold start
+- MODIFIED: summarize_channel() now slices cold start to effective_batch
+  before calling cold_start_pipeline(); remaining messages continue through
+  _incremental_loop(); prevents 65K+ Structurer responses on large initial
+  ingest
 
 CHANGES v2.1.0: Incremental path uses three-pass pipeline
 - MODIFIED: _incremental_loop() batches messages and delegates each
@@ -38,9 +44,28 @@ async def summarize_channel(channel_id, batch_size=None):
         from config import SUMMARIZER_MODEL
         all_messages = await _get_unsummarized_messages(
             channel_id, None)
-        return await cold_start_pipeline(
+        first_batch = all_messages[:effective_batch]
+        logger.info(
+            f"Cold start: {len(first_batch)} of {len(all_messages)} msgs "
+            f"(batch_size={effective_batch})")
+        result = await cold_start_pipeline(
             channel_id, provider, effective_batch,
-            SUMMARIZER_PROVIDER, SUMMARIZER_MODEL, all_messages)
+            SUMMARIZER_PROVIDER, SUMMARIZER_MODEL, first_batch)
+        if result.get("error") or len(all_messages) <= effective_batch:
+            return result
+        remaining = len(all_messages) - len(first_batch)
+        logger.info(
+            f"Cold start complete. {remaining} msgs remaining "
+            f"— continuing incrementally.")
+        sj, lmid = await asyncio.to_thread(get_channel_summary, channel_id)
+        current = json.loads(sj)
+        inc = await _incremental_loop(
+            channel_id, provider, effective_batch, current, lmid)
+        return _partial(
+            result.get("messages_processed", 0) + inc.get("messages_processed", 0),
+            inc.get("token_count", 0),
+            inc.get("verification", {}),
+            inc.get("error"))
     try:
         current = json.loads(summary_json)
     except Exception as e:

@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 4.1.6
+# Version 4.1.10
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -88,8 +88,10 @@ The summarizer runs independently of conversation providers. Gemini is
 recommended due to its 1M token context window, which allows sending full
 channel history in a single pass without recursive chunking.
 
-Set `SUMMARIZER_BATCH_SIZE=500` for single-pass cold starts (recommended).
-The default of 50 is used for incremental batched updates.
+Controls both cold start batching and incremental batching. Cold start processes
+the first `SUMMARIZER_BATCH_SIZE` messages, then continues through the incremental
+loop for the remainder. Set to 500 to keep each Structurer response to a manageable
+size while still processing large channels efficiently.
 
 The server `.env` overrides `SUMMARIZER_MODEL` to `gemini-3.1-flash-lite-preview`.
 
