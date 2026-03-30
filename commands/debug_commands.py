@@ -1,7 +1,19 @@
 # commands/debug_commands.py
-# Version 1.3.0
+# Version 1.5.0
 """
 Debug and maintenance commands for the Discord bot.
+
+CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
+- ADDED: !debug summarize_clusters — runs per-cluster Gemini summarization,
+  sends Discord progress every 5 clusters, paginates final cluster report
+
+CHANGES v1.4.1: Paginate !debug clusters output
+- MODIFIED: debug_clusters splits report into ≤1900-char pages before
+  sending; prevents Discord 2000-character message limit errors
+
+CHANGES v1.4.0: Add !debug clusters command (SOW v5.1.0)
+- ADDED: !debug clusters — runs UMAP + HDBSCAN clustering on channel
+  embeddings, stores results, displays diagnostic report
 
 CHANGES v1.3.0: Batch embedding + archived topic re-link fix
 - CHANGED: debug_backfill uses embed_texts_batch() — 1600 messages now takes
@@ -24,10 +36,12 @@ CREATED v1.0.0: Consolidates cleanup + summary diagnostics
 All subcommands require administrator permissions.
 
 Usage:
-  !debug noise      - Preview deletable bot messages
-  !debug cleanup    - Delete bot noise from Discord history
-  !debug status     - Show summary internals (IDs, hashes, chains)
-  !debug backfill   - Embed all messages + re-link topics
+  !debug noise               - Preview deletable bot messages
+  !debug cleanup             - Delete bot noise from Discord history
+  !debug status              - Show summary internals (IDs, hashes, chains)
+  !debug backfill            - Embed all messages + re-link topics
+  !debug clusters            - Run UMAP+HDBSCAN clustering, show report
+  !debug summarize_clusters  - Run per-cluster LLM summarization
 """
 import asyncio
 import json
@@ -235,6 +249,115 @@ def register_debug_commands(bot):
         except Exception as e:
             await ctx.send(f"{_I}Backfill failed: {e}")
             logger.error(f"Backfill error for ch:{channel_id}: {e}")
+
+    @debug_cmd.command(name='clusters')
+    async def debug_clusters(ctx):
+        """Run UMAP + HDBSCAN clustering and show diagnostic report."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        channel_id = ctx.channel.id
+        await ctx.send(f"{_I}Running cluster analysis for #{ctx.channel.name}...")
+        try:
+            from utils.cluster_store import (
+                run_clustering, get_cluster_stats, format_cluster_report)
+            from config import (
+                CLUSTER_MIN_CLUSTER_SIZE, CLUSTER_MIN_SAMPLES,
+                UMAP_N_NEIGHBORS, UMAP_N_COMPONENTS)
+            stats = await asyncio.to_thread(run_clustering, channel_id)
+            if stats is None:
+                await ctx.send(
+                    f"{_I}Not enough embeddings to cluster. "
+                    f"Run `!debug backfill` first.")
+                return
+            rows = await asyncio.to_thread(get_cluster_stats, channel_id)
+            params = {"mcs": CLUSTER_MIN_CLUSTER_SIZE, "ms": CLUSTER_MIN_SAMPLES,
+                      "umap_n": UMAP_N_NEIGHBORS, "umap_d": UMAP_N_COMPONENTS}
+            report = format_cluster_report(ctx.channel.name, stats, rows, params)
+            lines = report.split("\n")
+            chunk, chunks = [], []
+            for line in lines:
+                if sum(len(l) + 1 for l in chunk) + len(line) + 1 > 1900:
+                    chunks.append("\n".join(chunk))
+                    chunk = []
+                chunk.append(line)
+            if chunk:
+                chunks.append("\n".join(chunk))
+            for page in chunks:
+                await ctx.send(page)
+        except Exception as e:
+            await ctx.send(f"{_I}Cluster analysis failed: {e}")
+            logger.error(f"Cluster error ch:{channel_id}: {e}")
+
+    @debug_cmd.command(name='summarize_clusters')
+    async def debug_summarize_clusters(ctx):
+        """Run per-cluster LLM summarization and display results."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        channel_id = ctx.channel.id
+        try:
+            from utils.cluster_store import get_clusters_for_channel
+            from utils.cluster_summarizer import summarize_cluster
+
+            clusters = await asyncio.to_thread(get_clusters_for_channel, channel_id)
+            if not clusters:
+                await ctx.send(
+                    f"{_I}No clusters found for #{ctx.channel.name}. "
+                    f"Run `!debug clusters` first.")
+                return
+
+            total = len(clusters)
+            await ctx.send(
+                f"{_I}**Cluster Summarization** (channel: #{ctx.channel.name})\n"
+                f"Processing {total} clusters...")
+
+            # Get the provider used for summarization
+            from ai_providers import get_provider
+            from config import SUMMARIZER_PROVIDER
+            provider = get_provider(SUMMARIZER_PROVIDER)
+
+            processed = failed = 0
+            result_lines = []
+            for i, cluster in enumerate(clusters):
+                result = await summarize_cluster(
+                    cluster["id"], channel_id, provider)
+                if result:
+                    processed += 1
+                    label = result.get("label", "?")
+                    status = result.get("status", "?")
+                    result_lines.append(
+                        f"Cluster {i} ({cluster['message_count']} msgs): "
+                        f"\"{label}\" — {status}")
+                else:
+                    failed += 1
+                    result_lines.append(
+                        f"Cluster {i} ({cluster['message_count']} msgs): FAILED")
+
+                # Progress update every 5 clusters
+                if (i + 1) % 5 == 0:
+                    await ctx.send(
+                        f"{_I}Progress: {i + 1}/{total} clusters processed...")
+
+            result_lines.append("")
+            result_lines.append(
+                f"Processed: {processed} clusters, {failed} failures")
+
+            # Paginate output
+            chunk, chunks = [], []
+            for line in result_lines:
+                if sum(len(l) + 1 for l in chunk) + len(line) + 1 > 1900:
+                    chunks.append("\n".join(chunk))
+                    chunk = []
+                chunk.append(line)
+            if chunk:
+                chunks.append("\n".join(chunk))
+            for page in chunks:
+                await ctx.send(f"{_I}{page}")
+
+        except Exception as e:
+            await ctx.send(f"{_I}Summarize clusters failed: {e}")
+            logger.error(f"summarize_clusters error ch:{channel_id}: {e}")
 
 
 async def _find_noise(channel, bot_user_id):

@@ -1,8 +1,36 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.10
+# Version 5.2.0
 
 ## Current Version Features
+
+### Version 5.2.0 — Per-Cluster LLM Summarization
+- **NEW**: `utils/cluster_summarizer.py` v1.0.0 — per-cluster Gemini summarization;
+  `CLUSTER_SYSTEM_PROMPT` and `CLUSTER_SUMMARY_SCHEMA` (flat JSON, summary field first);
+  `summarize_cluster()` loads messages, formats with M-labels (truncates to 50 most
+  recent), calls Gemini with structured output, stores label/summary/status;
+  `summarize_all_clusters()` sequential loop with retry-on-failure
+- **MODIFIED**: `utils/cluster_store.py` v1.1.0 — added `get_cluster_message_ids()`,
+  `get_clusters_for_channel()`, `update_cluster_label_summary()`, `get_messages_by_ids()`
+  (placed here instead of message_store.py which is at 254 lines)
+- **MODIFIED**: `commands/debug_commands.py` v1.5.0 — added `!debug summarize_clusters`;
+  iterates all clusters, calls `summarize_cluster()` per cluster, sends Discord progress
+  every 5 clusters, paginates final report
+
+### Version 5.1.0 — Schema + HDBSCAN Clustering Core
+- **NEW**: `schema/005.sql` — `clusters` and `cluster_messages` tables;
+  `clusters.embedding` stores cluster centroid as packed BLOB
+- **NEW**: `utils/cluster_engine.py` v1.0.0 — UMAP (1536→5 dims) +
+  HDBSCAN clustering pipeline; noise reassignment via cosine similarity to
+  centroids; centroids computed in original 1536-dim space
+- **NEW**: `utils/cluster_store.py` v1.0.0 — CRUD (store_cluster,
+  clear_channel_clusters, get_cluster_stats), orchestrator (run_clustering),
+  Discord formatter (format_cluster_report)
+- **MODIFIED**: `config.py` v1.13.0 — add CLUSTER_MIN_CLUSTER_SIZE (5),
+  CLUSTER_MIN_SAMPLES (3), UMAP_N_NEIGHBORS (15), UMAP_N_COMPONENTS (5)
+- **MODIFIED**: `commands/debug_commands.py` v1.4.1 — add `!debug clusters`
+  diagnostic command (v1.4.0) + paginate output (v1.4.1)
+- **MODIFIED**: `requirements.txt` — add scikit-learn>=1.3, umap-learn>=0.5
 
 ### Version 4.1.10 - Inject Today's Date into Context
 - **MODIFIED**: `utils/context_manager.py` v2.1.5 — `Today's date: YYYY-MM-DD`
@@ -136,7 +164,8 @@ discord-bot/
 │   ├── 001.sql                    # v3.0.0 baseline
 │   ├── 002.sql                    # v3.1.0 columns + tables
 │   ├── 003.sql                    # v3.2.3 is_bot_author
-│   └── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
+│   ├── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
+│   └── 005.sql                    # v5.1.0 clusters, cluster_messages
 ├── ai_providers/
 │   ├── __init__.py                # v1.4.0
 │   ├── openai_provider.py         # v1.3.0
@@ -152,8 +181,11 @@ discord-bot/
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
 │   ├── summary_commands.py        # v2.2.0
-│   └── debug_commands.py          # v1.2.0
+│   └── debug_commands.py          # v1.5.0
 ├── utils/
+│   ├── cluster_engine.py          # v1.0.0
+│   ├── cluster_store.py           # v1.1.0
+│   ├── cluster_summarizer.py      # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
