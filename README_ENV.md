@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 4.1.10
+# Version 5.1.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -135,6 +135,19 @@ Note: DeepSeek's API enforces 64K context despite documentation claiming
 | `GEMINI_MAX_TOKENS` | Max response tokens | `32768` |
 
 Gemini is used for summarization only, not for conversation responses.
+
+## Clustering Configuration (v5.1.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLUSTER_MIN_CLUSTER_SIZE` | Minimum messages per cluster (lower = more clusters) | `5` |
+| `CLUSTER_MIN_SAMPLES` | HDBSCAN noise sensitivity (higher = more noise) | `3` |
+| `UMAP_N_NEIGHBORS` | UMAP neighborhood size (lower = more local structure) | `15` |
+| `UMAP_N_COMPONENTS` | UMAP output dimensions | `5` |
+
+These control the UMAP + HDBSCAN pipeline used by `!debug clusters`.
+Tune via `.env` to adjust cluster granularity without code changes.
+`UMAP_N_NEIGHBORS` is automatically capped to `n_messages - 1` for small channels.
 
 ## Logging Configuration
 

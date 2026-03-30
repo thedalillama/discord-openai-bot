@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 4.1.10
+# Version 5.2.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -99,6 +99,26 @@ remaining msgs → incremental loop. Prevents 65K+ token Structurer responses.
 Key files: `summarizer.py` (router), `summarizer_authoring.py` (pipeline),
 `summary_prompts_authoring.py` (Secretary/Structurer prompts),
 `summary_delta_schema.py` (anyOf schema), `summary_classifier.py` (classifier)
+
+### Clustering Pipeline (v5.1.0 + v5.2.0)
+UMAP + HDBSCAN clusters existing message embeddings into topic groups.
+v5.2.0 adds per-cluster Gemini summarization.
+
+```
+get_message_embeddings(channel_id)
+  → numpy array (1536 dims)
+  → UMAP reduce (cosine, 1536 → 5 dims)
+  → HDBSCAN (euclidean, eom, min_cluster_size=5, min_samples=3)
+  → noise reduction (reassign noise points to nearest centroid > 0.25)
+  → store centroids + membership → clusters + cluster_messages tables
+  → (v5.2.0) summarize_cluster(): M-labeled messages → Gemini structured output
+  → store label, summary JSON blob, status in clusters table
+```
+
+Key files: `utils/cluster_engine.py` (math), `utils/cluster_store.py` (CRUD),
+`utils/cluster_summarizer.py` (per-cluster Gemini summarization)
+Diagnostics: `!debug clusters` — run pipeline; `!debug summarize_clusters` — LLM pass
+Schema: `schema/005.sql` — clusters + cluster_messages (alongside v4.x topics)
 
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).

@@ -1,17 +1,100 @@
 # HANDOFF.md
-# Version 4.1.10
+# Version 5.2.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v4.1.10 (pending deploy)
+**Bot version**: v5.2.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v5.2.0 — Per-Cluster LLM Summarization
+
+Phase 2 of the v5 cluster-based summarization pipeline. Each cluster now
+gets a structured LLM summary (label, summary, decisions, key_facts,
+action_items, open_questions, status) via a single Gemini call per cluster.
+
+**New files:**
+- `utils/cluster_summarizer.py` v1.0.0 — `CLUSTER_SYSTEM_PROMPT`,
+  `CLUSTER_SUMMARY_SCHEMA` (flat JSON, summary field listed first to force
+  synthesis before extraction); `summarize_cluster()` loads messages, formats
+  with M-labels (M1, M2, ...), truncates to 50 most recent if cluster > 50
+  msgs, calls Gemini with structured output, retries once on failure, stores
+  label/summary JSON blob/status; `summarize_all_clusters()` sequential loop
+  returning `{processed, failed}` counts
+
+**Modified files:**
+- `utils/cluster_store.py` v1.1.0 — added four helpers:
+  `get_cluster_message_ids()`, `get_clusters_for_channel()`,
+  `update_cluster_label_summary()`, `get_messages_by_ids()` (added here
+  instead of message_store.py which is at 254 lines)
+- `commands/debug_commands.py` v1.5.0 — `!debug summarize_clusters` command:
+  checks for existing clusters (prompts `!debug clusters` if none), iterates
+  clusters calling `summarize_cluster()` per cluster, sends Discord progress
+  every 5 clusters, paginates final report
+
+**Summary JSON blob format** (stored in `clusters.summary`):
+```json
+{
+    "text": "1-3 sentence summary...",
+    "decisions": [...],
+    "key_facts": [...],
+    "action_items": [...],
+    "open_questions": [...]
+}
+```
+
+**To validate:**
+1. Run `!debug summarize_clusters` on #openclaw (56 clusters → 1-3 min, ~56 Gemini calls)
+2. Verify labels are 3-8 words and descriptive
+3. Verify `clusters.summary` is populated: `SELECT id, label, summary FROM clusters LIMIT 5`
+4. Check failure count in output — expect 0 failures
+5. Verify existing bot behavior unchanged (regression check)
+
+**What's next (Phase 3):** Cross-cluster overview + summary storage — generates
+channel-level overview from cluster summaries, stores in `channel_summaries`,
+wires into `!summary create` to replace the v4.x three-pass pipeline.
+
+---
+
+### v5.1.0 — Schema + HDBSCAN Clustering Core
+
+Phase 1 of the v5 cluster-based summarization pipeline. No LLM calls,
+no changes to the response pipeline. Proves that clustering produces
+meaningful topic groups from existing message embeddings.
+
+**New files:**
+- `schema/005.sql` — `clusters` + `cluster_messages` tables; migration
+  applied automatically on restart
+- `utils/cluster_engine.py` v1.0.0 — UMAP (cosine, 1536→5 dims) +
+  HDBSCAN (euclidean, eom selection); noise reduction reassigns noise
+  points to nearest centroid above RETRIEVAL_MIN_SCORE (0.25); centroids
+  computed as normalized mean in original 1536-dim space
+- `utils/cluster_store.py` v1.0.0 — SQLite CRUD, run_clustering()
+  orchestrator, format_cluster_report() for Discord output
+
+**Modified files:**
+- `config.py` v1.13.0 — CLUSTER_MIN_CLUSTER_SIZE, CLUSTER_MIN_SAMPLES,
+  UMAP_N_NEIGHBORS, UMAP_N_COMPONENTS (all env-var overridable)
+- `debug_commands.py` v1.4.0 — `!debug clusters` runs pipeline, stores
+  results, displays report
+- `requirements.txt` — scikit-learn>=1.3, umap-learn>=0.5
+
+**To validate:**
+1. Run `!debug clusters` on #openclaw — expect 8-15 clusters, <30% noise
+2. Run on large channel (~1600 msgs) — expect <10s, 15-40 clusters
+3. Spot-check coherence by querying cluster_messages JOIN messages
+
+**What's next (Phase 2):** Per-cluster LLM summarization — reads
+`clusters` + `cluster_messages`, calls Gemini Flash Lite for each
+cluster, populates `clusters.label` and `clusters.summary`.
+
+---
 
 ### v4.1.10 — Inject Today's Date into Context
 The model had no way to know the current date, so retrieved message timestamps
@@ -236,18 +319,21 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Deploy and test v4.1.1
+### 1. Restart bot + run v5.2.0 validation
 ```
-1. sudo systemctl restart discord-bot
-2. Ask "what have we said about bonobos?" — key facts framing fix
-   → Expect: model answers from key facts ("common ancestor ~6-8 million years ago")
-3. Ask about gorillas (topic exists)
-   → Expect: topic retrieval fires as before (regression check)
-4. Ask about quantum physics (not discussed)
-   → Expect: both paths empty, full summary fallback
+sudo systemctl restart discord-bot
+
+# In Discord on #openclaw:
+!debug summarize_clusters
+# → Expect: "Processing 56 clusters..." then progress every 5
+# → Expect: all clusters labeled, 0 failures
+# → Spot-check: "Database Selection and Hosting" or similar label quality
 ```
 
-### 2. Merge claude-code → development → main as v4.1.1
+### 2. Design v5.3.0 — Cross-Cluster Overview
+v5.3.0 adds `generate_overview()` to `cluster_summarizer.py` and wires
+`run_cluster_pipeline()` into `summarizer.py` so `!summary create` uses
+the new cluster pipeline instead of the three-pass Secretary/Structurer path.
 
 ---
 
