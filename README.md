@@ -1,5 +1,5 @@
 # README.md
-# Version 4.1.10
+# Version 5.2.0
 
 # Synthergy Discord Bot
 
@@ -45,6 +45,8 @@ python main.py
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
 | `!debug backfill` | admin | Embed unembedded messages + re-link all topics |
+| `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
+| `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!status` | all | Show bot settings for this channel |
 | `!autorespond on/off` | admin | Toggle auto-response |
 | `!ai [provider]` | admin | Switch AI provider (openai/anthropic/deepseek) |
@@ -61,7 +63,7 @@ discord-bot/
 ├── main.py                        # Entry point
 ├── bot.py                         # Discord events, message routing
 ├── config.py                      # Environment configuration
-├── schema/                        # SQLite migration files (001–004)
+├── schema/                        # SQLite migration files (001–005)
 ├── ai_providers/                  # Provider implementations
 │   ├── openai_provider.py             # GPT + image generation
 │   ├── anthropic_provider.py          # Claude models
@@ -77,6 +79,9 @@ discord-bot/
 │   ├── status_commands.py             # !status
 │   └── history_commands.py            # !history
 └── utils/
+    ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
+    ├── cluster_store.py               # Cluster CRUD, orchestration, diagnostics
+    ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
     ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier

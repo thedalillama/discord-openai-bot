@@ -1,5 +1,5 @@
 # config.py
-# Version 1.12.6
+# Version 1.13.0
 """
 Bot configuration module.
 Loads and provides access to environment variables and other configuration.
@@ -167,6 +167,16 @@ MAX_RECENT_MESSAGES = int(os.environ.get('MAX_RECENT_MESSAGES', 5))
 # RETRIEVAL_MSG_FALLBACK: max messages returned by direct embedding fallback
 # when topic retrieval returns empty (SOW v4.1.0).
 RETRIEVAL_MSG_FALLBACK = int(os.environ.get('RETRIEVAL_MSG_FALLBACK', 15))
+
+# HDBSCAN clustering configuration (v5.1.0)
+# CLUSTER_MIN_CLUSTER_SIZE: minimum messages per cluster. Lower = more clusters.
+CLUSTER_MIN_CLUSTER_SIZE = int(os.environ.get('CLUSTER_MIN_CLUSTER_SIZE', '5'))
+# CLUSTER_MIN_SAMPLES: noise sensitivity. Higher = more noise points.
+CLUSTER_MIN_SAMPLES = int(os.environ.get('CLUSTER_MIN_SAMPLES', '3'))
+# UMAP_N_NEIGHBORS: neighborhood size for UMAP. Lower = more local structure.
+UMAP_N_NEIGHBORS = int(os.environ.get('UMAP_N_NEIGHBORS', '15'))
+# UMAP_N_COMPONENTS: output dimensions for UMAP reduction.
+UMAP_N_COMPONENTS = int(os.environ.get('UMAP_N_COMPONENTS', '5'))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

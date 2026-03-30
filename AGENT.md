@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 4.1.10
+# Version 5.1.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -88,6 +88,15 @@
 - Cold start slices to `SUMMARIZER_BATCH_SIZE` then continues via incremental loop — prevents 65K+ token responses
 - After pipeline: all active + archived topics stored with embeddings and linked to messages
 - Provider: Gemini for Secretary/Structurer, GPT-4o-mini for Classifier
+
+### Clustering Pipeline (v5.1.0)
+- `utils/cluster_engine.py` — UMAP (cosine, 1536→5 dims) + HDBSCAN (euclidean, eom)
+- Noise reduction: noise points reassigned to nearest centroid above RETRIEVAL_MIN_SCORE
+- Centroids: normalized mean of member embeddings in original 1536-dim space
+- `utils/cluster_store.py` — CRUD, run_clustering() orchestrator, format_cluster_report()
+- `schema/005.sql` — clusters + cluster_messages tables (sit alongside v4.x topics tables)
+- `!debug clusters` — runs full pipeline, stores to DB, shows diagnostic report
+- v4.x summarization + retrieval pipeline **unchanged** in Phase 1
 
 ### Conversation Providers
 - OpenAI, Anthropic, DeepSeek — per-channel configurable
