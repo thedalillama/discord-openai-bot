@@ -1,5 +1,5 @@
 # README.md
-# Version 5.2.0
+# Version 5.3.0
 
 # Synthergy Discord Bot
 
@@ -82,6 +82,7 @@ discord-bot/
     ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
     ├── cluster_store.py               # Cluster CRUD, orchestration, diagnostics
     ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
+    ├── cluster_overview.py            # Cross-cluster overview, field translation, pipeline entry
     ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
@@ -119,20 +120,21 @@ Every response is built from two context layers:
 
 **Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
 
-## Summarization System
+## Summarization System (v5.3.0 — cluster-based)
 
-The bot maintains "living meeting minutes" for each channel via a three-pass pipeline:
+`!summary create` runs the full cluster pipeline via `summarizer.py` → `cluster_overview.py`:
 
-**Cold start**: first `SUMMARIZER_BATCH_SIZE` messages run through the cold start pipeline; remaining messages continue through the incremental loop. Prevents 65K+ token Structurer responses on large initial ingests.
+1. **Cluster**: UMAP + HDBSCAN groups all message embeddings into topic clusters
+2. **Per-cluster summarize**: single Gemini call per cluster → label, summary, decisions, key_facts, action_items, open_questions
+3. **Overview**: single Gemini call with all cluster summaries → channel-level overview + deduplicated cross-cluster items
+4. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
 
-**Incremental**: same pipeline, but Secretary receives existing minutes and Classifier receives the full existing summary for semantic dedup.
-
-**After each run**: existing topics for the channel are cleared, then the new authoritative topic set is stored with embeddings and linked to their most relevant messages by cosine similarity. This prevents duplicates accumulating across runs.
+The v4.x three-pass Secretary/Structurer/Classifier pipeline (`summarizer_authoring.py`) is retained but no longer called — rollback safety.
 
 **Key design choices:**
 - Decision = agreement on a course of action (not fact lookups)
-- Fresh-from-source summarization (no recursive summary-of-summary)
-- Hash-protected fields with supersession lifecycle
+- Fresh-from-source: cluster pipeline processes raw messages, not summaries of summaries
+- Field translation at storage time — display layer (`format_always_on_context`) unchanged
 - Prefix-based noise filtering (ℹ️/⚙️) replaces pattern matching
 
 ## Configuration
