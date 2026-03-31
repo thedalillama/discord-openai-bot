@@ -1,8 +1,21 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.2.0
+# Version 5.3.0
 
 ## Current Version Features
+
+### Version 5.3.0 — Cross-Cluster Overview + Pipeline Wiring
+- **NEW**: `utils/cluster_overview.py` v1.0.0 — `OVERVIEW_SYSTEM_PROMPT`,
+  `OVERVIEW_SCHEMA` (flat JSON, participants field); `_format_cluster_input()`
+  formats stored cluster summaries as text; `generate_overview()` single Gemini
+  call → channel-level overview; `translate_to_channel_summary()` maps v5.2.0
+  `text` fields to v4.x field names (`fact`/`task`/`question`/`decision`) so
+  `format_always_on_context()` requires zero changes; `run_cluster_pipeline()`
+  full pipeline orchestrator (cluster → summarize → overview → save)
+- **MODIFIED**: `utils/summarizer.py` v3.0.0 — `summarize_channel()` routes to
+  `run_cluster_pipeline()`; v4.x functions retained for rollback safety
+- **MODIFIED**: `commands/summary_commands.py` v2.3.0 — `!summary create`
+  displays cluster-v5 stats; `!summary clear` also calls `clear_channel_clusters()`
 
 ### Version 5.2.0 — Per-Cluster LLM Summarization
 - **NEW**: `utils/cluster_summarizer.py` v1.0.0 — per-cluster Gemini summarization;
@@ -180,11 +193,12 @@ discord-bot/
 │   ├── prompt_commands.py         # v2.1.0
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
-│   ├── summary_commands.py        # v2.2.0
+│   ├── summary_commands.py        # v2.3.0
 │   └── debug_commands.py          # v1.5.0
 ├── utils/
 │   ├── cluster_engine.py          # v1.0.0
 │   ├── cluster_store.py           # v1.1.0
+│   ├── cluster_overview.py        # v1.0.0
 │   ├── cluster_summarizer.py      # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
@@ -194,7 +208,7 @@ discord-bot/
 │   ├── embedding_store.py         # v1.5.0
 │   ├── context_manager.py         # v2.1.3
 │   ├── response_handler.py        # v1.1.4
-│   ├── summarizer.py              # v2.1.0
+│   ├── summarizer.py              # v3.0.0
 │   ├── summarizer_authoring.py    # v1.10.2
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_delta_schema.py    # v1.0.0

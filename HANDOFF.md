@@ -1,17 +1,63 @@
 # HANDOFF.md
-# Version 5.2.0
+# Version 5.3.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.2.0
+**Bot version**: v5.3.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 
 ---
 
 ## What Just Happened
+
+### v5.3.0 — Cross-Cluster Overview + Pipeline Wiring
+
+`!summary create` now runs the full cluster pipeline. The v4.x three-pass
+Secretary/Structurer/Classifier pipeline is no longer called.
+
+**New files:**
+- `utils/cluster_overview.py` v1.0.0 — `generate_overview()` makes a single
+  Gemini call with all cluster summaries formatted as text, producing a
+  channel-level overview; `translate_to_channel_summary()` maps v5.2.0 `text`
+  fields to v4.x names (`fact`/`task`/`question`/`decision`) + adds
+  `status: "active"` to key_facts so `format_always_on_context()` requires
+  zero changes; `run_cluster_pipeline()` is the single entry point that
+  orchestrates: cluster → summarize → overview → translate → save
+
+**Modified files:**
+- `utils/summarizer.py` v3.0.0 — `summarize_channel()` now a thin router to
+  `run_cluster_pipeline()`; accepts `batch_size` for API compatibility but
+  ignores it; v4.x functions retained for rollback safety
+- `commands/summary_commands.py` v2.3.0 — `!summary create` displays
+  cluster-v5 stats (pipeline, clusters, noise, messages, overview status);
+  `!summary clear` also calls `clear_channel_clusters()`
+
+**Result format from `summarize_channel()` (v5 path):**
+```python
+{
+    "cluster_count": 56,
+    "noise_count": 12,
+    "messages_processed": 741,
+    "overview_generated": True,
+    "error": None,
+}
+```
+
+**To validate:**
+1. Run `!summary clear` on #openclaw — verify "Summary and clusters cleared"
+2. Run `!summary create` — expect cluster-v5 stats output, ~3-5 min
+3. Run `!summary` — verify overview, key facts, decisions, actions display
+4. Send a message to the bot — verify normal response (always-on context injects)
+5. Check logs: `sudo journalctl -u discord-bot --since "5 min ago" | grep overview`
+
+**What's next (v5.4.0):** Swap topic retrieval (`find_relevant_topics()`) with
+cluster-based retrieval — use cluster centroids instead of topic embeddings for
+the per-query context retrieval path.
+
+---
 
 ### v5.2.0 — Per-Cluster LLM Summarization
 
@@ -319,21 +365,20 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Restart bot + run v5.2.0 validation
+### 1. Restart bot + run v5.3.0 validation
 ```
 sudo systemctl restart discord-bot
 
 # In Discord on #openclaw:
-!debug summarize_clusters
-# → Expect: "Processing 56 clusters..." then progress every 5
-# → Expect: all clusters labeled, 0 failures
-# → Spot-check: "Database Selection and Hosting" or similar label quality
+!summary clear       # → "Summary and clusters cleared"
+!summary create      # → cluster-v5 stats (takes 3-5 min)
+!summary             # → verify overview + key facts display
 ```
 
-### 2. Design v5.3.0 — Cross-Cluster Overview
-v5.3.0 adds `generate_overview()` to `cluster_summarizer.py` and wires
-`run_cluster_pipeline()` into `summarizer.py` so `!summary create` uses
-the new cluster pipeline instead of the three-pass Secretary/Structurer path.
+### 2. Design v5.4.0 — Cluster-Based Retrieval
+Replace `find_relevant_topics()` with cluster centroid retrieval.
+Query embedding → cosine similarity vs cluster centroids →
+inject top cluster messages into context.
 
 ---
 

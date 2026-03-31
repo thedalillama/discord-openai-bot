@@ -1,7 +1,14 @@
 # commands/summary_commands.py
-# Version 2.2.0
+# Version 2.3.0
 """
 !summary command group for channel summary management.
+
+CHANGES v2.3.0: Cluster pipeline result display + clear clusters on !summary clear
+- MODIFIED: summary_create result handler displays cluster-v5 pipeline stats
+  (cluster_count, noise_count, messages_processed) for new pipeline; retains
+  v4.x display for backwards compatibility on rollback
+- MODIFIED: summary_clear also calls clear_channel_clusters() to wipe cluster
+  data alongside the channel summary
 
 CHANGES v2.2.0: ℹ️/⚙️ prefix tagging for noise filtering
 - ALL ctx.send() output prefixed with ℹ️ for automatic filtering
@@ -15,7 +22,7 @@ Usage:
   !summary full    All sections including facts and archived topics
   !summary raw     Secretary's natural language minutes (cold start only)
   !summary create  Run summarization (admin only)
-  !summary clear   Delete stored summary (admin only)
+  !summary clear   Delete stored summary and clusters (admin only)
 """
 import json
 from utils.logging_utils import get_logger
@@ -80,17 +87,31 @@ def register_summary_commands(bot):
                     return
                 msgs = result["messages_processed"]
                 if msgs == 0:
-                    await ctx.send(f"{_I}No new messages to summarize for #{channel_name}.")
+                    await ctx.send(f"{_I}No messages to summarize for #{channel_name}.")
                     return
-                tokens = result["token_count"]
-                v = result.get("verification", {})
-                mm, sf = v.get("mismatches", 0), v.get("source_checks_failed", 0)
-                lines = [f"**Summary updated for #{channel_name}**",
-                         f"Messages processed: {msgs}",
-                         f"Summary token count: {tokens}"]
-                if mm: lines.append(f"⚠️ Hash mismatches: {mm}")
-                if sf: lines.append(f"⚠️ Source verification failures: {sf}")
-                if not mm and not sf: lines.append("✅ Verification passed")
+                # cluster-v5 pipeline result
+                if "cluster_count" in result:
+                    overview_mark = "✅" if result.get("overview_generated") else "⚠️ failed"
+                    lines = [
+                        f"**Summary created for #{channel_name}**",
+                        f"Pipeline: cluster-v5",
+                        f"Clusters: {result['cluster_count']} "
+                        f"({result['noise_count']} noise messages)",
+                        f"Messages processed: {msgs}",
+                        f"{overview_mark} Overview generated",
+                    ]
+                else:
+                    # v4.x pipeline result (rollback path)
+                    tokens = result.get("token_count", 0)
+                    v = result.get("verification", {})
+                    mm = v.get("mismatches", 0)
+                    sf = v.get("source_checks_failed", 0)
+                    lines = [f"**Summary updated for #{channel_name}**",
+                             f"Messages processed: {msgs}",
+                             f"Summary token count: {tokens}"]
+                    if mm: lines.append(f"⚠️ Hash mismatches: {mm}")
+                    if sf: lines.append(f"⚠️ Source verification failures: {sf}")
+                    if not mm and not sf: lines.append("✅ Verification passed")
                 await ctx.send(f"{_I}" + "\n".join(lines))
             except Exception as e:
                 logger.error(f"Error in !summary create: {e}")
@@ -98,18 +119,21 @@ def register_summary_commands(bot):
 
     @summary_cmd.command(name='clear')
     async def summary_clear(ctx):
-        """Delete the stored summary (admin only)."""
+        """Delete the stored summary and clusters (admin only)."""
         channel_name = ctx.channel.name
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}You need admin permissions to clear the summary.")
             return
         try:
+            import asyncio
             from utils.summary_store import delete_channel_summary
+            from utils.cluster_store import clear_channel_clusters
             deleted = delete_channel_summary(ctx.channel.id)
+            await asyncio.to_thread(clear_channel_clusters, ctx.channel.id)
             if deleted:
-                await ctx.send(f"{_I}Summary cleared for #{channel_name}.")
+                await ctx.send(f"{_I}Summary and clusters cleared for #{channel_name}.")
             else:
-                await ctx.send(f"{_I}No summary found for #{channel_name}.")
+                await ctx.send(f"{_I}No summary found for #{channel_name}. Clusters cleared.")
         except Exception as e:
             logger.error(f"Error in !summary clear: {e}")
             await ctx.send(f"{_I}Error: {str(e)[:1800]}")
