@@ -8,32 +8,49 @@
 **Bot version**: v5.3.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
+**Pipeline**: cluster-v5 (validated on #openclaw: 741 msgs, 56 clusters, 0 failures)
+**Cost**: ~$0.01 per summarization run (56 Gemini cluster calls + 1 overview call, ~102K tokens total)
 
 ---
 
 ## What Just Happened
 
-### v5.3.0 — Cross-Cluster Overview + Pipeline Wiring
+### v5.3.0 — Cluster Pipeline (validated + committed)
 
-`!summary create` now runs the full cluster pipeline. The v4.x three-pass
-Secretary/Structurer/Classifier pipeline is no longer called.
+`!summary create` now runs the full cluster-v5 pipeline. The v4.x three-pass
+Secretary/Structurer/Classifier pipeline is no longer called (retained for rollback).
+
+**Pipeline order:**
+```
+1. UMAP + HDBSCAN  →  cluster_engine.py
+2. Per-cluster Gemini summarize  →  cluster_summarizer.py
+3. Aggregate structured items from all cluster blobs
+4. GPT-4o-mini classifier (whitelist, default-to-DROP)  →  cluster_classifier.py
+5. Overview Gemini (labels + summaries only → overview + participants)  →  cluster_overview.py
+6. Merge overview + participants + filtered items
+7. translate_to_channel_summary() (text → fact/task/question/decision)
+8. Embedding dedup (0.85 cosine threshold)  →  cluster_qa.py
+9. Answered-Q check (GPT-4o-mini YES/NO)  →  cluster_qa.py
+10. save_channel_summary()
+```
+
+**Key decisions made during development:**
+- Classifier runs BEFORE overview LLM — original design sent all structured fields to Gemini,
+  producing 16K+ token output that truncated and failed to parse with 56 clusters
+- Overview LLM receives labels + summary texts only — reduces output to a few hundred tokens
+- GPT-4o-mini and DeepSeek Reasoner both failed at full-JSON QA dedup — LLMs won't delete
+  content they're given; embedding dedup solves this without LLM reluctance
+- Default-to-DROP on missing classifier verdicts — truncated responses produce less noise
 
 **New files:**
-- `utils/cluster_overview.py` v1.0.0 — `generate_overview()` makes a single
-  Gemini call with all cluster summaries formatted as text, producing a
-  channel-level overview; `translate_to_channel_summary()` maps v5.2.0 `text`
-  fields to v4.x names (`fact`/`task`/`question`/`decision`) + adds
-  `status: "active"` to key_facts so `format_always_on_context()` requires
-  zero changes; `run_cluster_pipeline()` is the single entry point that
-  orchestrates: cluster → summarize → overview → translate → save
+- `utils/cluster_overview.py` v2.2.0
+- `utils/cluster_classifier.py` v1.6.0
+- `utils/cluster_qa.py` v1.0.0
 
 **Modified files:**
-- `utils/summarizer.py` v3.0.0 — `summarize_channel()` now a thin router to
-  `run_cluster_pipeline()`; accepts `batch_size` for API compatibility but
-  ignores it; v4.x functions retained for rollback safety
-- `commands/summary_commands.py` v2.3.0 — `!summary create` displays
-  cluster-v5 stats (pipeline, clusters, noise, messages, overview status);
-  `!summary clear` also calls `clear_channel_clusters()`
+- `utils/summarizer.py` v3.0.0 — thin router to `run_cluster_pipeline()`
+- `commands/summary_commands.py` v2.3.0 — cluster-v5 stats display; clear clusters on clear
+- `utils/summary_display.py` v1.3.2 — footer shows `N clusters (M noise) | cluster-v5`
 
 **Result format from `summarize_channel()` (v5 path):**
 ```python
@@ -46,16 +63,16 @@ Secretary/Structurer/Classifier pipeline is no longer called.
 }
 ```
 
-**To validate:**
-1. Run `!summary clear` on #openclaw — verify "Summary and clusters cleared"
-2. Run `!summary create` — expect cluster-v5 stats output, ~3-5 min
-3. Run `!summary` — verify overview, key facts, decisions, actions display
-4. Send a message to the bot — verify normal response (always-on context injects)
-5. Check logs: `sudo journalctl -u discord-bot --since "5 min ago" | grep overview`
+**Known issues (minor):**
+- A few near-duplicate key facts survive dedup (e.g. age phrased two different ways with
+  cosine similarity just under 0.85) — acceptable for now
+- One stale action item (flight check for a past date) — classifier correctly KEEPs it
+  because it has a human owner, but the QA answered-Q check doesn't catch stale dates
+- Both are cosmetic and don't affect bot response quality
 
-**What's next (v5.4.0):** Swap topic retrieval (`find_relevant_topics()`) with
-cluster-based retrieval — use cluster centroids instead of topic embeddings for
-the per-query context retrieval path.
+**What's next (v5.4.0):** Swap topic retrieval (`find_relevant_topics()`) with cluster
+centroid retrieval — use cluster centroids instead of topic embeddings for the per-query
+context injection path.
 
 ---
 
@@ -331,7 +348,21 @@ Incoming user message
   → token budget trimmer drops oldest recent messages to compensate
 ```
 
-### Three-Pass Summarization Pipeline (both cold start + incremental)
+### Cluster-v5 Summarization Pipeline (current)
+```
+Message embeddings (already stored by raw_events.py)
+  → UMAP (1536→5 dims, cosine) + HDBSCAN (euclidean, eom)
+  → noise reassignment to nearest centroid
+  → Per-cluster Gemini: label + summary + decisions + key_facts + action_items + open_questions
+  → Aggregate all structured items (flat lists, fresh IDs)
+  → GPT-4o-mini classifier: whitelist filter, default-to-DROP
+  → Overview Gemini: labels + summary texts → overview + participants
+  → Merge + translate_to_channel_summary() (text→fact/task/question/decision)
+  → Embedding dedup (0.85 cosine) + answered-Q check (GPT-4o-mini YES/NO)
+  → save_channel_summary()
+```
+
+### Three-Pass Summarization Pipeline (v4.x — retained for rollback)
 ```
 Raw messages + existing minutes
   → Secretary (Gemini, natural language minutes)
@@ -365,15 +396,8 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Restart bot + run v5.3.0 validation
-```
-sudo systemctl restart discord-bot
-
-# In Discord on #openclaw:
-!summary clear       # → "Summary and clusters cleared"
-!summary create      # → cluster-v5 stats (takes 3-5 min)
-!summary             # → verify overview + key facts display
-```
+### 1. Merge claude-code → main
+The pipeline is validated. Push the branch and merge.
 
 ### 2. Design v5.4.0 — Cluster-Based Retrieval
 Replace `find_relevant_topics()` with cluster centroid retrieval.
@@ -399,18 +423,28 @@ inject top cluster messages into context.
 | `config.py` | v1.12.6 | All retrieval config vars incl. RETRIEVAL_MSG_FALLBACK |
 | `schema/004.sql` | — | topics, topic_messages, message_embeddings |
 
-### Summarization Pipeline Files
+### Cluster Pipeline Files (v5.3.0)
 | File | Version | Key Role |
 |------|---------|----------|
-| `utils/summarizer.py` | v2.1.0 | Orchestrator, delegates to pipeline |
-| `utils/summarizer_authoring.py` | v1.10.1 | Three-pass pipeline (shared) |
+| `utils/cluster_engine.py` | v1.0.0 | UMAP + HDBSCAN, noise reduction, centroids |
+| `utils/cluster_store.py` | v1.1.0 | CRUD, run_clustering() orchestrator |
+| `utils/cluster_summarizer.py` | v1.0.0 | Per-cluster Gemini summarization |
+| `utils/cluster_overview.py` | v2.2.0 | Pipeline orchestrator, overview LLM, field translation |
+| `utils/cluster_classifier.py` | v1.6.0 | GPT-4o-mini whitelist filter |
+| `utils/cluster_qa.py` | v1.0.0 | Embedding dedup + answered-Q check |
+| `utils/summarizer.py` | v3.0.0 | Thin router to run_cluster_pipeline() |
+| `utils/summary_display.py` | v1.3.2 | cluster-v5 footer + always-on formatter |
+| `schema/005.sql` | — | clusters + cluster_messages tables |
+
+### v4.x Pipeline Files (retained for rollback)
+| File | Version | Key Role |
+|------|---------|----------|
+| `utils/summarizer_authoring.py` | v1.10.2 | Three-pass Secretary/Structurer/Classifier |
 | `utils/summary_delta_schema.py` | v1.0.0 | anyOf schema + translate_ops() |
 | `utils/summary_classifier.py` | v1.3.0 | GPT-4o-mini + existing dedup |
-| `utils/summary_prompts.py` | v1.6.0 | Incremental prompt (camelCase) |
-| `utils/summary_prompts_authoring.py` | v1.5.0 | Secretary/Structurer prompts |
+| `utils/summary_prompts_authoring.py` | v1.6.0 | Secretary/Structurer prompts |
 | `utils/summary_schema.py` | v1.4.0 | apply_ops(), verify, DELTA_SCHEMA |
 | `utils/summary_store.py` | v1.1.0 | SQLite read/write |
-| `ai_providers/gemini_provider.py` | v1.2.1 | use_json_schema for anyOf |
 
 ---
 

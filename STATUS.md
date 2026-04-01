@@ -4,18 +4,46 @@
 
 ## Current Version Features
 
-### Version 5.3.0 — Cross-Cluster Overview + Pipeline Wiring
-- **NEW**: `utils/cluster_overview.py` v1.0.0 — `OVERVIEW_SYSTEM_PROMPT`,
-  `OVERVIEW_SCHEMA` (flat JSON, participants field); `_format_cluster_input()`
-  formats stored cluster summaries as text; `generate_overview()` single Gemini
-  call → channel-level overview; `translate_to_channel_summary()` maps v5.2.0
-  `text` fields to v4.x field names (`fact`/`task`/`question`/`decision`) so
-  `format_always_on_context()` requires zero changes; `run_cluster_pipeline()`
-  full pipeline orchestrator (cluster → summarize → overview → save)
-- **MODIFIED**: `utils/summarizer.py` v3.0.0 — `summarize_channel()` routes to
-  `run_cluster_pipeline()`; v4.x functions retained for rollback safety
-- **MODIFIED**: `commands/summary_commands.py` v2.3.0 — `!summary create`
-  displays cluster-v5 stats; `!summary clear` also calls `clear_channel_clusters()`
+### Version 5.3.0 — Cluster Pipeline (validated + committed)
+
+`!summary create` now runs the full cluster-v5 pipeline. Validated on #openclaw:
+741 messages, 56 clusters, 0 failures, ~$0.01 total cost.
+
+**Pipeline order:**
+1. UMAP + HDBSCAN clustering (`cluster_engine.py`)
+2. Per-cluster Gemini summarization — one call per cluster (`cluster_summarizer.py`)
+3. Aggregate structured items (decisions, key_facts, action_items, open_questions) across all clusters
+4. GPT-4o-mini classifier — whitelist filter, default-to-DROP on missing verdict (`cluster_classifier.py`)
+5. Overview Gemini call — labels + summary texts only → overview + participants (`cluster_overview.py`)
+6. Merge overview + participants + filtered items
+7. `translate_to_channel_summary()` — maps `text` → `fact`/`task`/`question`/`decision`
+8. Embedding dedup — cosine similarity 0.85 threshold, all four arrays (`cluster_qa.py`)
+9. Answered-question check — GPT-4o-mini YES/NO per question vs decisions + facts (`cluster_qa.py`)
+10. `save_channel_summary()`
+
+**Key design choices:**
+- Classifier runs BEFORE overview LLM — prevents 16K+ token JSON blowup from 56 clusters
+- Overview receives labels + summary text only (not structured fields) — tiny response
+- Embedding dedup handles "Use PostgreSQL" × 3 etc. without LLM reluctance
+- Answered-question check is a targeted binary classification — works well with GPT-4o-mini
+- Default-to-DROP on missing classifier verdicts — truncation produces less noise, not more
+- v4.x three-pass pipeline retained in `summarizer_authoring.py` — rollback safety only
+
+**New files (v5.3.0 final):**
+- `utils/cluster_overview.py` v2.2.0 — `generate_overview()`, `_collect_structured_items()`,
+  `translate_to_channel_summary()`, `run_cluster_pipeline()` orchestrator
+- `utils/cluster_classifier.py` v1.6.0 — GPT-4o-mini whitelist filter; `classify_overview_items()`,
+  `_build_prompt()`, `_apply_verdicts()` (default-to-DROP); `CLASSIFIER_SYSTEM_PROMPT` with
+  6-category KEEP whitelist
+- `utils/cluster_qa.py` v1.0.0 — post-classifier QA; `deduplicate_summary()` (embedding cosine
+  dedup, 0.85 threshold), `remove_answered_questions()` (GPT-4o-mini YES/NO)
+
+**Modified files:**
+- `utils/summarizer.py` v3.0.0 — `summarize_channel()` routes to `run_cluster_pipeline()`
+- `utils/summary_commands.py` v2.3.0 — `!summary create` displays cluster-v5 stats;
+  `!summary clear` also calls `clear_channel_clusters()`
+- `utils/summary_display.py` v1.3.2 — footer detects cluster-v5 schema, shows
+  `N clusters (M noise) | cluster-v5` instead of `0 messages | 0 tokens`
 
 ### Version 5.2.0 — Per-Cluster LLM Summarization
 - **NEW**: `utils/cluster_summarizer.py` v1.0.0 — per-cluster Gemini summarization;
@@ -198,8 +226,10 @@ discord-bot/
 ├── utils/
 │   ├── cluster_engine.py          # v1.0.0
 │   ├── cluster_store.py           # v1.1.0
-│   ├── cluster_overview.py        # v1.0.0
 │   ├── cluster_summarizer.py      # v1.0.0
+│   ├── cluster_overview.py        # v2.2.0
+│   ├── cluster_classifier.py      # v1.6.0
+│   ├── cluster_qa.py              # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
@@ -216,7 +246,7 @@ discord-bot/
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.6.0
 │   ├── summary_prompts_authoring.py  # v1.6.0
-│   ├── summary_display.py         # v1.3.1
+│   ├── summary_display.py         # v1.3.2
 │   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
 │   └── history/

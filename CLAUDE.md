@@ -83,48 +83,36 @@ Key files: `utils/embedding_store.py` (embeddings, linking, noise filter, retrie
 `utils/context_manager.py` (always-on + retrieval + budget + timestamps)
 
 ### Summarization Pipeline (v5.3.0 — cluster-based)
-`!summary create` now runs the full cluster pipeline via `summarizer.py` v3.0.0:
+`!summary create` runs the full cluster pipeline via `summarizer.py` v3.0.0:
 ```
-run_cluster_pipeline(channel_id)
-  → UMAP + HDBSCAN clustering (cluster_engine.py)
-  → store centroids + membership → clusters + cluster_messages tables
-  → summarize_all_clusters(): M-labeled messages → Gemini per cluster
-  → store label, summary JSON blob, status in clusters table
-  → generate_overview(): all cluster summaries → Gemini → channel overview
-  → translate_to_channel_summary(): map 'text' → v4.x field names
+run_cluster_pipeline(channel_id)               ← cluster_overview.py
+  → UMAP + HDBSCAN clustering                  ← cluster_engine.py
+  → summarize_all_clusters()                    ← cluster_summarizer.py
+      M-labeled messages → Gemini per cluster
+      store label + summary JSON blob + status
+  → _collect_structured_items()
+      aggregate decisions/facts/actions/questions from all cluster blobs
+  → classify_overview_items()                   ← cluster_classifier.py
+      GPT-4o-mini whitelist filter, default-to-DROP
+  → generate_overview()
+      Gemini: labels + summary texts only → overview + participants
+  → merge overview + participants + filtered items
+  → translate_to_channel_summary()
+      text → fact/task/question/decision (v4.x field names)
+  → deduplicate_summary()                       ← cluster_qa.py
+      embedding cosine dedup, 0.85 threshold
+  → remove_answered_questions()                 ← cluster_qa.py
+      GPT-4o-mini YES/NO per question vs decisions + facts
   → save_channel_summary() → channel_summaries table
 ```
 
-Field name translation (v5 → v4.x for display layer compatibility):
-`key_facts[].text` → `fact`, `action_items[].text` → `task`,
-`open_questions[].text` → `question`, `decisions[].text` → `decision`
-
-Key files: `summarizer.py` (router, v3.0.0), `cluster_overview.py` (overview +
-pipeline orchestrator), `cluster_summarizer.py` (per-cluster Gemini),
-`cluster_engine.py` (UMAP + HDBSCAN), `cluster_store.py` (CRUD)
+Key files: `summarizer.py` (router), `cluster_overview.py` (orchestrator + overview LLM),
+`cluster_summarizer.py` (per-cluster Gemini), `cluster_classifier.py` (whitelist filter),
+`cluster_qa.py` (dedup + answered-Q check), `cluster_engine.py` (UMAP + HDBSCAN),
+`cluster_store.py` (CRUD)
 
 **v4.x three-pass pipeline** (`summarizer_authoring.py` etc.) is retained but
 no longer called — rollback safety only.
-
-### Clustering Pipeline (v5.1.0 + v5.2.0)
-UMAP + HDBSCAN clusters existing message embeddings into topic groups.
-v5.2.0 adds per-cluster Gemini summarization.
-
-```
-get_message_embeddings(channel_id)
-  → numpy array (1536 dims)
-  → UMAP reduce (cosine, 1536 → 5 dims)
-  → HDBSCAN (euclidean, eom, min_cluster_size=5, min_samples=3)
-  → noise reduction (reassign noise points to nearest centroid > 0.25)
-  → store centroids + membership → clusters + cluster_messages tables
-  → (v5.2.0) summarize_cluster(): M-labeled messages → Gemini structured output
-  → store label, summary JSON blob, status in clusters table
-```
-
-Key files: `utils/cluster_engine.py` (math), `utils/cluster_store.py` (CRUD),
-`utils/cluster_summarizer.py` (per-cluster Gemini summarization)
-Diagnostics: `!debug clusters` — run pipeline; `!debug summarize_clusters` — LLM pass
-Schema: `schema/005.sql` — clusters + cluster_messages (alongside v4.x topics)
 
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).

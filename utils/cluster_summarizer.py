@@ -161,7 +161,7 @@ async def summarize_cluster(cluster_id, channel_id, provider):
     return None
 
 
-async def summarize_all_clusters(channel_id, provider):
+async def summarize_all_clusters(channel_id, provider, progress_fn=None):
     """Summarize all clusters for a channel sequentially.
 
     Returns dict: processed, failed counts.
@@ -169,19 +169,21 @@ async def summarize_all_clusters(channel_id, provider):
     clusters = await asyncio.to_thread(get_clusters_for_channel, channel_id)
     if not clusters:
         return {"processed": 0, "failed": 0}
+    total = len(clusters)
     processed = failed = 0
     for i, cluster in enumerate(clusters):
         result = await summarize_cluster(cluster["id"], channel_id, provider)
         if result:
             processed += 1
             logger.info(
-                f"Cluster {i+1}/{len(clusters)}: "
+                f"Cluster {i+1}/{total}: "
                 f"'{result.get('label', '?')}' ({cluster['message_count']} msgs)")
         else:
             failed += 1
             logger.warning(
-                f"Cluster {i+1}/{len(clusters)}: failed "
-                f"({cluster['message_count']} msgs)")
+                f"Cluster {i+1}/{total}: failed ({cluster['message_count']} msgs)")
+        if progress_fn and (i + 1) % 10 == 0:
+            await progress_fn(f"Summarized {i+1}/{total} clusters...")
     logger.info(
         f"summarize_all_clusters ch:{channel_id}: "
         f"{processed} ok, {failed} failed")

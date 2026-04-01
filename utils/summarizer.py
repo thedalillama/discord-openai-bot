@@ -31,7 +31,7 @@ from utils.context_manager import estimate_tokens
 logger = get_logger('summarizer')
 
 
-async def summarize_channel(channel_id, batch_size=None):
+async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
     """Generate or update the structured summary for a channel.
 
     v3.0.0: Routes to cluster-based pipeline (cluster_overview.py).
@@ -46,7 +46,8 @@ async def summarize_channel(channel_id, batch_size=None):
     from config import SUMMARIZER_PROVIDER
     provider = get_provider(SUMMARIZER_PROVIDER)
     try:
-        return await run_cluster_pipeline(channel_id, provider)
+        return await run_cluster_pipeline(channel_id, provider,
+                                          progress_fn=progress_fn)
     except Exception as e:
         logger.error(f"Cluster pipeline failed ch:{channel_id}: {e}")
         return {"error": str(e), "messages_processed": 0,

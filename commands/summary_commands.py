@@ -78,44 +78,51 @@ def register_summary_commands(bot):
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}You need admin permissions to run summarization.")
             return
-        async with ctx.typing():
-            try:
-                from utils.summarizer import summarize_channel
-                result = await summarize_channel(ctx.channel.id)
-                if result.get("error"):
-                    await ctx.send(f"{_I}Summarization failed: {str(result['error'])[:1800]}")
-                    return
-                msgs = result["messages_processed"]
-                if msgs == 0:
-                    await ctx.send(f"{_I}No messages to summarize for #{channel_name}.")
-                    return
-                # cluster-v5 pipeline result
-                if "cluster_count" in result:
-                    overview_mark = "✅" if result.get("overview_generated") else "⚠️ failed"
-                    lines = [
-                        f"**Summary created for #{channel_name}**",
-                        f"Pipeline: cluster-v5",
-                        f"Clusters: {result['cluster_count']} "
-                        f"({result['noise_count']} noise messages)",
-                        f"Messages processed: {msgs}",
-                        f"{overview_mark} Overview generated",
-                    ]
-                else:
-                    # v4.x pipeline result (rollback path)
-                    tokens = result.get("token_count", 0)
-                    v = result.get("verification", {})
-                    mm = v.get("mismatches", 0)
-                    sf = v.get("source_checks_failed", 0)
-                    lines = [f"**Summary updated for #{channel_name}**",
-                             f"Messages processed: {msgs}",
-                             f"Summary token count: {tokens}"]
-                    if mm: lines.append(f"⚠️ Hash mismatches: {mm}")
-                    if sf: lines.append(f"⚠️ Source verification failures: {sf}")
-                    if not mm and not sf: lines.append("✅ Verification passed")
-                await ctx.send(f"{_I}" + "\n".join(lines))
-            except Exception as e:
-                logger.error(f"Error in !summary create: {e}")
-                await ctx.send(f"{_I}Error running summarization: {str(e)[:1800]}")
+        await ctx.send(
+            f"{_I}Starting summarization for #{channel_name}. "
+            f"This takes several minutes...")
+        try:
+            from utils.summarizer import summarize_channel
+
+            async def _progress(msg):
+                await ctx.send(f"{_I}{msg}")
+
+            result = await summarize_channel(
+                ctx.channel.id, progress_fn=_progress)
+            if result.get("error"):
+                await ctx.send(f"{_I}Summarization failed: {str(result['error'])[:1800]}")
+                return
+            msgs = result["messages_processed"]
+            if msgs == 0:
+                await ctx.send(f"{_I}No messages to summarize for #{channel_name}.")
+                return
+            # cluster-v5 pipeline result
+            if "cluster_count" in result:
+                overview_mark = "✅" if result.get("overview_generated") else "⚠️ failed"
+                lines = [
+                    f"**Summary created for #{channel_name}**",
+                    f"Pipeline: cluster-v5",
+                    f"Clusters: {result['cluster_count']} "
+                    f"({result['noise_count']} noise messages)",
+                    f"Messages processed: {msgs}",
+                    f"{overview_mark} Overview generated",
+                ]
+            else:
+                # v4.x pipeline result (rollback path)
+                tokens = result.get("token_count", 0)
+                v = result.get("verification", {})
+                mm = v.get("mismatches", 0)
+                sf = v.get("source_checks_failed", 0)
+                lines = [f"**Summary updated for #{channel_name}**",
+                         f"Messages processed: {msgs}",
+                         f"Summary token count: {tokens}"]
+                if mm: lines.append(f"⚠️ Hash mismatches: {mm}")
+                if sf: lines.append(f"⚠️ Source verification failures: {sf}")
+                if not mm and not sf: lines.append("✅ Verification passed")
+            await ctx.send(f"{_I}" + "\n".join(lines))
+        except Exception as e:
+            logger.error(f"Error in !summary create: {e}")
+            await ctx.send(f"{_I}Error running summarization: {str(e)[:1800]}")
 
     @summary_cmd.command(name='clear')
     async def summary_clear(ctx):

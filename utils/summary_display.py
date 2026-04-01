@@ -1,7 +1,13 @@
 # utils/summary_display.py
-# Version 1.3.1
+# Version 1.3.2
 """
 Summary display formatting and pagination for Discord output.
+
+CHANGES v1.3.2: Fix footer showing all 0s for cluster-v5 summaries
+- MODIFIED: format_summary() footer now detects cluster-v5 schema
+  (presence of cluster_count key) and shows "N clusters (M noise) |
+  cluster-v5" instead of reading the v4.x message_range/token fields
+  that the cluster pipeline never populates
 
 CHANGES v1.3.1: Anchor key facts as conversation-sourced
 - CHANGED: "Key facts:" label → "Key facts established in this conversation:"
@@ -237,10 +243,15 @@ def format_summary(summary, full=False):
                 lines.append(f"• {p.get('text', '?')}")
             lines.append("")
 
-    tc = summary.get("summary_token_count", 0)
-    meta = summary.get("meta", {})
-    mr = meta.get("message_range", {})
-    count = mr.get("count", 0)
-    lines.append(f"*{count} messages summarized | {tc} tokens*")
+    if "cluster_count" in summary:
+        cc = summary["cluster_count"]
+        nc = summary.get("noise_message_count", 0)
+        lines.append(f"*{cc} clusters ({nc} noise) | cluster-v5*")
+    else:
+        tc = summary.get("summary_token_count", 0)
+        meta = summary.get("meta", {})
+        mr = meta.get("message_range", {})
+        count = mr.get("count", 0)
+        lines.append(f"*{count} messages summarized | {tc} tokens*")
 
     return lines

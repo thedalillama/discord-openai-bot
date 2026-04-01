@@ -82,7 +82,9 @@ discord-bot/
     ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
     ├── cluster_store.py               # Cluster CRUD, orchestration, diagnostics
     ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
-    ├── cluster_overview.py            # Cross-cluster overview, field translation, pipeline entry
+    ├── cluster_overview.py            # Pipeline orchestrator, overview LLM, field translation
+    ├── cluster_classifier.py          # GPT-4o-mini whitelist filter (classify_overview_items)
+    ├── cluster_qa.py                  # Embedding dedup + answered-question removal
     ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
@@ -126,16 +128,20 @@ Every response is built from two context layers:
 
 1. **Cluster**: UMAP + HDBSCAN groups all message embeddings into topic clusters
 2. **Per-cluster summarize**: single Gemini call per cluster → label, summary, decisions, key_facts, action_items, open_questions
-3. **Overview**: single Gemini call with all cluster summaries → channel-level overview + deduplicated cross-cluster items
-4. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
+3. **Classify**: GPT-4o-mini whitelist filter on aggregated items — keeps only project decisions, config, human-owned action items, user identity, channel purpose, genuine open questions; missing verdicts default to DROP
+4. **Overview**: Gemini call with cluster labels + summary texts only → channel overview paragraph + participants list (no structured fields — prevents token blowup)
+5. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items across all four arrays
+6. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + key facts in the same summary; removes answered questions
+7. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
 
-The v4.x three-pass Secretary/Structurer/Classifier pipeline (`summarizer_authoring.py`) is retained but no longer called — rollback safety.
+The v4.x three-pass Secretary/Structurer/Classifier pipeline (`summarizer_authoring.py`) is retained but no longer called — rollback safety only.
 
 **Key design choices:**
-- Decision = agreement on a course of action (not fact lookups)
-- Fresh-from-source: cluster pipeline processes raw messages, not summaries of summaries
+- Classifier runs before overview LLM — prevents 16K+ token response with 50+ clusters
+- Overview receives labels + texts only — output is a few hundred tokens max
+- Embedding dedup over LLM dedup — LLMs are reluctant to delete content they're given
+- Decision = agreement on a course of action (not fact lookups or casual preferences)
 - Field translation at storage time — display layer (`format_always_on_context`) unchanged
-- Prefix-based noise filtering (ℹ️/⚙️) replaces pattern matching
 
 ## Configuration
 
