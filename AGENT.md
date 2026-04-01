@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.1.0
+# Version 5.3.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -82,21 +82,21 @@
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
 
-### Summarization Pipeline (v3.5+)
-- Three-pass: Secretary (natural language) → Structurer (anyOf JSON) → Classifier (dedup)
-- Both cold start and incremental use the same shared `_run_pipeline()`
-- Cold start slices to `SUMMARIZER_BATCH_SIZE` then continues via incremental loop — prevents 65K+ token responses
-- After pipeline: all active + archived topics stored with embeddings and linked to messages
-- Provider: Gemini for Secretary/Structurer, GPT-4o-mini for Classifier
+### Summarization Pipeline (v5.3.0 — cluster-based)
+- `!summary create` → `summarizer.py` → `run_cluster_pipeline()` in `cluster_overview.py`
+- UMAP + HDBSCAN clustering → per-cluster Gemini summarization → classify → overview → dedup → QA → save
+- Classifier (`cluster_classifier.py`): GPT-4o-mini whitelist filter; default-to-DROP on missing verdict
+- Overview LLM receives labels + summary texts only (not structured fields) — prevents 16K+ token blowup
+- Dedup (`cluster_qa.py`): embedding cosine similarity, 0.85 threshold, all four arrays
+- Answered-Q check (`cluster_qa.py`): GPT-4o-mini YES/NO, removes questions answered by facts/decisions
+- Field translation at storage time: `text` → `fact`/`task`/`question`/`decision` (v4.x display layer unchanged)
+- v4.x three-pass pipeline (`summarizer_authoring.py`) retained for rollback — not called
 
-### Clustering Pipeline (v5.1.0)
+### Clustering Core (v5.1.0)
 - `utils/cluster_engine.py` — UMAP (cosine, 1536→5 dims) + HDBSCAN (euclidean, eom)
 - Noise reduction: noise points reassigned to nearest centroid above RETRIEVAL_MIN_SCORE
-- Centroids: normalized mean of member embeddings in original 1536-dim space
 - `utils/cluster_store.py` — CRUD, run_clustering() orchestrator, format_cluster_report()
-- `schema/005.sql` — clusters + cluster_messages tables (sit alongside v4.x topics tables)
-- `!debug clusters` — runs full pipeline, stores to DB, shows diagnostic report
-- v4.x summarization + retrieval pipeline **unchanged** in Phase 1
+- `schema/005.sql` — clusters + cluster_messages tables (alongside v4.x topics)
 
 ### Conversation Providers
 - OpenAI, Anthropic, DeepSeek — per-channel configurable
