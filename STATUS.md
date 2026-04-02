@@ -1,8 +1,44 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.3.0
+# Version 5.4.0
 
 ## Current Version Features
+
+### Version 5.4.0 — Incremental Cluster Assignment + Selective Re-Summarization
+
+On-arrival cluster assignment routes each new embedded message to its nearest
+cluster centroid without running a full re-cluster. `!summary update` re-summarizes
+only the clusters that received new messages since the last run.
+
+**Three-tier architecture:**
+1. **Tier 1 (on arrival)**: `raw_events.py` calls `assign_to_nearest_cluster()` after
+   embedding — cosine similarity vs cluster centroids, updates centroid via running
+   average + renormalize, marks cluster `needs_resummarize=1`
+2. **Tier 2 (`!summary update`)**: `quick_update_channel()` re-summarizes only dirty
+   clusters (Gemini per-cluster), then re-runs classify → overview → dedup → answered-Q → save
+3. **Tier 3 (`!summary create`)**: full re-cluster (unchanged)
+
+**Key design choices:**
+- Centroid update via running average: `(old * n + new) / (n+1)`, then normalize
+- `assign_to_nearest_cluster` fails silently — no clusters is not an error
+- `cluster_count` and `noise_message_count` preserved from existing summary (no re-cluster)
+- Unassigned count reported in `!summary update` output as prompt to run `!summary create`
+
+**New files:**
+- `schema/006.sql` — `ALTER TABLE clusters ADD COLUMN needs_resummarize INTEGER DEFAULT 0`
+- `utils/cluster_assign.py` v1.0.0 — `assign_to_nearest_cluster()`, cosine similarity,
+  centroid running average update, `_update_and_assign()`
+- `utils/cluster_update.py` v1.0.0 — `run_quick_update()`, re-summarizes dirty clusters,
+  re-runs full post-processing pipeline, preserves cluster_count + noise_count
+
+**Modified files:**
+- `utils/cluster_store.py` v2.0.0 — added `get_dirty_clusters()`, `mark_clusters_clean()`,
+  `get_unassigned_message_count()`
+- `utils/raw_events.py` v1.4.0 — calls `assign_to_nearest_cluster` after embedding
+- `utils/summarizer.py` v3.1.0 — added `quick_update_channel()`
+- `commands/summary_commands.py` v2.4.0 — added `!summary update` subcommand
+
+---
 
 ### Version 5.3.0 — Cluster Pipeline (validated + committed)
 
@@ -206,7 +242,8 @@ discord-bot/
 │   ├── 002.sql                    # v3.1.0 columns + tables
 │   ├── 003.sql                    # v3.2.3 is_bot_author
 │   ├── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
-│   └── 005.sql                    # v5.1.0 clusters, cluster_messages
+│   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
+│   └── 006.sql                    # v5.4.0 needs_resummarize column
 ├── ai_providers/
 │   ├── __init__.py                # v1.4.0
 │   ├── openai_provider.py         # v1.3.0
@@ -221,24 +258,26 @@ discord-bot/
 │   ├── prompt_commands.py         # v2.1.0
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
-│   ├── summary_commands.py        # v2.3.0
+│   ├── summary_commands.py        # v2.4.0
 │   └── debug_commands.py          # v1.5.0
 ├── utils/
 │   ├── cluster_engine.py          # v1.0.0
-│   ├── cluster_store.py           # v1.1.0
+│   ├── cluster_store.py           # v2.0.0
 │   ├── cluster_summarizer.py      # v1.0.0
 │   ├── cluster_overview.py        # v2.2.0
 │   ├── cluster_classifier.py      # v1.6.0
 │   ├── cluster_qa.py              # v1.0.0
+│   ├── cluster_assign.py          # v1.0.0
+│   ├── cluster_update.py          # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.3.0
+│   ├── raw_events.py              # v1.4.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
 │   ├── context_manager.py         # v2.1.3
 │   ├── response_handler.py        # v1.1.4
-│   ├── summarizer.py              # v3.0.0
+│   ├── summarizer.py              # v3.1.0
 │   ├── summarizer_authoring.py    # v1.10.2
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_delta_schema.py    # v1.0.0

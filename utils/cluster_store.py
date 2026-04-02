@@ -1,24 +1,17 @@
 # utils/cluster_store.py
-# Version 1.1.0
+# Version 2.0.0
 """
-SQLite CRUD and orchestration for v5.1.0 cluster-based summarization.
+SQLite CRUD and orchestration for cluster-based summarization.
 
-Handles storage, retrieval, and diagnostic formatting for clusters.
-Clustering math (UMAP + HDBSCAN) lives in cluster_engine.py.
+CHANGES v2.0.0: Incremental assignment helpers (SOW v5.4.0)
+- ADDED: get_dirty_clusters() — clusters with needs_resummarize=1
+- ADDED: mark_clusters_clean() — clear needs_resummarize flag
+- ADDED: get_unassigned_message_count() — embedded msgs not in any cluster
 
-CHANGES v1.1.0: Add CRUD helpers for v5.2.0 per-cluster summarization
-- ADDED: get_cluster_message_ids() — ordered message IDs for a cluster
-- ADDED: get_clusters_for_channel() — all clusters for summarization loop
-- ADDED: update_cluster_label_summary() — store LLM-generated fields
-- ADDED: get_messages_by_ids() — fetch message content for LLM input
-  (added here instead of message_store.py which is at 254 lines)
-
-CREATED v1.0.0: Cluster CRUD, orchestration, diagnostics (SOW v5.1.0)
-- store_cluster(): upsert cluster + member links
-- clear_channel_clusters(): delete-before-insert
-- get_cluster_stats(): diagnostics for !debug clusters
-- run_clustering(): orchestrator — cluster → clear → store
-- format_cluster_report(): Discord-ready output string
+CHANGES v1.1.0: get_cluster_message_ids, get_clusters_for_channel,
+  update_cluster_label_summary, get_messages_by_ids
+CREATED v1.0.0: store_cluster, clear_channel_clusters, get_cluster_stats,
+  run_clustering, format_cluster_report (SOW v5.1.0)
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -103,7 +96,6 @@ def run_clustering(channel_id, min_cluster_size=None, min_samples=None):
     if result is None:
         return None
 
-    # Fetch created_at for all messages so we can record date ranges
     all_msgs = get_channel_messages(channel_id)
     ts_map = {m.id: m.created_at for m in all_msgs if hasattr(m, 'created_at')}
 
@@ -182,33 +174,77 @@ def get_messages_by_ids(message_ids):
         conn.close()
 
 
+def get_dirty_clusters(channel_id):
+    """Return cluster dicts where needs_resummarize=1 for the channel."""
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT id, label, summary, status, message_count,"
+            " first_message_at, last_message_at "
+            "FROM clusters WHERE channel_id=? AND needs_resummarize=1"
+            " ORDER BY message_count DESC",
+            (channel_id,)).fetchall()
+        return [{"id": r[0], "label": r[1], "summary": r[2], "status": r[3],
+                 "message_count": r[4], "first_message_at": r[5],
+                 "last_message_at": r[6]}
+                for r in rows]
+    finally:
+        conn.close()
+
+
+def mark_clusters_clean(cluster_ids):
+    """Set needs_resummarize=0 for the given cluster IDs."""
+    if not cluster_ids:
+        return
+    placeholders = ",".join("?" * len(cluster_ids))
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        conn.execute(
+            f"UPDATE clusters SET needs_resummarize=0"
+            f" WHERE id IN ({placeholders})",
+            cluster_ids)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_unassigned_message_count(channel_id):
+    """Count embedded messages for channel not assigned to any cluster."""
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM message_embeddings me "
+            "JOIN messages m ON m.id=me.message_id "
+            "WHERE m.channel_id=? AND me.message_id NOT IN ("
+            " SELECT cm.message_id FROM cluster_messages cm"
+            " JOIN clusters c ON c.id=cm.cluster_id"
+            " WHERE c.channel_id=?)",
+            (channel_id, channel_id)).fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
 def format_cluster_report(channel_name, stats, cluster_rows, params):
     """Format !debug clusters output for Discord."""
-    total  = stats["total_messages"]
-    count  = stats["cluster_count"]
-    noise  = stats["noise_count"]
-    pct    = stats["noise_ratio"] * 100
-    largest = stats["largest_cluster_size"]
-    largest_pct = stats["largest_cluster_fraction"] * 100
-
+    total = stats["total_messages"]
+    count = stats["cluster_count"]
+    noise = stats["noise_count"]
+    pct = stats["noise_ratio"] * 100
     lines = [
         f"ℹ️ **Cluster Analysis** (channel: #{channel_name})",
-        f"Messages: {total} total, {count} clusters, "
-        f"{noise} noise ({pct:.1f}%)",
-        f"Largest cluster: {largest} msgs ({largest_pct:.1f}%)",
-        "",
+        f"Messages: {total} total, {count} clusters, {noise} noise ({pct:.1f}%)",
+        f"Largest cluster: {stats['largest_cluster_size']} msgs"
+        f" ({stats['largest_cluster_fraction']*100:.1f}%)", "",
     ]
     for i, row in enumerate(cluster_rows):
         first = (row["first_message_at"] or "")[:10]
         last  = (row["last_message_at"]  or "")[:10]
         date_range = f"{first} – {last}" if first else "no dates"
-        lines.append(
-            f"Cluster {i}: {row['message_count']} msgs ({date_range})")
+        lines.append(f"Cluster {i}: {row['message_count']} msgs ({date_range})")
     lines.append(f"Noise: {noise} msgs unassigned")
     lines.append("")
     lines.append(
-        f"Parameters: min_cluster_size={params['mcs']}, "
-        f"min_samples={params['ms']}, "
-        f"umap_n={params['umap_n']}, "
-        f"umap_d={params['umap_d']}")
+        f"Parameters: min_cluster_size={params['mcs']}, min_samples={params['ms']},"
+        f" umap_n={params['umap_n']}, umap_d={params['umap_d']}")
     return "\n".join(lines)
