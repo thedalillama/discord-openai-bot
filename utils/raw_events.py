@@ -1,8 +1,9 @@
 # utils/raw_events.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Discord event handlers for SQLite message persistence.
 
+CHANGES v1.5.0: _looks_like_diagnostic() guard — skip unprefixed bot diagnostics
 CHANGES v1.4.0: Assign new messages to nearest cluster on arrival (SOW v5.4.0)
 CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0)
 CHANGES v1.0.x-v1.2.0: reply, thread, attachments, is_bot_author capture
@@ -25,6 +26,16 @@ logger = get_logger('raw_events')
 
 # Limit concurrent channel fetches during backfill to avoid rate limits
 _backfill_semaphore = asyncio.Semaphore(3)
+
+# Diagnostic output that must never be embedded even without ℹ️ prefix
+_DIAGNOSTIC_PREFIXES = (
+    'Cluster ', 'Parameters:', 'Processed:',
+    '**Cluster Analysis', '**Cluster Summariz', '**Overview**',
+)
+
+
+def _looks_like_diagnostic(content):
+    return any(content.startswith(p) for p in _DIAGNOSTIC_PREFIXES)
 
 # Maximum messages to fetch per channel during backfill
 MAX_BACKFILL_PER_CHANNEL = 10000
@@ -81,9 +92,12 @@ def setup_raw_events(bot):
             logger.error(f"Failed to store message {msg.id}: {e}")
             return
 
-        # Embed message for semantic retrieval — skip noise and commands
+        # Embed message for semantic retrieval — skip noise, commands, and bot diagnostics
         content = msg.content
         if content and not content.startswith(('!', 'ℹ️', '⚙️')):
+            if msg.is_bot_author and _looks_like_diagnostic(content):
+                logger.debug(f"Skipping unprefixed bot diagnostic msg {msg.id}")
+                return
             try:
                 from utils.embedding_store import embed_and_store_message
                 await asyncio.to_thread(
