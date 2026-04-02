@@ -1,18 +1,43 @@
 # HANDOFF.md
-# Version 5.5.0
+# Version 5.5.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.5.0
+**Bot version**: v5.5.1
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live (clustering + incremental assignment + cluster retrieval)
+**Pipeline**: cluster-v5 fully live and validated in production
 
 ---
 
 ## What Just Happened
+
+### v5.5.1 — ℹ️ Prefix Fix + Bot Diagnostic Embedding Guard
+
+Two production bugs fixed after cluster retrieval went live.
+
+**Root cause:** `debug_clusters` (line 287) called `ctx.send(page)` without
+`ℹ️`. Pages 2+ of cluster reports entered Discord as bare text, were embedded,
+assigned to clusters, and surfaced in retrieval (confirmed: cluster report text
+retrieved when user asked about squirrels; message ID 1487990623834472541).
+
+**Fix 1:** Both `debug_clusters` and `debug_summarize_clusters` in
+`debug_commands.py` v1.6.0 now call `send_paginated()` — prefix guaranteed.
+
+**Fix 2:** `_looks_like_diagnostic()` added to `raw_events.py` v1.5.0 — 
+belt-and-suspenders guard that catches bot-authored diagnostic text at the
+embedding gate even if prefix loss recurs.
+
+**Data cleanup:** 2 contaminated embeddings deleted, 60 clusters marked dirty,
+`!summary update` run — confirmed clean (`!summary update` output: 60 clusters
+re-summarized, 3 unassigned messages, overview regenerated).
+
+**sklearn fix:** `copy=False` added to `HDBSCAN()` in `cluster_engine.py`
+v1.0.1 to silence FutureWarning about default changing in sklearn 1.10.
+
+---
 
 ### v5.5.0 — Cluster-Based Retrieval Integration
 
@@ -466,14 +491,12 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Validate v5.5.0 on server
-- Restart bot, ask questions about known cluster topics
-- Check logs: `sudo journalctl -u discord-bot --since "1 min ago" | grep -i "cluster\|retrieved\|score"`
-- Verify cluster label appears in logs, correct messages injected
-- Ask about something never discussed — verify fallback fires, no error
+### 1. Merge claude-code → main
+v5.3.0 through v5.5.1 implemented, validated in production, and ready to merge.
 
-### 2. Merge claude-code → main
-v5.3.0, v5.4.0, and v5.5.0 are all implemented and ready.
+### 2. Future: upgrade sklearn copy default
+When upgrading to sklearn 1.10+, remove `copy=False` from `HDBSCAN()` in
+`cluster_engine.py` to adopt the new safe default.
 
 ---
 
@@ -507,9 +530,11 @@ v5.3.0, v5.4.0, and v5.5.0 are all implemented and ready.
 | `utils/cluster_update.py` | v1.0.0 | Quick re-summarization of dirty clusters |
 | `utils/cluster_retrieval.py` | v1.0.0 | Query-time cluster retrieval |
 | `utils/summarizer.py` | v3.1.0 | Routes !summary create + !summary update |
-| `utils/raw_events.py` | v1.4.0 | Embed + assign to cluster on arrival |
+| `utils/raw_events.py` | v1.5.0 | Embed + assign to cluster; diagnostic guard |
 | `utils/context_manager.py` | v2.2.0 | Cluster retrieval replaces topic retrieval |
+| `utils/cluster_engine.py` | v1.0.1 | HDBSCAN copy=False (sklearn warning) |
 | `utils/summary_display.py` | v1.3.2 | cluster-v5 footer + always-on formatter |
+| `commands/debug_commands.py` | v1.6.0 | send_paginated() fixes missing ℹ️ |
 | `schema/005.sql` | — | clusters + cluster_messages tables |
 | `schema/006.sql` | — | needs_resummarize column |
 
