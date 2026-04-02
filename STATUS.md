@@ -1,8 +1,40 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.5.0
+# Version 5.5.1
 
 ## Current Version Features
+
+### Version 5.5.1 — ℹ️ Prefix Fix + Bot Diagnostic Embedding Guard
+
+Two bugs fixed, one sklearn warning silenced.
+
+**Bug 1 (root cause): `!debug clusters` pagination missing ℹ️ prefix**
+`debug_clusters` had a manual chunk loop calling `ctx.send(page)` without
+the prefix. Pages 2+ entered Discord as bare text, were embedded by
+`raw_events.py`, assigned to clusters, and retrieved as conversation context
+(confirmed: cluster report text was retrieved when a user asked about squirrels).
+Fix: both `debug_clusters` and `debug_summarize_clusters` now route through
+`send_paginated()` — all chunks guaranteed to carry ℹ️.
+
+**Bug 2 (belt-and-suspenders): no guard against prefix loss in general**
+Added `_looks_like_diagnostic()` to `raw_events.py`. Bot-authored messages
+whose content starts with `Cluster `, `Parameters:`, `Processed:`,
+`**Cluster Analysis`, `**Cluster Summariz`, or `**Overview**` are skipped
+at the embedding gate even if prefix loss recurs.
+
+**Data cleanup:** 2 contaminated embeddings/cluster memberships deleted from
+production DB; 60 clusters marked `needs_resummarize=1` and re-summarized
+via `!summary update`.
+
+**sklearn FutureWarning:** Added `copy=False` to `HDBSCAN()` call in
+`cluster_engine.py` to silence "default value of copy will change in 1.10".
+
+**Modified files:**
+- `commands/debug_commands.py` v1.6.0 — `send_paginated()` for all pagination
+- `utils/raw_events.py` v1.5.0 — `_looks_like_diagnostic()` guard
+- `utils/cluster_engine.py` v1.0.1 — `copy=False` on HDBSCAN
+
+---
 
 ### Version 5.5.0 — Cluster-Based Retrieval Integration
 
@@ -288,9 +320,10 @@ discord-bot/
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
 │   ├── summary_commands.py        # v2.4.0
+│   └── debug_commands.py          # v1.6.0
 │   └── debug_commands.py          # v1.5.0
 ├── utils/
-│   ├── cluster_engine.py          # v1.0.0
+│   ├── cluster_engine.py          # v1.0.1
 │   ├── cluster_store.py           # v2.0.0
 │   ├── cluster_summarizer.py      # v1.0.0
 │   ├── cluster_overview.py        # v2.2.0
@@ -302,7 +335,7 @@ discord-bot/
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.4.0
+│   ├── raw_events.py              # v1.5.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
 │   ├── context_manager.py         # v2.2.0
