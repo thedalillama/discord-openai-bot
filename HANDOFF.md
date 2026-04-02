@@ -1,19 +1,65 @@
 # HANDOFF.md
-# Version 5.3.0
+# Version 5.4.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.3.0
+**Bot version**: v5.4.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 (validated on #openclaw: 741 msgs, 56 clusters, 0 failures)
-**Cost**: ~$0.01 per summarization run (56 Gemini cluster calls + 1 overview call, ~102K tokens total)
+**Pipeline**: cluster-v5 + incremental assignment
 
 ---
 
 ## What Just Happened
+
+### v5.4.0 — Incremental Cluster Assignment + `!summary update`
+
+New messages are now automatically assigned to the nearest cluster centroid on
+arrival (Tier 1), and `!summary update` re-summarizes only the affected clusters
+without re-running UMAP + HDBSCAN (Tier 2). Full rebuild via `!summary create`
+remains Tier 3.
+
+**New files:**
+- `schema/006.sql` — `ALTER TABLE clusters ADD COLUMN needs_resummarize INTEGER DEFAULT 0`
+- `utils/cluster_assign.py` v1.0.0 — synchronous `assign_to_nearest_cluster(channel_id, message_id)`:
+  loads embedding from `message_embeddings`, finds best centroid match above RETRIEVAL_MIN_SCORE,
+  updates centroid via running average + renormalize, inserts into `cluster_messages`, sets
+  `needs_resummarize=1`
+- `utils/cluster_update.py` v1.0.0 — `run_quick_update(channel_id, provider, progress_fn)`:
+  loads dirty clusters, re-summarizes each via `summarize_cluster()`, marks clean, re-runs
+  classify → overview → dedup → answered-Q → save; preserves `cluster_count` + `noise_message_count`
+
+**Modified files:**
+- `utils/cluster_store.py` v2.0.0 — `get_dirty_clusters()`, `mark_clusters_clean()`,
+  `get_unassigned_message_count()`
+- `utils/raw_events.py` v1.4.0 — after embedding, calls `assign_to_nearest_cluster` via
+  `asyncio.to_thread`; fails silently (DEBUG log only)
+- `utils/summarizer.py` v3.1.0 — `quick_update_channel()` thin router
+- `commands/summary_commands.py` v2.4.0 — `!summary update` subcommand
+
+**Key design decisions:**
+- No message is silently dropped — unassigned messages are counted and reported with
+  a prompt to run `!summary create` when the count is significant
+- Centroid update uses running average so cluster shape degrades gracefully with new messages
+- `cluster_update.py` imports `_collect_structured_items` and `translate_to_channel_summary`
+  directly from `cluster_overview.py` (private by convention, but accessed cross-module)
+- `cluster_count` + `noise_message_count` preserved from existing summary — no re-cluster,
+  so those stats haven't changed
+
+**Result format from `quick_update_channel()`:**
+```python
+{
+    "updated_count": 3,      # clusters re-summarized
+    "unassigned_count": 12,  # embedded messages not in any cluster
+    "overview_generated": True,
+    "error": None,
+    "message": "OK",
+}
+```
+
+---
 
 ### v5.3.0 — Cluster Pipeline (validated + committed)
 
@@ -396,10 +442,15 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Merge claude-code → main
-The pipeline is validated. Push the branch and merge.
+### 1. Validate v5.4.0 on server
+- Restart the bot (`sudo systemctl restart discord-bot`) to pick up `006.sql`
+- Send a few messages, then run `!summary update` — expect "N clusters re-summarized"
+- Check for unassigned messages count — if high, run `!summary create` first
 
-### 2. Design v5.4.0 — Cluster-Based Retrieval
+### 2. Merge claude-code → main
+Both v5.3.0 and v5.4.0 are implemented and ready.
+
+### 3. Design v5.5.0 — Cluster-Based Retrieval
 Replace `find_relevant_topics()` with cluster centroid retrieval.
 Query embedding → cosine similarity vs cluster centroids →
 inject top cluster messages into context.
@@ -423,18 +474,22 @@ inject top cluster messages into context.
 | `config.py` | v1.12.6 | All retrieval config vars incl. RETRIEVAL_MSG_FALLBACK |
 | `schema/004.sql` | — | topics, topic_messages, message_embeddings |
 
-### Cluster Pipeline Files (v5.3.0)
+### Cluster Pipeline Files (v5.4.0)
 | File | Version | Key Role |
 |------|---------|----------|
 | `utils/cluster_engine.py` | v1.0.0 | UMAP + HDBSCAN, noise reduction, centroids |
-| `utils/cluster_store.py` | v1.1.0 | CRUD, run_clustering() orchestrator |
+| `utils/cluster_store.py` | v2.0.0 | CRUD, run_clustering(), dirty cluster helpers |
 | `utils/cluster_summarizer.py` | v1.0.0 | Per-cluster Gemini summarization |
 | `utils/cluster_overview.py` | v2.2.0 | Pipeline orchestrator, overview LLM, field translation |
 | `utils/cluster_classifier.py` | v1.6.0 | GPT-4o-mini whitelist filter |
 | `utils/cluster_qa.py` | v1.0.0 | Embedding dedup + answered-Q check |
-| `utils/summarizer.py` | v3.0.0 | Thin router to run_cluster_pipeline() |
+| `utils/cluster_assign.py` | v1.0.0 | On-arrival centroid assignment |
+| `utils/cluster_update.py` | v1.0.0 | Quick re-summarization of dirty clusters |
+| `utils/summarizer.py` | v3.1.0 | Routes !summary create + !summary update |
+| `utils/raw_events.py` | v1.4.0 | Embed + assign to cluster on arrival |
 | `utils/summary_display.py` | v1.3.2 | cluster-v5 footer + always-on formatter |
 | `schema/005.sql` | — | clusters + cluster_messages tables |
+| `schema/006.sql` | — | needs_resummarize column |
 
 ### v4.x Pipeline Files (retained for rollback)
 | File | Version | Key Role |

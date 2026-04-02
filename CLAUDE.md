@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.3.0
+# Version 5.4.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -81,6 +81,21 @@ at the top of the context block so the model can interpret message ages.
 
 Key files: `utils/embedding_store.py` (embeddings, linking, noise filter, retrieval),
 `utils/context_manager.py` (always-on + retrieval + budget + timestamps)
+
+### Incremental Assignment (v5.4.0)
+After embedding, `raw_events.py` calls `assign_to_nearest_cluster(channel_id, message_id)`
+via `asyncio.to_thread`. If clusters exist and the best cosine score >= RETRIEVAL_MIN_SCORE,
+the message is inserted into `cluster_messages` and the centroid updated (running average +
+renormalize). The cluster is flagged `needs_resummarize=1`. Fails silently — no clusters is
+not an error (bot may be in channels where `!summary create` has never run).
+
+`!summary update` → `quick_update_channel()` → `run_quick_update()` in `cluster_update.py`:
+re-summarizes dirty clusters via `summarize_cluster()`, marks clean, re-runs the full
+post-processing stack (classify → overview → dedup → answered-Q → save). Preserves
+`cluster_count` and `noise_message_count` from existing summary (no re-cluster).
+
+Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_update.py`
+(quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v5.3.0 — cluster-based)
 `!summary create` runs the full cluster pipeline via `summarizer.py` v3.0.0:

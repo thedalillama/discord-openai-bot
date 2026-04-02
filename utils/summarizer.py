@@ -1,8 +1,9 @@
 # utils/summarizer.py
-# Version 3.0.0
+# Version 3.1.0
 """
 Summarization pipeline orchestrator.
 
+CHANGES v3.1.0: Add quick_update_channel() for !summary update (SOW v5.4.0)
 CHANGES v3.0.0: Route to cluster-based pipeline (SOW v5.3.0)
 - MODIFIED: summarize_channel() now delegates to run_cluster_pipeline()
   in cluster_overview.py; executes cluster → per-cluster summarize →
@@ -53,6 +54,21 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
         return {"error": str(e), "messages_processed": 0,
                 "cluster_count": 0, "noise_count": 0,
                 "overview_generated": False}
+
+
+async def quick_update_channel(channel_id, progress_fn=None):
+    """Re-summarize dirty clusters only. Called by !summary update."""
+    from utils.cluster_update import run_quick_update
+    from ai_providers import get_provider
+    from config import SUMMARIZER_PROVIDER
+    provider = get_provider(SUMMARIZER_PROVIDER)
+    try:
+        return await run_quick_update(channel_id, provider,
+                                      progress_fn=progress_fn)
+    except Exception as e:
+        logger.error(f"Quick update failed ch:{channel_id}: {e}")
+        return {"updated_count": 0, "unassigned_count": 0,
+                "overview_generated": False, "error": str(e), "message": "Failed"}
 
 
 async def _incremental_loop(channel_id, provider, batch_size,
