@@ -1,5 +1,5 @@
 # utils/cluster_engine.py
-# Version 1.0.0
+# Version 1.0.1
 """
 UMAP + HDBSCAN clustering pipeline for v5.1.0.
 
@@ -76,7 +76,8 @@ def cluster_messages(channel_id, min_cluster_size=None, min_samples=None):
             min_samples=ms,
             metric='euclidean',
             cluster_selection_method='eom',
-            store_centers='centroid'
+            store_centers='centroid',
+            copy=False,
         ).fit_predict(reduced)
     except Exception as e:
         logger.warning(f"HDBSCAN failed ch:{channel_id}: {e}")
