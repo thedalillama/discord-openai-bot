@@ -1,7 +1,13 @@
 # commands/debug_commands.py
-# Version 1.5.0
+# Version 1.6.0
 """
 Debug and maintenance commands for the Discord bot.
+
+CHANGES v1.6.0: Fix !debug clusters pagination missing ℹ️ prefix
+- FIXED: debug_clusters ctx.send(page) was missing ℹ️ — unprefixed chunks
+  were embedded by raw_events.py and contaminated cluster retrieval
+- REFACTOR: both debug_clusters and debug_summarize_clusters now use
+  send_paginated() from summary_display.py instead of inline chunk loops
 
 CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
 - ADDED: !debug summarize_clusters — runs per-cluster Gemini summarization,
@@ -274,17 +280,8 @@ def register_debug_commands(bot):
             params = {"mcs": CLUSTER_MIN_CLUSTER_SIZE, "ms": CLUSTER_MIN_SAMPLES,
                       "umap_n": UMAP_N_NEIGHBORS, "umap_d": UMAP_N_COMPONENTS}
             report = format_cluster_report(ctx.channel.name, stats, rows, params)
-            lines = report.split("\n")
-            chunk, chunks = [], []
-            for line in lines:
-                if sum(len(l) + 1 for l in chunk) + len(line) + 1 > 1900:
-                    chunks.append("\n".join(chunk))
-                    chunk = []
-                chunk.append(line)
-            if chunk:
-                chunks.append("\n".join(chunk))
-            for page in chunks:
-                await ctx.send(page)
+            from utils.summary_display import send_paginated
+            await send_paginated(ctx, report.split("\n"))
         except Exception as e:
             await ctx.send(f"{_I}Cluster analysis failed: {e}")
             logger.error(f"Cluster error ch:{channel_id}: {e}")
@@ -343,17 +340,8 @@ def register_debug_commands(bot):
             result_lines.append(
                 f"Processed: {processed} clusters, {failed} failures")
 
-            # Paginate output
-            chunk, chunks = [], []
-            for line in result_lines:
-                if sum(len(l) + 1 for l in chunk) + len(line) + 1 > 1900:
-                    chunks.append("\n".join(chunk))
-                    chunk = []
-                chunk.append(line)
-            if chunk:
-                chunks.append("\n".join(chunk))
-            for page in chunks:
-                await ctx.send(f"{_I}{page}")
+            from utils.summary_display import send_paginated
+            await send_paginated(ctx, result_lines)
 
         except Exception as e:
             await ctx.send(f"{_I}Summarize clusters failed: {e}")
