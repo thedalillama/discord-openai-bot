@@ -1,8 +1,9 @@
 # commands/summary_commands.py
-# Version 2.3.0
+# Version 2.4.0
 """
 !summary command group for channel summary management.
 
+CHANGES v2.4.0: !summary update — re-summarize dirty clusters only (SOW v5.4.0)
 CHANGES v2.3.0: Cluster pipeline result display + clear clusters on !summary clear
 - MODIFIED: summary_create result handler displays cluster-v5 pipeline stats
   (cluster_count, noise_count, messages_processed) for new pipeline; retains
@@ -123,6 +124,48 @@ def register_summary_commands(bot):
         except Exception as e:
             logger.error(f"Error in !summary create: {e}")
             await ctx.send(f"{_I}Error running summarization: {str(e)[:1800]}")
+
+    @summary_cmd.command(name='update')
+    async def summary_update(ctx):
+        """Re-summarize clusters updated since last run (admin only)."""
+        channel_name = ctx.channel.name
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}You need admin permissions to run !summary update.")
+            return
+        await ctx.send(f"{_I}Running quick update for #{channel_name}...")
+        try:
+            from utils.summarizer import quick_update_channel
+
+            async def _progress(msg):
+                await ctx.send(f"{_I}{msg}")
+
+            result = await quick_update_channel(
+                ctx.channel.id, progress_fn=_progress)
+            if result.get("error"):
+                await ctx.send(
+                    f"{_I}Update failed: {str(result['error'])[:1800]}")
+                return
+            updated = result["updated_count"]
+            unassigned = result["unassigned_count"]
+            if updated == 0:
+                await ctx.send(
+                    f"{_I}No updated clusters for #{channel_name}. "
+                    f"({unassigned} unassigned messages not in any cluster)")
+                return
+            overview_mark = "✅" if result.get("overview_generated") else "⚠️ failed"
+            lines = [
+                f"**Quick update for #{channel_name}**",
+                f"Clusters re-summarized: {updated}",
+                f"{overview_mark} Overview regenerated",
+            ]
+            if unassigned > 0:
+                lines.append(
+                    f"⚠️ {unassigned} unassigned messages"
+                    f" — run `!summary create` for full rebuild")
+            await ctx.send(f"{_I}" + "\n".join(lines))
+        except Exception as e:
+            logger.error(f"Error in !summary update: {e}")
+            await ctx.send(f"{_I}Error running quick update: {str(e)[:1800]}")
 
     @summary_cmd.command(name='clear')
     async def summary_clear(ctx):

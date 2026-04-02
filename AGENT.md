@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.3.0
+# Version 5.4.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -81,6 +81,14 @@
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+
+### Incremental Assignment (v5.4.0)
+- New messages assigned to nearest cluster centroid on arrival (`raw_events.py` →
+  `cluster_assign.py`); centroid updated via running average + renormalize; cluster
+  flagged `needs_resummarize=1`
+- `!summary update` re-summarizes only dirty clusters (Tier 2), no re-cluster
+- `schema/006.sql`: `ALTER TABLE clusters ADD COLUMN needs_resummarize INTEGER DEFAULT 0`
+- Key files: `cluster_assign.py`, `cluster_update.py`, `cluster_store.py` v2.0.0
 
 ### Summarization Pipeline (v5.3.0 — cluster-based)
 - `!summary create` → `summarizer.py` → `run_cluster_pipeline()` in `cluster_overview.py`

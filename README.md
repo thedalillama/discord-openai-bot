@@ -1,5 +1,5 @@
 # README.md
-# Version 5.3.0
+# Version 5.4.0
 
 # Synthergy Discord Bot
 
@@ -39,7 +39,8 @@ python main.py
 | `!summary` | all | Show channel summary (decisions, topics, actions) |
 | `!summary full` | all | All sections including facts and archived topics |
 | `!summary raw` | all | Secretary's natural language minutes |
-| `!summary create` | admin | Run summarization on new messages |
+| `!summary create` | admin | Run full summarization (re-cluster + re-summarize) |
+| `!summary update` | admin | Re-summarize only clusters updated since last run |
 | `!summary clear` | admin | Delete stored summary and start fresh |
 | `!debug noise` | admin | Scan for deletable bot noise in channel |
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
@@ -80,11 +81,13 @@ discord-bot/
 │   └── history_commands.py            # !history
 └── utils/
     ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
-    ├── cluster_store.py               # Cluster CRUD, orchestration, diagnostics
+    ├── cluster_store.py               # Cluster CRUD, orchestration, dirty-cluster helpers
     ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
     ├── cluster_overview.py            # Pipeline orchestrator, overview LLM, field translation
     ├── cluster_classifier.py          # GPT-4o-mini whitelist filter (classify_overview_items)
     ├── cluster_qa.py                  # Embedding dedup + answered-question removal
+    ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
+    ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
     ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
