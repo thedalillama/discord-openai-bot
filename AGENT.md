@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.5.0
+# Version 5.5.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -81,6 +81,13 @@
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+
+### Noise Guard (v5.5.1)
+- `raw_events.py` `_looks_like_diagnostic()` skips embedding bot-authored
+  messages whose content starts with known diagnostic prefixes (`Cluster `,
+  `Parameters:`, `Processed:`, `**Cluster Analysis`, etc.) — belt-and-suspenders
+  against prefix loss; `debug_commands.py` v1.6.0 routes all pagination through
+  `send_paginated()` to guarantee ℹ️ on every chunk
 
 ### Semantic Retrieval (v5.5.0 — cluster-based)
 - Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
