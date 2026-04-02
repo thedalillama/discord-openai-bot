@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.4.0
+# Version 5.5.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -58,28 +58,27 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v4.1.x)
+### Semantic Retrieval (v5.5.0 — cluster-based)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded → top matching topics by cosine similarity
-  → their linked messages injected as "PAST MESSAGES FROM THIS CHANNEL"
+- **Retrieved**: latest user message embedded → top matching cluster centroids →
+  cluster member messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
-Topic-message linkage: after every `!summary create`, existing topics are cleared first,
-then all active + archived topics are embedded and linked to ALL messages above
-`TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity. Prevents duplicates accumulating.
-
-Noise filter: bot-noise topics (self-descriptions, capability tests, etc.) are filtered
-before scoring in `find_relevant_topics()` so they cannot consume retrieval budget.
+Retrieval path (`context_manager.py` → `_retrieve_cluster_context()`):
+1. `embed_text()` on latest user message
+2. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
+3. Filter by `RETRIEVAL_MIN_SCORE` (0.25)
+4. `get_cluster_messages()` — direct member messages, exclude recent_ids
 
 Fallback chain:
-1. Topics above `RETRIEVAL_MIN_SCORE` (0.25) with linked messages → inject topic content
-2. No topics above threshold OR all topics have 0 linked messages → direct message search
-3. Both empty (no embeddings) → full summary injected + WARNING logged
+1. Clusters above `RETRIEVAL_MIN_SCORE` with messages → inject as `[Topic: {label}]`
+2. No clusters above threshold OR all clusters have 0 messages → direct message search
+3. Both empty (no clusters, no embeddings) → full summary injected + WARNING logged
 
 Timestamps: every retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected
-at the top of the context block so the model can interpret message ages.
+at top of context block. Section header uses `[Topic: {label}]` — model-facing framing.
 
-Key files: `utils/embedding_store.py` (embeddings, linking, noise filter, retrieval),
+Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_messages),
 `utils/context_manager.py` (always-on + retrieval + budget + timestamps)
 
 ### Incremental Assignment (v5.4.0)

@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.4.0
+# Version 5.5.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -81,6 +81,13 @@
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+
+### Semantic Retrieval (v5.5.0 — cluster-based)
+- Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
+  `cluster_retrieval.py`; topic functions in `embedding_store.py` retained but unused
+- `_retrieve_cluster_context()` in `context_manager.py` replaces `_retrieve_topic_context()`
+- `[Topic: {label}]` section header preserved — model framing unchanged
+- Fallback (`find_similar_messages`) still fires when no clusters pass threshold
 
 ### Incremental Assignment (v5.4.0)
 - New messages assigned to nearest cluster centroid on arrival (`raw_events.py` →

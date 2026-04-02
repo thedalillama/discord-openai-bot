@@ -1,18 +1,42 @@
 # HANDOFF.md
-# Version 5.4.0
+# Version 5.5.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.4.0
+**Bot version**: v5.5.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 + incremental assignment
+**Pipeline**: cluster-v5 fully live (clustering + incremental assignment + cluster retrieval)
 
 ---
 
 ## What Just Happened
+
+### v5.5.0 — Cluster-Based Retrieval Integration
+
+Swapped topic-based retrieval for cluster-based retrieval in the response path.
+The full v5 architecture is now live end-to-end.
+
+**New file:**
+- `utils/cluster_retrieval.py` v1.0.0 — `find_relevant_clusters()` (cosine similarity
+  vs cluster centroids, returns top-K `(cluster_id, label, score)`) and
+  `get_cluster_messages()` (member messages with `exclude_ids` dedup)
+
+**Modified file:**
+- `utils/context_manager.py` v2.2.0 — `_retrieve_topic_context()` renamed to
+  `_retrieve_cluster_context()`; imports and calls swapped to cluster functions;
+  `[Topic: {label}]` framing, fallback path, token budget, timestamps unchanged
+
+**Why `cluster_retrieval.py` instead of `cluster_store.py`:**
+`cluster_store.py` was at the 250-line limit. Retrieval (query-time scoring) is
+also semantically separate from CRUD (write/read operations).
+
+**Retained for rollback:** `find_relevant_topics()`, `get_topic_messages()` in
+`embedding_store.py` — untouched, just no longer called.
+
+---
 
 ### v5.4.0 — Incremental Cluster Assignment + `!summary update`
 
@@ -442,18 +466,14 @@ Each pipeline run saves to `data/`:
 
 ## Immediate Next Steps
 
-### 1. Validate v5.4.0 on server
-- Restart the bot (`sudo systemctl restart discord-bot`) to pick up `006.sql`
-- Send a few messages, then run `!summary update` — expect "N clusters re-summarized"
-- Check for unassigned messages count — if high, run `!summary create` first
+### 1. Validate v5.5.0 on server
+- Restart bot, ask questions about known cluster topics
+- Check logs: `sudo journalctl -u discord-bot --since "1 min ago" | grep -i "cluster\|retrieved\|score"`
+- Verify cluster label appears in logs, correct messages injected
+- Ask about something never discussed — verify fallback fires, no error
 
 ### 2. Merge claude-code → main
-Both v5.3.0 and v5.4.0 are implemented and ready.
-
-### 3. Design v5.5.0 — Cluster-Based Retrieval
-Replace `find_relevant_topics()` with cluster centroid retrieval.
-Query embedding → cosine similarity vs cluster centroids →
-inject top cluster messages into context.
+v5.3.0, v5.4.0, and v5.5.0 are all implemented and ready.
 
 ---
 
@@ -485,8 +505,10 @@ inject top cluster messages into context.
 | `utils/cluster_qa.py` | v1.0.0 | Embedding dedup + answered-Q check |
 | `utils/cluster_assign.py` | v1.0.0 | On-arrival centroid assignment |
 | `utils/cluster_update.py` | v1.0.0 | Quick re-summarization of dirty clusters |
+| `utils/cluster_retrieval.py` | v1.0.0 | Query-time cluster retrieval |
 | `utils/summarizer.py` | v3.1.0 | Routes !summary create + !summary update |
 | `utils/raw_events.py` | v1.4.0 | Embed + assign to cluster on arrival |
+| `utils/context_manager.py` | v2.2.0 | Cluster retrieval replaces topic retrieval |
 | `utils/summary_display.py` | v1.3.2 | cluster-v5 footer + always-on formatter |
 | `schema/005.sql` | — | clusters + cluster_messages tables |
 | `schema/006.sql` | — | needs_resummarize column |
