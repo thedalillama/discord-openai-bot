@@ -1,8 +1,37 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.4.0
+# Version 5.5.0
 
 ## Current Version Features
+
+### Version 5.5.0 — Cluster-Based Retrieval Integration
+
+Replaces topic-based semantic retrieval with cluster-based retrieval in the
+bot's response path. When a user message arrives, the bot scores it against
+cluster centroids (instead of topic embeddings) and injects the matching
+cluster's direct member messages into the context. The full v5 architecture
+is now live end-to-end.
+
+**What changed:**
+- `context_manager.py` `_retrieve_cluster_context()` replaces `_retrieve_topic_context()`
+- Imports `find_relevant_clusters` + `get_cluster_messages` from new `cluster_retrieval.py`
+- All unchanged: `[Topic: {label}]` section framing, fallback path, token budget,
+  timestamp prefixing, today's date injection, `_fallback_msg_search()`
+
+**Quality improvement:**
+- Topics (v4.x): LLM-generated labels, messages linked by cosine similarity approximation
+- Clusters (v5.x): messages grouped directly by HDBSCAN with exact membership;
+  centroid is the actual mean vector — no linking approximation
+
+**New files:**
+- `utils/cluster_retrieval.py` v1.0.0 — `find_relevant_clusters()`, `get_cluster_messages()`
+
+**Modified files:**
+- `utils/context_manager.py` v2.2.0 — cluster retrieval replaces topic retrieval
+
+**Retained (rollback):** topic functions in `embedding_store.py` unchanged
+
+---
 
 ### Version 5.4.0 — Incremental Cluster Assignment + Selective Re-Summarization
 
@@ -269,13 +298,14 @@ discord-bot/
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
+│   ├── cluster_retrieval.py       # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.4.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
-│   ├── context_manager.py         # v2.1.3
+│   ├── context_manager.py         # v2.2.0
 │   ├── response_handler.py        # v1.1.4
 │   ├── summarizer.py              # v3.1.0
 │   ├── summarizer_authoring.py    # v1.10.2
