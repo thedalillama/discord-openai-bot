@@ -4,6 +4,14 @@
 
 ## Current Version Features
 
+### Config tuning — RETRIEVAL_MIN_SCORE raised to 0.45
+
+Set in `.env` (overrides config.py default of 0.25). With contextual embeddings
+producing higher-signal vectors, the old 0.25 threshold was too permissive.
+0.45 requires clusters to be meaningfully similar to the query before injection.
+
+---
+
 ### Version 5.6.0 — Context-Prepended Embeddings + 250-Line Refactors
 
 Two improvements in one release: (1) all embeddings now include conversational
