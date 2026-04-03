@@ -1,14 +1,18 @@
 # utils/context_retrieval.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Cluster-based semantic retrieval for context injection (SOW v5.6.0).
+
+CHANGES v1.1.0: Smart query embedding to prevent topic bleed-through (SOW v5.6.1)
+- MODIFIED: query embedding now uses embed_query_with_smart_context() from
+  embedding_context.py instead of fixed 3-message window; detects topic shifts
+  via cosine similarity and question detection — avoids gorilla context bleeding
+  into a database query
 
 CREATED v1.0.0: Extracted from context_manager.py v2.3.0 (SOW v5.6.0)
 - _fallback_msg_search() — direct message embedding search when no clusters pass
 - _retrieve_cluster_context() — embed query, score clusters, return member messages
 
-Query embedding uses in-memory conversation context (last 3 messages) so the
-query vector is in the same contextual space as stored embeddings (v5.6.0).
 estimate_tokens imported lazily from context_manager to avoid circular import.
 """
 from config import RETRIEVAL_TOP_K, RETRIEVAL_MIN_SCORE, RETRIEVAL_MSG_FALLBACK
@@ -53,15 +57,15 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
     """Embed the latest user message, find relevant clusters, return formatted
     context string of their member messages.
 
-    Query is embedded with the last 3 in-memory messages as context so it sits
-    in the same contextual vector space as stored embeddings (v5.6.0).
-    Falls back to direct message embedding search if no clusters pass threshold.
+    Query embedding uses embed_query_with_smart_context() to avoid topic
+    bleed-through on topic shifts (v5.6.1). Falls back to direct message
+    search if no clusters pass threshold.
 
     Returns (context_text, tokens_used). Returns ("", 0) on any failure.
     """
     from utils.context_manager import estimate_tokens
     try:
-        from utils.embedding_store import embed_text
+        from utils.embedding_context import embed_query_with_smart_context
         from utils.cluster_retrieval import find_relevant_clusters, get_cluster_messages
 
         query_text = None
@@ -72,18 +76,8 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
         if not query_text:
             return "", 0
 
-        # Embed query with in-memory context (same space as stored contextual embeddings)
-        ctx_msgs = [m for m in conversation_msgs
-                    if m.get("role") in ("user", "assistant")
-                    and m.get("content", "").strip()][-4:]
-        if len(ctx_msgs) > 1:
-            ctx_str = " | ".join(
-                f"{m['role']}: {m['content'][:100]}" for m in ctx_msgs[:-1])
-            contextual_query = f"[Context: {ctx_str}]\n{query_text}"
-        else:
-            contextual_query = query_text
-
-        query_vec = embed_text(contextual_query)
+        query_vec = embed_query_with_smart_context(
+            query_text, channel_id, conversation_msgs)
         if query_vec is None:
             return "", 0
 

@@ -1,7 +1,10 @@
 # utils/embedding_store.py
-# Version 1.8.0
+# Version 1.9.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.9.0: Add get_stored_embedding() for smart query context (SOW v5.6.1)
+- ADDED: get_stored_embedding(message_id) — fetch a single message's embedding blob
 
 CHANGES v1.8.0: Extract topic functions + contextual embedding support (SOW v5.6.0)
 - REMOVED: topic functions moved to utils/topic_store.py
@@ -164,6 +167,23 @@ def get_messages_without_embeddings(channel_id, limit=500):
             "ORDER BY m.created_at ASC LIMIT ?",
             (channel_id, limit)).fetchall()
         return [(r[0], r[1], r[2], r[3]) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_stored_embedding(message_id):
+    """Fetch the stored embedding for a single message. Returns list or None."""
+    if message_id is None:
+        return None
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        row = conn.execute(
+            "SELECT embedding FROM message_embeddings WHERE message_id=?",
+            (message_id,)).fetchone()
+        return unpack_embedding(row[0]) if row else None
+    except Exception as e:
+        logger.warning(f"get_stored_embedding failed for {message_id}: {e}")
+        return None
     finally:
         conn.close()
 
