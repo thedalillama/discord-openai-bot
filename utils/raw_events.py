@@ -1,8 +1,10 @@
 # utils/raw_events.py
-# Version 1.5.0
+# Version 1.6.0
 """
 Discord event handlers for SQLite message persistence.
 
+CHANGES v1.6.0: Context-prepended embeddings on arrival (SOW v5.6.0)
+- embed path uses build_contextual_text(); graceful fallback to raw text
 CHANGES v1.5.0: _looks_like_diagnostic() guard — skip unprefixed bot diagnostics
 CHANGES v1.4.0: Assign new messages to nearest cluster on arrival (SOW v5.4.0)
 CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0)
@@ -100,9 +102,11 @@ def setup_raw_events(bot):
                 return
             try:
                 from utils.embedding_store import embed_and_store_message
-                await asyncio.to_thread(
-                    embed_and_store_message, msg.id, content
-                )
+                from utils.embedding_context import build_contextual_text
+                ctx_text = await asyncio.to_thread(
+                    build_contextual_text, msg.channel_id, msg.id,
+                    msg.author_name, content, reply_to_id=msg.reply_to_message_id)
+                await asyncio.to_thread(embed_and_store_message, msg.id, ctx_text)
             except Exception as e:
                 logger.warning(f"Embedding failed for msg {msg.id}: {e}")
                 return

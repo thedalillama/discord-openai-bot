@@ -1,5 +1,5 @@
 # README.md
-# Version 5.5.1
+# Version 5.6.0
 
 # Synthergy Discord Bot
 
@@ -12,7 +12,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
 - **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
-- **Message embeddings** — every message embedded with OpenAI text-embedding-3-small on arrival; topics linked to all relevant messages by cosine similarity
+- **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
 - **Settings recovery** — settings restored from Discord message history on startup
 
@@ -45,7 +45,8 @@ python main.py
 | `!debug noise` | admin | Scan for deletable bot noise in channel |
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
-| `!debug backfill` | admin | Embed unembedded messages + re-link all topics |
+| `!debug backfill` | admin | Embed unembedded messages with contextual text + re-link topics |
+| `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
 | `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!status` | all | Show bot settings for this channel |
@@ -88,7 +89,10 @@ discord-bot/
     ├── cluster_qa.py                  # Embedding dedup + answered-question removal
     ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
     ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
-    ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
+    ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
+    ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
+    ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
+    ├── topic_store.py                 # Topic CRUD + message linking (v4.x rollback)
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
     ├── summary_schema.py              # Schema, hashes, delta ops
@@ -178,11 +182,16 @@ sudo journalctl -u discord-bot -f     # follow logs
 sudo journalctl --rotate && sudo journalctl --vacuum-time=1s  # clear logs
 ```
 
-After first deploy or embedding provider change:
+After first deploy or embedding strategy change (v5.6.0+):
 ```bash
 # In Discord:
-!debug backfill      # batch-embed all messages (1000/call) + re-link topics
-!summary create      # regenerate summary with new topic embeddings
+!debug reembed       # delete all embeddings + re-embed with contextual text
+!summary create      # rebuild clusters from contextual embeddings
+```
+
+Incremental backfill (embed only missing messages):
+```bash
+!debug backfill      # embed unembedded messages with context + re-link topics
 ```
 
 ## Documentation

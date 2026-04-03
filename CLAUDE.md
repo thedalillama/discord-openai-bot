@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.5.1
+# Version 5.6.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -58,17 +58,24 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v5.5.0 — cluster-based)
+### Semantic Retrieval (v5.6.0 — contextual cluster-based)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded → top matching cluster centroids →
+- **Retrieved**: latest user message embedded WITH context → top cluster centroids →
   cluster member messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
-Retrieval path (`context_manager.py` → `_retrieve_cluster_context()`):
-1. `embed_text()` on latest user message
-2. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
-3. Filter by `RETRIEVAL_MIN_SCORE` (0.25)
-4. `get_cluster_messages()` — direct member messages, exclude recent_ids
+Retrieval path (`context_manager.py` → `context_retrieval.py`):
+1. Build contextual query: prepend last 3 in-memory conversation messages
+2. `embed_text()` on contextual query
+3. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
+4. Filter by `RETRIEVAL_MIN_SCORE` (0.25)
+5. `get_cluster_messages()` — direct member messages, exclude recent_ids
+
+**Embedding strategy (v5.6.0):**
+All embeddings include conversational context via `build_contextual_text()` in
+`utils/embedding_context.py`. Format: `[Context: a1: msg1 | a2: msg2]\nauthor: content`.
+Reply chains: replied-to message used as primary context instead of sliding window.
+After deploy: run `!debug reembed` + `!summary create` to rebuild with contextual embeddings.
 
 Fallback chain:
 1. Clusters above `RETRIEVAL_MIN_SCORE` with messages → inject as `[Topic: {label}]`
@@ -79,7 +86,9 @@ Timestamps: every retrieved message prefixed with `[YYYY-MM-DD]`; today's date i
 at top of context block. Section header uses `[Topic: {label}]` — model-facing framing.
 
 Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_messages),
-`utils/context_manager.py` (always-on + retrieval + budget + timestamps)
+`utils/context_retrieval.py` (retrieval + fallback, extracted v5.6.0),
+`utils/embedding_context.py` (build_contextual_text, v5.6.0),
+`utils/context_manager.py` (always-on + budget + timestamps)
 
 ### Incremental Assignment (v5.4.0)
 After embedding, `raw_events.py` calls `assign_to_nearest_cluster(channel_id, message_id)`
