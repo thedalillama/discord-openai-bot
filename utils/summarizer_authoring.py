@@ -82,8 +82,8 @@ async def _run_pipeline(channel_id, provider, prov_name, model_name,
         make_empty_summary, apply_ops, verify_protected_hashes)
     from utils.summary_delta_schema import STRUCTURER_SCHEMA, translate_ops
     from utils.summary_prompts import build_label_map
-    from utils.summary_prompts_authoring import (
-        build_secretary_prompt, build_structurer_prompt)
+    from utils.summary_prompts_authoring import build_secretary_prompt
+    from utils.summary_prompts_structurer import build_structurer_prompt
 
     if not messages:
         logger.info(f"No messages for channel {channel_id}")

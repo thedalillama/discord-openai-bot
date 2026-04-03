@@ -1,51 +1,29 @@
 # commands/debug_commands.py
-# Version 1.6.0
+# Version 1.7.0
 """
-Debug and maintenance commands for the Discord bot.
+Debug and maintenance commands: noise scan, cleanup, summary status.
+
+CHANGES v1.7.0: Extract cluster commands to cluster_commands.py (SOW v5.6.0)
+- REMOVED: debug_backfill, debug_clusters, debug_summarize_clusters — moved to
+  commands/cluster_commands.py
+- CHANGED: register_debug_commands() returns debug_cmd group so
+  cluster_commands.py can add subcommands to it
 
 CHANGES v1.6.0: Fix !debug clusters pagination missing ℹ️ prefix
-- FIXED: debug_clusters ctx.send(page) was missing ℹ️ — unprefixed chunks
-  were embedded by raw_events.py and contaminated cluster retrieval
-- REFACTOR: both debug_clusters and debug_summarize_clusters now use
-  send_paginated() from summary_display.py instead of inline chunk loops
-
 CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
-- ADDED: !debug summarize_clusters — runs per-cluster Gemini summarization,
-  sends Discord progress every 5 clusters, paginates final cluster report
-
 CHANGES v1.4.1: Paginate !debug clusters output
-- MODIFIED: debug_clusters splits report into ≤1900-char pages before
-  sending; prevents Discord 2000-character message limit errors
-
 CHANGES v1.4.0: Add !debug clusters command (SOW v5.1.0)
-- ADDED: !debug clusters — runs UMAP + HDBSCAN clustering on channel
-  embeddings, stores results, displays diagnostic report
-
 CHANGES v1.3.0: Batch embedding + archived topic re-link fix
-- CHANGED: debug_backfill uses embed_texts_batch() — 1600 messages now takes
-  ~2 API calls instead of 1600; per-batch progress logged; elapsed time reported
-- FIXED: re-link phase now includes archived_topics (was active_topics only),
-  matching the behaviour of summarizer_authoring.py
-
 CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
-- ADDED: !debug backfill — embed all messages in channel lacking embeddings,
-  then re-link all topics. Reports progress and final counts.
-
 CHANGES v1.1.0: Show classifier drops in !debug status
-- ADDED: Classifier Drops section shows items filtered by GPT-5.4 nano
-
 CREATED v1.0.0: Consolidates cleanup + summary diagnostics
-- !debug noise    — scan for bot noise (preview, no delete)
-- !debug cleanup  — delete bot noise from Discord
-- !debug status   — internal summary state (IDs, hashes, statuses)
-
-All subcommands require administrator permissions.
 
 Usage:
   !debug noise               - Preview deletable bot messages
   !debug cleanup             - Delete bot noise from Discord history
   !debug status              - Show summary internals (IDs, hashes, chains)
-  !debug backfill            - Embed all messages + re-link topics
+  !debug backfill            - Embed all messages + re-link topics (contextual)
+  !debug reembed             - Delete all embeddings + re-embed with context
   !debug clusters            - Run UMAP+HDBSCAN clustering, show report
   !debug summarize_clusters  - Run per-cluster LLM summarization
 """
@@ -59,6 +37,7 @@ _I = "ℹ️ "
 
 
 def register_debug_commands(bot):
+    """Register !debug command group. Returns the group for subcommand registration."""
 
     @bot.group(name='debug', invoke_without_command=True)
     async def debug_cmd(ctx):
@@ -66,7 +45,11 @@ def register_debug_commands(bot):
             f"{_I}**Debug commands:**\n"
             f"`!debug noise` — scan for bot noise\n"
             f"`!debug cleanup` — delete bot noise\n"
-            f"`!debug status` — summary internals")
+            f"`!debug status` — summary internals\n"
+            f"`!debug backfill` — embed missing messages\n"
+            f"`!debug reembed` — re-embed all with context\n"
+            f"`!debug clusters` — run clustering\n"
+            f"`!debug summarize_clusters` — summarize clusters")
 
     @debug_cmd.command(name='noise')
     async def debug_noise(ctx):
@@ -126,7 +109,6 @@ def register_debug_commands(bot):
                 await ctx.send(f"{_I}No summary for #{ctx.channel.name}.")
                 return
             summary = json.loads(raw)
-#            logger.info(f'Raw Summary: {summary}')
         except Exception as e:
             await ctx.send(f"{_I}Error loading summary: {e}")
             return
@@ -183,169 +165,10 @@ def register_debug_commands(bot):
                          f"{d.get('text','?')[:60]}" for d in drops)
             lines.append("")
 
-        # Send paginated
         from utils.summary_display import send_paginated
         await send_paginated(ctx, lines)
 
-    @debug_cmd.command(name='backfill')
-    async def debug_backfill(ctx):
-        """Embed all messages lacking embeddings (batch), then re-link all topics."""
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"{_I}Admin only.")
-            return
-        channel_id = ctx.channel.id
-        await ctx.send(f"{_I}Starting embedding backfill for #{ctx.channel.name}...")
-        try:
-            import time
-            from utils.embedding_store import (
-                get_messages_without_embeddings, embed_texts_batch,
-                store_message_embedding, link_topic_to_messages)
-
-            # Phase 1: batch embed missing messages
-            pending = await asyncio.to_thread(
-                get_messages_without_embeddings, channel_id, 2000)
-            await ctx.send(f"{_I}Found {len(pending)} messages to embed...")
-            t0 = time.monotonic()
-            embedded = failed = 0
-            if pending:
-                ids = [mid for mid, _ in pending]
-                texts = [content for _, content in pending]
-                BATCH = 1000
-                for batch_start in range(0, len(texts), BATCH):
-                    batch_ids = ids[batch_start:batch_start + BATCH]
-                    batch_texts = texts[batch_start:batch_start + BATCH]
-                    results = await asyncio.to_thread(
-                        embed_texts_batch, batch_texts, BATCH)
-                    result_map = {idx: vec for idx, vec in results}
-                    for i, mid in enumerate(batch_ids):
-                        if i in result_map:
-                            await asyncio.to_thread(
-                                store_message_embedding, mid, result_map[i])
-                            embedded += 1
-                        else:
-                            failed += 1
-                    batch_end = min(batch_start + BATCH, len(texts))
-                    logger.info(
-                        f"Backfill batch {batch_start}–{batch_end - 1}: "
-                        f"{len(results)} embedded, "
-                        f"{len(batch_texts) - len(results)} failed")
-            elapsed = time.monotonic() - t0
-            await ctx.send(
-                f"{_I}Embedded {embedded}/{len(pending)} "
-                f"({failed} failed) in {elapsed:.1f}s.")
-
-            # Phase 2: re-link all topics (active + archived)
-            from utils.summary_store import get_channel_summary
-            raw, _ = await asyncio.to_thread(get_channel_summary, channel_id)
-            if not raw:
-                await ctx.send(f"{_I}No summary — run `!summary create` first.")
-                return
-            data = json.loads(raw)
-            all_topics = (data.get("active_topics", []) +
-                          data.get("archived_topics", []))
-            relinked = 0
-            for topic in all_topics:
-                try:
-                    await asyncio.to_thread(
-                        link_topic_to_messages, topic["id"], channel_id)
-                    relinked += 1
-                except Exception as e:
-                    logger.warning(f"Re-link failed {topic['id']}: {e}")
-            await ctx.send(f"{_I}Re-linked {relinked} topics. Backfill complete.")
-        except Exception as e:
-            await ctx.send(f"{_I}Backfill failed: {e}")
-            logger.error(f"Backfill error for ch:{channel_id}: {e}")
-
-    @debug_cmd.command(name='clusters')
-    async def debug_clusters(ctx):
-        """Run UMAP + HDBSCAN clustering and show diagnostic report."""
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"{_I}Admin only.")
-            return
-        channel_id = ctx.channel.id
-        await ctx.send(f"{_I}Running cluster analysis for #{ctx.channel.name}...")
-        try:
-            from utils.cluster_store import (
-                run_clustering, get_cluster_stats, format_cluster_report)
-            from config import (
-                CLUSTER_MIN_CLUSTER_SIZE, CLUSTER_MIN_SAMPLES,
-                UMAP_N_NEIGHBORS, UMAP_N_COMPONENTS)
-            stats = await asyncio.to_thread(run_clustering, channel_id)
-            if stats is None:
-                await ctx.send(
-                    f"{_I}Not enough embeddings to cluster. "
-                    f"Run `!debug backfill` first.")
-                return
-            rows = await asyncio.to_thread(get_cluster_stats, channel_id)
-            params = {"mcs": CLUSTER_MIN_CLUSTER_SIZE, "ms": CLUSTER_MIN_SAMPLES,
-                      "umap_n": UMAP_N_NEIGHBORS, "umap_d": UMAP_N_COMPONENTS}
-            report = format_cluster_report(ctx.channel.name, stats, rows, params)
-            from utils.summary_display import send_paginated
-            await send_paginated(ctx, report.split("\n"))
-        except Exception as e:
-            await ctx.send(f"{_I}Cluster analysis failed: {e}")
-            logger.error(f"Cluster error ch:{channel_id}: {e}")
-
-    @debug_cmd.command(name='summarize_clusters')
-    async def debug_summarize_clusters(ctx):
-        """Run per-cluster LLM summarization and display results."""
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"{_I}Admin only.")
-            return
-        channel_id = ctx.channel.id
-        try:
-            from utils.cluster_store import get_clusters_for_channel
-            from utils.cluster_summarizer import summarize_cluster
-
-            clusters = await asyncio.to_thread(get_clusters_for_channel, channel_id)
-            if not clusters:
-                await ctx.send(
-                    f"{_I}No clusters found for #{ctx.channel.name}. "
-                    f"Run `!debug clusters` first.")
-                return
-
-            total = len(clusters)
-            await ctx.send(
-                f"{_I}**Cluster Summarization** (channel: #{ctx.channel.name})\n"
-                f"Processing {total} clusters...")
-
-            # Get the provider used for summarization
-            from ai_providers import get_provider
-            from config import SUMMARIZER_PROVIDER
-            provider = get_provider(SUMMARIZER_PROVIDER)
-
-            processed = failed = 0
-            result_lines = []
-            for i, cluster in enumerate(clusters):
-                result = await summarize_cluster(
-                    cluster["id"], channel_id, provider)
-                if result:
-                    processed += 1
-                    label = result.get("label", "?")
-                    status = result.get("status", "?")
-                    result_lines.append(
-                        f"Cluster {i} ({cluster['message_count']} msgs): "
-                        f"\"{label}\" — {status}")
-                else:
-                    failed += 1
-                    result_lines.append(
-                        f"Cluster {i} ({cluster['message_count']} msgs): FAILED")
-
-                # Progress update every 5 clusters
-                if (i + 1) % 5 == 0:
-                    await ctx.send(
-                        f"{_I}Progress: {i + 1}/{total} clusters processed...")
-
-            result_lines.append("")
-            result_lines.append(
-                f"Processed: {processed} clusters, {failed} failures")
-
-            from utils.summary_display import send_paginated
-            await send_paginated(ctx, result_lines)
-
-        except Exception as e:
-            await ctx.send(f"{_I}Summarize clusters failed: {e}")
-            logger.error(f"summarize_clusters error ch:{channel_id}: {e}")
+    return debug_cmd
 
 
 async def _find_noise(channel, bot_user_id):
