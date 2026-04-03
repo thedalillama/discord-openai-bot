@@ -167,7 +167,7 @@ Key variables:
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` (production: `0.45`) |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |

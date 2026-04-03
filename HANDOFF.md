@@ -8,8 +8,9 @@
 **Bot version**: v5.6.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live; contextual embeddings deployed but existing
-embeddings not yet re-embedded — run `!debug reembed` + `!summary create`
+**Pipeline**: cluster-v5 fully live; contextual embeddings live; `!debug reembed`
+run (792 messages re-embedded); `!summary create` needed to rebuild clusters
+**RETRIEVAL_MIN_SCORE**: 0.45 (set in `.env`, overrides default 0.25)
 
 ---
 
