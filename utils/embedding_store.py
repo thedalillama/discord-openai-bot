@@ -19,7 +19,6 @@ CHANGES v1.1.0: Switch embedding provider to OpenAI text-embedding-3-small
 CREATED v1.0.0: Topic-based semantic retrieval
 """
 import math, struct, sqlite3
-from datetime import datetime, timezone
 from config import DATABASE_PATH, EMBEDDING_MODEL
 from utils.logging_utils import get_logger
 
@@ -88,12 +87,11 @@ def store_message_embedding(message_id, embedding):
     """Upsert a message embedding blob."""
     conn = sqlite3.connect(DATABASE_PATH)
     try:
-        now = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "INSERT INTO message_embeddings(message_id, embedding, created_at) "
-            "VALUES(?,?,?) ON CONFLICT(message_id) DO UPDATE SET "
+            "INSERT INTO message_embeddings(message_id, embedding) "
+            "VALUES(?,?) ON CONFLICT(message_id) DO UPDATE SET "
             "embedding=excluded.embedding",
-            (message_id, pack_embedding(embedding), now))
+            (message_id, pack_embedding(embedding)))
         conn.commit()
     finally:
         conn.close()
