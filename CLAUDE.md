@@ -68,7 +68,7 @@ Retrieval path (`context_manager.py` → `context_retrieval.py`):
 1. Build contextual query: prepend last 3 in-memory conversation messages
 2. `embed_text()` on contextual query
 3. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
-4. Filter by `RETRIEVAL_MIN_SCORE` (0.25)
+4. Filter by `RETRIEVAL_MIN_SCORE` (0.25 default; 0.45 in production .env)
 5. `get_cluster_messages()` — direct member messages, exclude recent_ids
 
 **Embedding strategy (v5.6.0):**
