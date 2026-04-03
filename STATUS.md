@@ -1,8 +1,55 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.5.1
+# Version 5.6.0
 
 ## Current Version Features
+
+### Version 5.6.0 — Context-Prepended Embeddings + 250-Line Refactors
+
+Two improvements in one release: (1) all embeddings now include conversational
+context, and (2) all files brought under the 250-line limit.
+
+**Context-prepended embeddings:**
+Instead of embedding raw message content, the bot now prepends the 3 prior
+messages (or the replied-to message chain) before embedding. This places short
+replies ("yes", "agreed") in their conversational context rather than generic
+affirmation space, and ensures bot responses cluster by topic rather than by
+shared language patterns.
+
+- `utils/embedding_context.py` v1.0.0 — `build_contextual_text()`,
+  `get_previous_messages()`, `get_reply_context()`
+- `utils/raw_events.py` v1.6.0 — embed path uses `build_contextual_text()`
+- `utils/context_retrieval.py` v1.0.0 — query embedding uses last 3 in-memory
+  conversation messages as context (same vector space as stored embeddings)
+- `commands/cluster_commands.py` v1.0.0 — `!debug backfill` uses contextual text;
+  new `!debug reembed` deletes all embeddings and re-embeds with context
+- `utils/embedding_store.py` v1.8.0 — `get_messages_without_embeddings()` returns
+  `(id, content, author, reply_to_id)` ordered chronologically; adds
+  `delete_channel_embeddings()`
+
+**250-line refactors (7 files fixed, 5 new modules extracted):**
+
+| Extracted to | From | Lines moved |
+|---|---|---|
+| `utils/topic_store.py` | `embedding_store.py` | topic functions (~150 lines) |
+| `utils/context_retrieval.py` | `context_manager.py` | retrieval functions (~110 lines) |
+| `utils/summary_prompts_structurer.py` | `summary_prompts_authoring.py` | Structurer prompt (~90 lines) |
+| `commands/cluster_commands.py` | `debug_commands.py` | cluster commands (~185 lines) |
+
+Inline trims: `summary_display.py`, `message_store.py`, `cleanup_coordinator.py`.
+
+**Post-deploy steps required:**
+1. `!debug reembed` — delete + re-embed all messages with contextual text
+2. `!summary create` — rebuild clusters from contextual embeddings
+
+**Modified files:** embedding_context.py (new), topic_store.py (new),
+context_retrieval.py (new), summary_prompts_structurer.py (new),
+cluster_commands.py (new), embedding_store.py, context_manager.py,
+summary_prompts_authoring.py, debug_commands.py, raw_events.py,
+summary_display.py, message_store.py, cleanup_coordinator.py,
+summarizer_authoring.py, commands/__init__.py
+
+---
 
 ### Version 5.5.1 — ℹ️ Prefix Fix + Bot Diagnostic Embedding Guard
 

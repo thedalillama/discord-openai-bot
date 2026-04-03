@@ -1,18 +1,62 @@
 # HANDOFF.md
-# Version 5.5.1
+# Version 5.6.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.5.1
+**Bot version**: v5.6.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live and validated in production
+**Pipeline**: cluster-v5 fully live; contextual embeddings deployed but existing
+embeddings not yet re-embedded — run `!debug reembed` + `!summary create`
 
 ---
 
 ## What Just Happened
+
+### v5.6.0 — Context-Prepended Embeddings + 250-Line Refactors
+
+**Context-prepended embeddings (the feature):**
+
+Previously every message was embedded as raw text. This caused two known problems:
+- Short replies ("yes", "agreed") embedded as generic affirmations, clustering
+  with other short replies instead of their conversation
+- Bot responses about different topics clustered together due to shared language
+
+Fix: `utils/embedding_context.py` (new) provides `build_contextual_text()` which
+prepends the 3 prior messages (or the replied-to message chain) before embedding.
+Format: `[Context: a1: msg1 | a2: msg2]\nauthor: current message`.
+
+Call sites updated:
+- `utils/raw_events.py` v1.6.0 — all new messages embedded with context on arrival
+- `commands/cluster_commands.py` v1.0.0 — `!debug backfill` uses context;
+  new `!debug reembed` command wipes all embeddings and re-embeds with context
+- `utils/context_retrieval.py` v1.0.0 — query also embedded with context (last 3
+  in-memory conversation messages, no SQLite needed for query side)
+
+**250-line refactors:**
+
+All 7 over-limit files are now under 250 lines. Four new modules extracted:
+- `utils/topic_store.py` — topic functions from embedding_store.py (v4.x rollback, retained)
+- `utils/context_retrieval.py` — `_fallback_msg_search()` + `_retrieve_cluster_context()`
+  from context_manager.py
+- `utils/summary_prompts_structurer.py` — Structurer prompt from summary_prompts_authoring.py
+- `commands/cluster_commands.py` — cluster commands from debug_commands.py
+
+Three files trimmed inline: summary_display.py, message_store.py, cleanup_coordinator.py.
+
+**Commands wiring change:**
+`register_debug_commands(bot)` now returns the `debug_cmd` group. `commands/__init__.py`
+v2.5.0 calls `register_cluster_commands(debug_cmd)` to add cluster subcommands to it.
+
+**Post-deploy required:**
+```
+!debug reembed     ← deletes all embeddings, re-embeds with contextual text
+!summary create    ← rebuilds clusters from new contextual embeddings
+```
+
+---
 
 ### v5.5.1 — ℹ️ Prefix Fix + Bot Diagnostic Embedding Guard
 

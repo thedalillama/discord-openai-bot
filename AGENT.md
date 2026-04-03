@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.5.1
+# Version 5.6.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -81,6 +81,16 @@
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+
+### Context-Prepended Embeddings (v5.6.0)
+- All messages embedded with conversational context via `build_contextual_text()`
+  in `utils/embedding_context.py` (format: `[Context: a1: msg1 | ...]\nauthor: content`)
+- Reply chains: replied-to message used as primary context
+- Query embedding also contextual: last 3 in-memory conversation messages prepended
+- `!debug reembed` + `!summary create` required after deploy to rebuild embeddings/clusters
+- `utils/topic_store.py` — topic functions extracted from embedding_store.py (retained)
+- `utils/context_retrieval.py` — retrieval extracted from context_manager.py
+- `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
 
 ### Noise Guard (v5.5.1)
 - `raw_events.py` `_looks_like_diagnostic()` skips embedding bot-authored

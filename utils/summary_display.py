@@ -3,28 +3,11 @@
 """
 Summary display formatting and pagination for Discord output.
 
-CHANGES v1.3.2: Fix footer showing all 0s for cluster-v5 summaries
-- MODIFIED: format_summary() footer now detects cluster-v5 schema
-  (presence of cluster_count key) and shows "N clusters (M noise) |
-  cluster-v5" instead of reading the v4.x message_range/token fields
-  that the cluster pipeline never populates
-
-CHANGES v1.3.1: Anchor key facts as conversation-sourced
-- CHANGED: "Key facts:" label → "Key facts established in this conversation:"
-  so the model recognises them as discussed content, not background knowledge.
-
-CHANGES v1.3.0: Always-on context formatter for semantic retrieval (SOW v4.0.0)
-- ADDED: format_always_on_context() — slim context block injected every response:
-  overview, key facts, open action items, open questions. No topics (retrieved
-  semantically by context_manager.py v2.0.0).
-
+CHANGES v1.3.2: Fix footer for cluster-v5 summaries (cluster_count key)
+CHANGES v1.3.1: "Key facts:" → "Key facts established in this conversation:"
+CHANGES v1.3.0: format_always_on_context() for semantic retrieval (SOW v4.0.0)
 CHANGES v1.2.1: Key Facts in default !summary view
-- MOVED: Key Facts from full-only to default display
-
-CHANGES v1.2.0: Add format_summary_for_context() for M3 context injection
-- ADDED: format_summary_for_context() — formats full summary as plain text
-  for injection into the system prompt. No markdown, no Discord formatting.
-
+CHANGES v1.2.0: format_summary_for_context() for system prompt injection
 CHANGES v1.1.0: ℹ️ prefix on all output for noise filtering
 CREATED v1.0.0: Extracted from summary_commands.py v2.1.0
 """
