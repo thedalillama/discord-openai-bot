@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.6.0
+# Version 5.6.1
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -76,6 +76,13 @@ All embeddings include conversational context via `build_contextual_text()` in
 `utils/embedding_context.py`. Format: `[Context: a1: msg1 | a2: msg2]\nauthor: content`.
 Reply chains: replied-to message used as primary context instead of sliding window.
 After deploy: run `!debug reembed` + `!summary create` to rebuild with contextual embeddings.
+
+**Smart query embedding (v5.6.1):**
+Query uses `embed_query_with_smart_context()` to avoid topic bleed-through:
+- Path 1: previous message was a question → embed with question as context
+- Path 2: cosine-compare raw query to previous stored embedding; if `sim > RETRIEVAL_MIN_SCORE`
+  re-embed with context (same topic), else use raw (topic shift)
+`build_contextual_text()` for stored embeddings is unchanged.
 
 Fallback chain:
 1. Clusters above `RETRIEVAL_MIN_SCORE` with messages → inject as `[Topic: {label}]`
