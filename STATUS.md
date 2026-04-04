@@ -1,8 +1,256 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 4.1.10
+# Version 5.6.1
 
 ## Current Version Features
+
+### Version 5.6.1 — Smart Query Embedding
+
+Fixes topic bleed-through when the user switches topics mid-conversation.
+Previously, a 3-message context window was always prepended to the query
+embedding, causing "what database are we using?" to embed with gorilla context
+and retrieve gorilla clusters.
+
+**Two-path query embedding (`embed_query_with_smart_context()`):**
+
+- **Path 1 — previous message was a question:** current message is likely a
+  response (e.g., "yes" after "Should we use PostgreSQL?"). Include the question
+  as context. 1 API call.
+- **Path 2 — otherwise:** embed raw, then cosine-compare to the previous
+  message's stored embedding. If `sim > RETRIEVAL_MIN_SCORE` (same topic),
+  re-embed with context. If below (topic shift), use the raw embedding already
+  computed. 1–2 API calls.
+
+Question detection is a pure heuristic (`is_question()`) — no LLM call.
+`build_contextual_text()` for stored embeddings is unchanged.
+
+**Modified files:**
+- `utils/embedding_context.py` v1.1.0 — `is_question()`, `embed_query_with_smart_context()`
+- `utils/embedding_store.py` v1.9.0 — `get_stored_embedding(message_id)`
+- `utils/context_retrieval.py` v1.1.0 — query path uses smart context
+
+---
+
+### Config tuning — RETRIEVAL_MIN_SCORE raised to 0.45
+
+Set in `.env` (overrides config.py default of 0.25). With contextual embeddings
+producing higher-signal vectors, the old 0.25 threshold was too permissive.
+0.45 requires clusters to be meaningfully similar to the query before injection.
+
+---
+
+### Version 5.6.0 — Context-Prepended Embeddings + 250-Line Refactors
+
+Two improvements in one release: (1) all embeddings now include conversational
+context, and (2) all files brought under the 250-line limit.
+
+**Context-prepended embeddings:**
+Instead of embedding raw message content, the bot now prepends the 3 prior
+messages (or the replied-to message chain) before embedding. This places short
+replies ("yes", "agreed") in their conversational context rather than generic
+affirmation space, and ensures bot responses cluster by topic rather than by
+shared language patterns.
+
+- `utils/embedding_context.py` v1.0.0 — `build_contextual_text()`,
+  `get_previous_messages()`, `get_reply_context()`
+- `utils/raw_events.py` v1.6.0 — embed path uses `build_contextual_text()`
+- `utils/context_retrieval.py` v1.0.0 — query embedding uses last 3 in-memory
+  conversation messages as context (same vector space as stored embeddings)
+- `commands/cluster_commands.py` v1.0.0 — `!debug backfill` uses contextual text;
+  new `!debug reembed` deletes all embeddings and re-embeds with context
+- `utils/embedding_store.py` v1.8.0 — `get_messages_without_embeddings()` returns
+  `(id, content, author, reply_to_id)` ordered chronologically; adds
+  `delete_channel_embeddings()`
+
+**250-line refactors (7 files fixed, 5 new modules extracted):**
+
+| Extracted to | From | Lines moved |
+|---|---|---|
+| `utils/topic_store.py` | `embedding_store.py` | topic functions (~150 lines) |
+| `utils/context_retrieval.py` | `context_manager.py` | retrieval functions (~110 lines) |
+| `utils/summary_prompts_structurer.py` | `summary_prompts_authoring.py` | Structurer prompt (~90 lines) |
+| `commands/cluster_commands.py` | `debug_commands.py` | cluster commands (~185 lines) |
+
+Inline trims: `summary_display.py`, `message_store.py`, `cleanup_coordinator.py`.
+
+**Post-deploy steps required:**
+1. `!debug reembed` — delete + re-embed all messages with contextual text
+2. `!summary create` — rebuild clusters from contextual embeddings
+
+**Modified files:** embedding_context.py (new), topic_store.py (new),
+context_retrieval.py (new), summary_prompts_structurer.py (new),
+cluster_commands.py (new), embedding_store.py, context_manager.py,
+summary_prompts_authoring.py, debug_commands.py, raw_events.py,
+summary_display.py, message_store.py, cleanup_coordinator.py,
+summarizer_authoring.py, commands/__init__.py
+
+---
+
+### Version 5.5.1 — ℹ️ Prefix Fix + Bot Diagnostic Embedding Guard
+
+Two bugs fixed, one sklearn warning silenced.
+
+**Bug 1 (root cause): `!debug clusters` pagination missing ℹ️ prefix**
+`debug_clusters` had a manual chunk loop calling `ctx.send(page)` without
+the prefix. Pages 2+ entered Discord as bare text, were embedded by
+`raw_events.py`, assigned to clusters, and retrieved as conversation context
+(confirmed: cluster report text was retrieved when a user asked about squirrels).
+Fix: both `debug_clusters` and `debug_summarize_clusters` now route through
+`send_paginated()` — all chunks guaranteed to carry ℹ️.
+
+**Bug 2 (belt-and-suspenders): no guard against prefix loss in general**
+Added `_looks_like_diagnostic()` to `raw_events.py`. Bot-authored messages
+whose content starts with `Cluster `, `Parameters:`, `Processed:`,
+`**Cluster Analysis`, `**Cluster Summariz`, or `**Overview**` are skipped
+at the embedding gate even if prefix loss recurs.
+
+**Data cleanup:** 2 contaminated embeddings/cluster memberships deleted from
+production DB; 60 clusters marked `needs_resummarize=1` and re-summarized
+via `!summary update`.
+
+**sklearn FutureWarning:** Added `copy=False` to `HDBSCAN()` call in
+`cluster_engine.py` to silence "default value of copy will change in 1.10".
+
+**Modified files:**
+- `commands/debug_commands.py` v1.6.0 — `send_paginated()` for all pagination
+- `utils/raw_events.py` v1.5.0 — `_looks_like_diagnostic()` guard
+- `utils/cluster_engine.py` v1.0.1 — `copy=False` on HDBSCAN
+
+---
+
+### Version 5.5.0 — Cluster-Based Retrieval Integration
+
+Replaces topic-based semantic retrieval with cluster-based retrieval in the
+bot's response path. When a user message arrives, the bot scores it against
+cluster centroids (instead of topic embeddings) and injects the matching
+cluster's direct member messages into the context. The full v5 architecture
+is now live end-to-end.
+
+**What changed:**
+- `context_manager.py` `_retrieve_cluster_context()` replaces `_retrieve_topic_context()`
+- Imports `find_relevant_clusters` + `get_cluster_messages` from new `cluster_retrieval.py`
+- All unchanged: `[Topic: {label}]` section framing, fallback path, token budget,
+  timestamp prefixing, today's date injection, `_fallback_msg_search()`
+
+**Quality improvement:**
+- Topics (v4.x): LLM-generated labels, messages linked by cosine similarity approximation
+- Clusters (v5.x): messages grouped directly by HDBSCAN with exact membership;
+  centroid is the actual mean vector — no linking approximation
+
+**New files:**
+- `utils/cluster_retrieval.py` v1.0.0 — `find_relevant_clusters()`, `get_cluster_messages()`
+
+**Modified files:**
+- `utils/context_manager.py` v2.2.0 — cluster retrieval replaces topic retrieval
+
+**Retained (rollback):** topic functions in `embedding_store.py` unchanged
+
+---
+
+### Version 5.4.0 — Incremental Cluster Assignment + Selective Re-Summarization
+
+On-arrival cluster assignment routes each new embedded message to its nearest
+cluster centroid without running a full re-cluster. `!summary update` re-summarizes
+only the clusters that received new messages since the last run.
+
+**Three-tier architecture:**
+1. **Tier 1 (on arrival)**: `raw_events.py` calls `assign_to_nearest_cluster()` after
+   embedding — cosine similarity vs cluster centroids, updates centroid via running
+   average + renormalize, marks cluster `needs_resummarize=1`
+2. **Tier 2 (`!summary update`)**: `quick_update_channel()` re-summarizes only dirty
+   clusters (Gemini per-cluster), then re-runs classify → overview → dedup → answered-Q → save
+3. **Tier 3 (`!summary create`)**: full re-cluster (unchanged)
+
+**Key design choices:**
+- Centroid update via running average: `(old * n + new) / (n+1)`, then normalize
+- `assign_to_nearest_cluster` fails silently — no clusters is not an error
+- `cluster_count` and `noise_message_count` preserved from existing summary (no re-cluster)
+- Unassigned count reported in `!summary update` output as prompt to run `!summary create`
+
+**New files:**
+- `schema/006.sql` — `ALTER TABLE clusters ADD COLUMN needs_resummarize INTEGER DEFAULT 0`
+- `utils/cluster_assign.py` v1.0.0 — `assign_to_nearest_cluster()`, cosine similarity,
+  centroid running average update, `_update_and_assign()`
+- `utils/cluster_update.py` v1.0.0 — `run_quick_update()`, re-summarizes dirty clusters,
+  re-runs full post-processing pipeline, preserves cluster_count + noise_count
+
+**Modified files:**
+- `utils/cluster_store.py` v2.0.0 — added `get_dirty_clusters()`, `mark_clusters_clean()`,
+  `get_unassigned_message_count()`
+- `utils/raw_events.py` v1.4.0 — calls `assign_to_nearest_cluster` after embedding
+- `utils/summarizer.py` v3.1.0 — added `quick_update_channel()`
+- `commands/summary_commands.py` v2.4.0 — added `!summary update` subcommand
+
+---
+
+### Version 5.3.0 — Cluster Pipeline (validated + committed)
+
+`!summary create` now runs the full cluster-v5 pipeline. Validated on #openclaw:
+741 messages, 56 clusters, 0 failures, ~$0.01 total cost.
+
+**Pipeline order:**
+1. UMAP + HDBSCAN clustering (`cluster_engine.py`)
+2. Per-cluster Gemini summarization — one call per cluster (`cluster_summarizer.py`)
+3. Aggregate structured items (decisions, key_facts, action_items, open_questions) across all clusters
+4. GPT-4o-mini classifier — whitelist filter, default-to-DROP on missing verdict (`cluster_classifier.py`)
+5. Overview Gemini call — labels + summary texts only → overview + participants (`cluster_overview.py`)
+6. Merge overview + participants + filtered items
+7. `translate_to_channel_summary()` — maps `text` → `fact`/`task`/`question`/`decision`
+8. Embedding dedup — cosine similarity 0.85 threshold, all four arrays (`cluster_qa.py`)
+9. Answered-question check — GPT-4o-mini YES/NO per question vs decisions + facts (`cluster_qa.py`)
+10. `save_channel_summary()`
+
+**Key design choices:**
+- Classifier runs BEFORE overview LLM — prevents 16K+ token JSON blowup from 56 clusters
+- Overview receives labels + summary text only (not structured fields) — tiny response
+- Embedding dedup handles "Use PostgreSQL" × 3 etc. without LLM reluctance
+- Answered-question check is a targeted binary classification — works well with GPT-4o-mini
+- Default-to-DROP on missing classifier verdicts — truncation produces less noise, not more
+- v4.x three-pass pipeline retained in `summarizer_authoring.py` — rollback safety only
+
+**New files (v5.3.0 final):**
+- `utils/cluster_overview.py` v2.2.0 — `generate_overview()`, `_collect_structured_items()`,
+  `translate_to_channel_summary()`, `run_cluster_pipeline()` orchestrator
+- `utils/cluster_classifier.py` v1.6.0 — GPT-4o-mini whitelist filter; `classify_overview_items()`,
+  `_build_prompt()`, `_apply_verdicts()` (default-to-DROP); `CLASSIFIER_SYSTEM_PROMPT` with
+  6-category KEEP whitelist
+- `utils/cluster_qa.py` v1.0.0 — post-classifier QA; `deduplicate_summary()` (embedding cosine
+  dedup, 0.85 threshold), `remove_answered_questions()` (GPT-4o-mini YES/NO)
+
+**Modified files:**
+- `utils/summarizer.py` v3.0.0 — `summarize_channel()` routes to `run_cluster_pipeline()`
+- `utils/summary_commands.py` v2.3.0 — `!summary create` displays cluster-v5 stats;
+  `!summary clear` also calls `clear_channel_clusters()`
+- `utils/summary_display.py` v1.3.2 — footer detects cluster-v5 schema, shows
+  `N clusters (M noise) | cluster-v5` instead of `0 messages | 0 tokens`
+
+### Version 5.2.0 — Per-Cluster LLM Summarization
+- **NEW**: `utils/cluster_summarizer.py` v1.0.0 — per-cluster Gemini summarization;
+  `CLUSTER_SYSTEM_PROMPT` and `CLUSTER_SUMMARY_SCHEMA` (flat JSON, summary field first);
+  `summarize_cluster()` loads messages, formats with M-labels (truncates to 50 most
+  recent), calls Gemini with structured output, stores label/summary/status;
+  `summarize_all_clusters()` sequential loop with retry-on-failure
+- **MODIFIED**: `utils/cluster_store.py` v1.1.0 — added `get_cluster_message_ids()`,
+  `get_clusters_for_channel()`, `update_cluster_label_summary()`, `get_messages_by_ids()`
+  (placed here instead of message_store.py which is at 254 lines)
+- **MODIFIED**: `commands/debug_commands.py` v1.5.0 — added `!debug summarize_clusters`;
+  iterates all clusters, calls `summarize_cluster()` per cluster, sends Discord progress
+  every 5 clusters, paginates final report
+
+### Version 5.1.0 — Schema + HDBSCAN Clustering Core
+- **NEW**: `schema/005.sql` — `clusters` and `cluster_messages` tables;
+  `clusters.embedding` stores cluster centroid as packed BLOB
+- **NEW**: `utils/cluster_engine.py` v1.0.0 — UMAP (1536→5 dims) +
+  HDBSCAN clustering pipeline; noise reassignment via cosine similarity to
+  centroids; centroids computed in original 1536-dim space
+- **NEW**: `utils/cluster_store.py` v1.0.0 — CRUD (store_cluster,
+  clear_channel_clusters, get_cluster_stats), orchestrator (run_clustering),
+  Discord formatter (format_cluster_report)
+- **MODIFIED**: `config.py` v1.13.0 — add CLUSTER_MIN_CLUSTER_SIZE (5),
+  CLUSTER_MIN_SAMPLES (3), UMAP_N_NEIGHBORS (15), UMAP_N_COMPONENTS (5)
+- **MODIFIED**: `commands/debug_commands.py` v1.4.1 — add `!debug clusters`
+  diagnostic command (v1.4.0) + paginate output (v1.4.1)
+- **MODIFIED**: `requirements.txt` — add scikit-learn>=1.3, umap-learn>=0.5
 
 ### Version 4.1.10 - Inject Today's Date into Context
 - **MODIFIED**: `utils/context_manager.py` v2.1.5 — `Today's date: YYYY-MM-DD`
@@ -136,7 +384,9 @@ discord-bot/
 │   ├── 001.sql                    # v3.0.0 baseline
 │   ├── 002.sql                    # v3.1.0 columns + tables
 │   ├── 003.sql                    # v3.2.3 is_bot_author
-│   └── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
+│   ├── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
+│   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
+│   └── 006.sql                    # v5.4.0 needs_resummarize column
 ├── ai_providers/
 │   ├── __init__.py                # v1.4.0
 │   ├── openai_provider.py         # v1.3.0
@@ -151,18 +401,28 @@ discord-bot/
 │   ├── prompt_commands.py         # v2.1.0
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
-│   ├── summary_commands.py        # v2.2.0
-│   └── debug_commands.py          # v1.2.0
+│   ├── summary_commands.py        # v2.4.0
+│   └── debug_commands.py          # v1.6.0
+│   └── debug_commands.py          # v1.5.0
 ├── utils/
+│   ├── cluster_engine.py          # v1.0.1
+│   ├── cluster_store.py           # v2.0.0
+│   ├── cluster_summarizer.py      # v1.0.0
+│   ├── cluster_overview.py        # v2.2.0
+│   ├── cluster_classifier.py      # v1.6.0
+│   ├── cluster_qa.py              # v1.0.0
+│   ├── cluster_assign.py          # v1.0.0
+│   ├── cluster_update.py          # v1.0.0
+│   ├── cluster_retrieval.py       # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.3.0
+│   ├── raw_events.py              # v1.5.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.5.0
-│   ├── context_manager.py         # v2.1.3
+│   ├── context_manager.py         # v2.2.0
 │   ├── response_handler.py        # v1.1.4
-│   ├── summarizer.py              # v2.1.0
+│   ├── summarizer.py              # v3.1.0
 │   ├── summarizer_authoring.py    # v1.10.2
 │   ├── summary_schema.py          # v1.4.0
 │   ├── summary_delta_schema.py    # v1.0.0
@@ -170,7 +430,7 @@ discord-bot/
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_prompts.py         # v1.6.0
 │   ├── summary_prompts_authoring.py  # v1.6.0
-│   ├── summary_display.py         # v1.3.1
+│   ├── summary_display.py         # v1.3.2
 │   ├── summary_normalization.py   # v1.0.1
 │   ├── summary_validation.py      # v1.1.0
 │   └── history/

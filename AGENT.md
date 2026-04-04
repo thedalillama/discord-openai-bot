@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 4.1.10
+# Version 5.6.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -82,12 +82,60 @@
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
 
-### Summarization Pipeline (v3.5+)
-- Three-pass: Secretary (natural language) → Structurer (anyOf JSON) → Classifier (dedup)
-- Both cold start and incremental use the same shared `_run_pipeline()`
-- Cold start slices to `SUMMARIZER_BATCH_SIZE` then continues via incremental loop — prevents 65K+ token responses
-- After pipeline: all active + archived topics stored with embeddings and linked to messages
-- Provider: Gemini for Secretary/Structurer, GPT-4o-mini for Classifier
+### Smart Query Embedding (v5.6.1)
+- `embed_query_with_smart_context()` in `embedding_context.py` — two-path logic:
+  Path 1 (question detection via `is_question()`), Path 2 (cosine similarity check
+  vs previous stored embedding via `get_stored_embedding()`)
+- `RETRIEVAL_MIN_SCORE` reused as topic-shift threshold — no new config variable
+- `build_contextual_text()` for stored embeddings unchanged
+
+### Context-Prepended Embeddings (v5.6.0)
+- All messages embedded with conversational context via `build_contextual_text()`
+  in `utils/embedding_context.py` (format: `[Context: a1: msg1 | ...]\nauthor: content`)
+- Reply chains: replied-to message used as primary context
+- Query embedding also contextual: last 3 in-memory conversation messages prepended
+- `!debug reembed` + `!summary create` required after deploy to rebuild embeddings/clusters
+- `utils/topic_store.py` — topic functions extracted from embedding_store.py (retained)
+- `utils/context_retrieval.py` — retrieval extracted from context_manager.py
+- `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
+
+### Noise Guard (v5.5.1)
+- `raw_events.py` `_looks_like_diagnostic()` skips embedding bot-authored
+  messages whose content starts with known diagnostic prefixes (`Cluster `,
+  `Parameters:`, `Processed:`, `**Cluster Analysis`, etc.) — belt-and-suspenders
+  against prefix loss; `debug_commands.py` v1.6.0 routes all pagination through
+  `send_paginated()` to guarantee ℹ️ on every chunk
+
+### Semantic Retrieval (v5.5.0 — cluster-based)
+- Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
+  `cluster_retrieval.py`; topic functions in `embedding_store.py` retained but unused
+- `_retrieve_cluster_context()` in `context_manager.py` replaces `_retrieve_topic_context()`
+- `[Topic: {label}]` section header preserved — model framing unchanged
+- Fallback (`find_similar_messages`) still fires when no clusters pass threshold
+
+### Incremental Assignment (v5.4.0)
+- New messages assigned to nearest cluster centroid on arrival (`raw_events.py` →
+  `cluster_assign.py`); centroid updated via running average + renormalize; cluster
+  flagged `needs_resummarize=1`
+- `!summary update` re-summarizes only dirty clusters (Tier 2), no re-cluster
+- `schema/006.sql`: `ALTER TABLE clusters ADD COLUMN needs_resummarize INTEGER DEFAULT 0`
+- Key files: `cluster_assign.py`, `cluster_update.py`, `cluster_store.py` v2.0.0
+
+### Summarization Pipeline (v5.3.0 — cluster-based)
+- `!summary create` → `summarizer.py` → `run_cluster_pipeline()` in `cluster_overview.py`
+- UMAP + HDBSCAN clustering → per-cluster Gemini summarization → classify → overview → dedup → QA → save
+- Classifier (`cluster_classifier.py`): GPT-4o-mini whitelist filter; default-to-DROP on missing verdict
+- Overview LLM receives labels + summary texts only (not structured fields) — prevents 16K+ token blowup
+- Dedup (`cluster_qa.py`): embedding cosine similarity, 0.85 threshold, all four arrays
+- Answered-Q check (`cluster_qa.py`): GPT-4o-mini YES/NO, removes questions answered by facts/decisions
+- Field translation at storage time: `text` → `fact`/`task`/`question`/`decision` (v4.x display layer unchanged)
+- v4.x three-pass pipeline (`summarizer_authoring.py`) retained for rollback — not called
+
+### Clustering Core (v5.1.0)
+- `utils/cluster_engine.py` — UMAP (cosine, 1536→5 dims) + HDBSCAN (euclidean, eom)
+- Noise reduction: noise points reassigned to nearest centroid above RETRIEVAL_MIN_SCORE
+- `utils/cluster_store.py` — CRUD, run_clustering() orchestrator, format_cluster_report()
+- `schema/005.sql` — clusters + cluster_messages tables (alongside v4.x topics)
 
 ### Conversation Providers
 - OpenAI, Anthropic, DeepSeek — per-channel configurable

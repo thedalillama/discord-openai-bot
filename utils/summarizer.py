@@ -1,9 +1,16 @@
 # utils/summarizer.py
-# Version 2.2.0
+# Version 3.1.0
 """
-Summarization pipeline orchestrator. Both cold starts and incremental
-updates use the three-pass Secretary → Structurer → Classifier pipeline
-via summarizer_authoring.py.
+Summarization pipeline orchestrator.
+
+CHANGES v3.1.0: Add quick_update_channel() for !summary update (SOW v5.4.0)
+CHANGES v3.0.0: Route to cluster-based pipeline (SOW v5.3.0)
+- MODIFIED: summarize_channel() now delegates to run_cluster_pipeline()
+  in cluster_overview.py; executes cluster → per-cluster summarize →
+  cross-cluster overview → save to channel_summaries
+- RETAINED: v4.x three-pass pipeline functions (_incremental_loop,
+  _process_response, _repair_call, _get_unsummarized_messages) are NOT
+  called but remain for rollback safety
 
 CHANGES v2.2.0: Batched cold start
 - MODIFIED: summarize_channel() now slices cold start to effective_batch
@@ -12,10 +19,6 @@ CHANGES v2.2.0: Batched cold start
   ingest
 
 CHANGES v2.1.0: Incremental path uses three-pass pipeline
-- MODIFIED: _incremental_loop() batches messages and delegates each
-  batch to incremental_pipeline() instead of single-pass raw-to-JSON
-- REMOVED: Direct Gemini calls from incremental path
-
 CHANGES v2.0.0: Migrate incremental path to anyOf schema
 CHANGES v1.9.0: Two-pass authoring for cold starts
 CHANGES v1.1.0-v1.8.0: Three-layer pipeline, batch loop, noise filters
@@ -29,51 +32,43 @@ from utils.context_manager import estimate_tokens
 logger = get_logger('summarizer')
 
 
-async def summarize_channel(channel_id, batch_size=None):
-    """Generate or update the structured summary for a channel."""
-    from utils.summary_store import get_channel_summary
+async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
+    """Generate or update the structured summary for a channel.
+
+    v3.0.0: Routes to cluster-based pipeline (cluster_overview.py).
+    The v4.x three-pass pipeline functions below are no longer called
+    but are retained for rollback safety.
+
+    batch_size is accepted but ignored — the cluster pipeline processes
+    all messages on each run.
+    """
+    from utils.cluster_overview import run_cluster_pipeline
     from ai_providers import get_provider
-    from config import SUMMARIZER_PROVIDER, SUMMARIZER_BATCH_SIZE
-    effective_batch = batch_size or SUMMARIZER_BATCH_SIZE
+    from config import SUMMARIZER_PROVIDER
     provider = get_provider(SUMMARIZER_PROVIDER)
-    summary_json, last_message_id = await asyncio.to_thread(
-        get_channel_summary, channel_id)
-    if not summary_json:
-        logger.info(f"Cold start for channel {channel_id}")
-        from utils.summarizer_authoring import cold_start_pipeline
-        from config import SUMMARIZER_MODEL
-        all_messages = await _get_unsummarized_messages(
-            channel_id, None)
-        first_batch = all_messages[:effective_batch]
-        logger.info(
-            f"Cold start: {len(first_batch)} of {len(all_messages)} msgs "
-            f"(batch_size={effective_batch})")
-        result = await cold_start_pipeline(
-            channel_id, provider, effective_batch,
-            SUMMARIZER_PROVIDER, SUMMARIZER_MODEL, first_batch)
-        if result.get("error") or len(all_messages) <= effective_batch:
-            return result
-        remaining = len(all_messages) - len(first_batch)
-        logger.info(
-            f"Cold start complete. {remaining} msgs remaining "
-            f"— continuing incrementally.")
-        sj, lmid = await asyncio.to_thread(get_channel_summary, channel_id)
-        current = json.loads(sj)
-        inc = await _incremental_loop(
-            channel_id, provider, effective_batch, current, lmid)
-        return _partial(
-            result.get("messages_processed", 0) + inc.get("messages_processed", 0),
-            inc.get("token_count", 0),
-            inc.get("verification", {}),
-            inc.get("error"))
     try:
-        current = json.loads(summary_json)
+        return await run_cluster_pipeline(channel_id, provider,
+                                          progress_fn=progress_fn)
     except Exception as e:
-        logger.error(f"Failed to parse stored summary: {e}")
-        return _partial(0, 0, {}, str(e))
-    return await _incremental_loop(
-        channel_id, provider, effective_batch,
-        current, last_message_id)
+        logger.error(f"Cluster pipeline failed ch:{channel_id}: {e}")
+        return {"error": str(e), "messages_processed": 0,
+                "cluster_count": 0, "noise_count": 0,
+                "overview_generated": False}
+
+
+async def quick_update_channel(channel_id, progress_fn=None):
+    """Re-summarize dirty clusters only. Called by !summary update."""
+    from utils.cluster_update import run_quick_update
+    from ai_providers import get_provider
+    from config import SUMMARIZER_PROVIDER
+    provider = get_provider(SUMMARIZER_PROVIDER)
+    try:
+        return await run_quick_update(channel_id, provider,
+                                      progress_fn=progress_fn)
+    except Exception as e:
+        logger.error(f"Quick update failed ch:{channel_id}: {e}")
+        return {"updated_count": 0, "unassigned_count": 0,
+                "overview_generated": False, "error": str(e), "message": "Failed"}
 
 
 async def _incremental_loop(channel_id, provider, batch_size,

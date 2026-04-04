@@ -1,15 +1,15 @@
 # utils/raw_events.py
-# Version 1.3.0
+# Version 1.6.0
 """
 Discord event handlers for SQLite message persistence.
 
-CREATED v1.0.0: on_message → SQLite, on_raw_message_edit, on_raw_message_delete,
-  startup_backfill. Independent of bot.py response pipeline.
-CHANGES v1.0.1: @bot.event → bot.add_listener() for raw handlers.
-CHANGES v1.0.2: on_message listener replaces on_raw_message_create.
-CHANGES v1.1.0: Capture reply_to_message_id, thread_id, attachments_metadata.
-CHANGES v1.2.0: Capture is_bot_author from message.author.bot.
-CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0). Skips noise/commands.
+CHANGES v1.6.0: Context-prepended embeddings on arrival (SOW v5.6.0)
+- embed path uses build_contextual_text(); graceful fallback to raw text
+CHANGES v1.5.0: _looks_like_diagnostic() guard — skip unprefixed bot diagnostics
+CHANGES v1.4.0: Assign new messages to nearest cluster on arrival (SOW v5.4.0)
+CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0)
+CHANGES v1.0.x-v1.2.0: reply, thread, attachments, is_bot_author capture
+CREATED v1.0.0: on_message → SQLite, on_raw_message_edit/delete, startup_backfill
 """
 import asyncio
 import json
@@ -29,6 +29,16 @@ logger = get_logger('raw_events')
 # Limit concurrent channel fetches during backfill to avoid rate limits
 _backfill_semaphore = asyncio.Semaphore(3)
 
+# Diagnostic output that must never be embedded even without ℹ️ prefix
+_DIAGNOSTIC_PREFIXES = (
+    'Cluster ', 'Parameters:', 'Processed:',
+    '**Cluster Analysis', '**Cluster Summariz', '**Overview**',
+)
+
+
+def _looks_like_diagnostic(content):
+    return any(content.startswith(p) for p in _DIAGNOSTIC_PREFIXES)
+
 # Maximum messages to fetch per channel during backfill
 MAX_BACKFILL_PER_CHANNEL = 10000
 
@@ -44,34 +54,12 @@ def _get_attachments_metadata(message):
 
 
 def setup_raw_events(bot):
-    """
-    Register event handlers for SQLite persistence on the bot instance.
-
-    Called from create_bot() after bot creation. Registers an on_message
-    listener for capturing new messages, plus on_raw_message_edit and
-    on_raw_message_delete for edits and deletes. Also initializes the
-    SQLite database.
-
-    The on_message listener is registered via bot.add_listener() which
-    allows it to coexist with the @bot.event on_message in bot.py.
-    bot.add_listener registers ADDITIONAL listeners; @bot.event sets
-    the PRIMARY handler. Both fire for every message.
-
-    Args:
-        bot: The discord.py Bot instance
-    """
+    """Register persistence listeners: on_message, on_raw_message_edit/delete."""
     init_database()
     logger.info("SQLite message persistence initialized")
 
     async def persistence_on_message(message):
-        """
-        Capture every message (including bot's own) to SQLite.
-
-        This is a SECOND on_message listener alongside bot.py's primary
-        handler. Unlike that handler, this one does NOT skip bot messages
-        — bot responses are stored with is_bot_author=True so the
-        summarizer can filter them deterministically.
-        """
+        """Capture every message (including bot's own) to SQLite."""
         if message.guild is None:
             return
 
@@ -106,16 +94,31 @@ def setup_raw_events(bot):
             logger.error(f"Failed to store message {msg.id}: {e}")
             return
 
-        # Embed message for semantic retrieval — skip noise and commands
+        # Embed message for semantic retrieval — skip noise, commands, and bot diagnostics
         content = msg.content
         if content and not content.startswith(('!', 'ℹ️', '⚙️')):
+            if msg.is_bot_author and _looks_like_diagnostic(content):
+                logger.debug(f"Skipping unprefixed bot diagnostic msg {msg.id}")
+                return
             try:
                 from utils.embedding_store import embed_and_store_message
-                await asyncio.to_thread(
-                    embed_and_store_message, msg.id, content
-                )
+                from utils.embedding_context import build_contextual_text
+                ctx_text = await asyncio.to_thread(
+                    build_contextual_text, msg.channel_id, msg.id,
+                    msg.author_name, content, reply_to_id=msg.reply_to_message_id)
+                await asyncio.to_thread(embed_and_store_message, msg.id, ctx_text)
             except Exception as e:
                 logger.warning(f"Embedding failed for msg {msg.id}: {e}")
+                return
+
+            # Assign to nearest cluster centroid (best-effort, silent on failure)
+            try:
+                from utils.cluster_assign import assign_to_nearest_cluster
+                await asyncio.to_thread(
+                    assign_to_nearest_cluster, msg.channel_id, msg.id
+                )
+            except Exception as e:
+                logger.debug(f"Cluster assignment skipped for msg {msg.id}: {e}")
 
     async def on_raw_message_edit(payload):
         """Update stored content and edited_at when a message is edited."""

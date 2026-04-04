@@ -1,5 +1,5 @@
 # README.md
-# Version 4.1.10
+# Version 5.6.1
 
 # Synthergy Discord Bot
 
@@ -12,7 +12,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
 - **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
-- **Message embeddings** — every message embedded with OpenAI text-embedding-3-small on arrival; topics linked to all relevant messages by cosine similarity
+- **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
 - **Settings recovery** — settings restored from Discord message history on startup
 
@@ -39,12 +39,16 @@ python main.py
 | `!summary` | all | Show channel summary (decisions, topics, actions) |
 | `!summary full` | all | All sections including facts and archived topics |
 | `!summary raw` | all | Secretary's natural language minutes |
-| `!summary create` | admin | Run summarization on new messages |
+| `!summary create` | admin | Run full summarization (re-cluster + re-summarize) |
+| `!summary update` | admin | Re-summarize only clusters updated since last run |
 | `!summary clear` | admin | Delete stored summary and start fresh |
 | `!debug noise` | admin | Scan for deletable bot noise in channel |
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
-| `!debug backfill` | admin | Embed unembedded messages + re-link all topics |
+| `!debug backfill` | admin | Embed unembedded messages with contextual text + re-link topics |
+| `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
+| `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
+| `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!status` | all | Show bot settings for this channel |
 | `!autorespond on/off` | admin | Toggle auto-response |
 | `!ai [provider]` | admin | Switch AI provider (openai/anthropic/deepseek) |
@@ -61,7 +65,7 @@ discord-bot/
 ├── main.py                        # Entry point
 ├── bot.py                         # Discord events, message routing
 ├── config.py                      # Environment configuration
-├── schema/                        # SQLite migration files (001–004)
+├── schema/                        # SQLite migration files (001–005)
 ├── ai_providers/                  # Provider implementations
 │   ├── openai_provider.py             # GPT + image generation
 │   ├── anthropic_provider.py          # Claude models
@@ -77,7 +81,18 @@ discord-bot/
 │   ├── status_commands.py             # !status
 │   └── history_commands.py            # !history
 └── utils/
-    ├── embedding_store.py             # OpenAI embeddings, topic linking, retrieval
+    ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
+    ├── cluster_store.py               # Cluster CRUD, orchestration, dirty-cluster helpers
+    ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
+    ├── cluster_overview.py            # Pipeline orchestrator, overview LLM, field translation
+    ├── cluster_classifier.py          # GPT-4o-mini whitelist filter (classify_overview_items)
+    ├── cluster_qa.py                  # Embedding dedup + answered-question removal
+    ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
+    ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
+    ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
+    ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
+    ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
+    ├── topic_store.py                 # Topic CRUD + message linking (v4.x rollback)
     ├── summarizer.py                  # Summarization router
     ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
     ├── summary_schema.py              # Schema, hashes, delta ops
@@ -114,21 +129,26 @@ Every response is built from two context layers:
 
 **Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
 
-## Summarization System
+## Summarization System (v5.3.0 — cluster-based)
 
-The bot maintains "living meeting minutes" for each channel via a three-pass pipeline:
+`!summary create` runs the full cluster pipeline via `summarizer.py` → `cluster_overview.py`:
 
-**Cold start**: first `SUMMARIZER_BATCH_SIZE` messages run through the cold start pipeline; remaining messages continue through the incremental loop. Prevents 65K+ token Structurer responses on large initial ingests.
+1. **Cluster**: UMAP + HDBSCAN groups all message embeddings into topic clusters
+2. **Per-cluster summarize**: single Gemini call per cluster → label, summary, decisions, key_facts, action_items, open_questions
+3. **Classify**: GPT-4o-mini whitelist filter on aggregated items — keeps only project decisions, config, human-owned action items, user identity, channel purpose, genuine open questions; missing verdicts default to DROP
+4. **Overview**: Gemini call with cluster labels + summary texts only → channel overview paragraph + participants list (no structured fields — prevents token blowup)
+5. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items across all four arrays
+6. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + key facts in the same summary; removes answered questions
+7. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
 
-**Incremental**: same pipeline, but Secretary receives existing minutes and Classifier receives the full existing summary for semantic dedup.
-
-**After each run**: existing topics for the channel are cleared, then the new authoritative topic set is stored with embeddings and linked to their most relevant messages by cosine similarity. This prevents duplicates accumulating across runs.
+The v4.x three-pass Secretary/Structurer/Classifier pipeline (`summarizer_authoring.py`) is retained but no longer called — rollback safety only.
 
 **Key design choices:**
-- Decision = agreement on a course of action (not fact lookups)
-- Fresh-from-source summarization (no recursive summary-of-summary)
-- Hash-protected fields with supersession lifecycle
-- Prefix-based noise filtering (ℹ️/⚙️) replaces pattern matching
+- Classifier runs before overview LLM — prevents 16K+ token response with 50+ clusters
+- Overview receives labels + texts only — output is a few hundred tokens max
+- Embedding dedup over LLM dedup — LLMs are reluctant to delete content they're given
+- Decision = agreement on a course of action (not fact lookups or casual preferences)
+- Field translation at storage time — display layer (`format_always_on_context`) unchanged
 
 ## Configuration
 
@@ -147,7 +167,7 @@ Key variables:
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` (production: `0.45`) |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
 | `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
@@ -162,11 +182,16 @@ sudo journalctl -u discord-bot -f     # follow logs
 sudo journalctl --rotate && sudo journalctl --vacuum-time=1s  # clear logs
 ```
 
-After first deploy or embedding provider change:
+After first deploy or embedding strategy change (v5.6.0+):
 ```bash
 # In Discord:
-!debug backfill      # batch-embed all messages (1000/call) + re-link topics
-!summary create      # regenerate summary with new topic embeddings
+!debug reembed       # delete all embeddings + re-embed with contextual text
+!summary create      # rebuild clusters from contextual embeddings
+```
+
+Incremental backfill (embed only missing messages):
+```bash
+!debug backfill      # embed unembedded messages with context + re-link topics
 ```
 
 ## Documentation
