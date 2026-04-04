@@ -1,48 +1,28 @@
 # utils/context_manager.py
-# Version 2.0.4
+# Version 2.3.0
 """
 Token-budget-aware context management and usage tracking.
 
-CHANGES v2.0.4: Similarity threshold + clearer retrieved history framing
-- ADDED: RETRIEVAL_MIN_SCORE filter — topics below threshold dropped before injection
-- CHANGED: retrieved block header now explicitly states these are real past messages
-  from this channel, preventing the model from treating them as external docs
+CHANGES v2.3.0: Extract retrieval to context_retrieval.py (SOW v5.6.0)
+- REMOVED: _fallback_msg_search(), _retrieve_cluster_context() — moved to
+  utils/context_retrieval.py; imported here for use in build_context_for_provider()
+- UNCHANGED: estimate_tokens(), record_usage(), get_channel_usage(),
+  build_context_for_provider() — public API intact
 
-CHANGES v2.0.3: Cap recent messages at MAX_RECENT_MESSAGES (default 5)
-- ADDED: hard count cap in trimming loop to prevent recent history from
-  overwhelming retrieved topic context
-
-CHANGES v2.0.2: Fix retrieval budget — use full remaining budget not 40% slice
-- CHANGED: retrieval_budget now = budget - system_base - always_on (was * 0.4)
-  The 40% cap caused only ~586 tokens to be available for retrieval. Retrieved
-  content lands in the system prompt, so system_tokens is recalculated after
-  and the recent-message trimmer drops oldest messages to make room naturally.
-
-CHANGES v2.0.1: Debug logging for retrieval fallback path
-- ADDED: per-step DEBUG logs in _retrieve_topic_context() explaining why
-  retrieval returns empty (no query, embed failed, no topics, budget exceeded,
-  all msgs excluded)
-
+CHANGES v2.2.0: Cluster-based retrieval replaces topic-based (SOW v5.5.0)
+CHANGES v2.1.5: Inject today's date into context block
+CHANGES v2.1.4: Prepend [YYYY-MM-DD] to retrieved message lines
+CHANGES v2.1.3: Restore always-on context injection
+CHANGES v2.1.2: Full summary fallback logs WARNING instead of DEBUG
+CHANGES v2.1.1: Richer retrieval debug logging
+CHANGES v2.1.0: Direct message embedding fallback (SOW v4.1.0)
 CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
-- MODIFIED: build_context_for_provider() now injects:
-    Part 1 (always-on): overview, key facts, open action items, open questions
-    Part 2 (retrieved): messages from topics semantically similar to latest msg
-- ADDED: _retrieve_topic_context() — embeds latest user message, finds top-K
-  relevant topics, fetches their linked messages, deduplicates vs recent window
-- FALLBACK: If embedding fails or no topics exist, falls back to full summary
-  injection (v1.1.0 behavior). Bot never fails to respond due to retrieval.
-
-CHANGES v1.1.0: M3 — Inject summary into system prompt
-- MODIFIED: build_context_for_provider() loads channel summary and appends
-  it to the system prompt as a single combined system message.
-- ADDED: _load_summary_text() — loads and formats the channel summary
-
-CHANGES v1.0.0: Initial implementation (SOW v2.23.0)
-- estimate_tokens(), build_context_for_provider(), record_usage()
+CREATED v1.0.0: Initial implementation (SOW v2.23.0)
 """
 import json
 from collections import defaultdict
-from config import CONTEXT_BUDGET_PERCENT, RETRIEVAL_TOP_K, MAX_RECENT_MESSAGES, RETRIEVAL_MIN_SCORE
+from datetime import date
+from config import (CONTEXT_BUDGET_PERCENT, MAX_RECENT_MESSAGES)
 from utils.history.message_processing import prepare_messages_for_api
 from utils.logging_utils import get_logger
 
@@ -109,90 +89,15 @@ def _load_summary(channel_id):
         return None
 
 
-def _retrieve_topic_context(channel_id, conversation_msgs, token_budget):
-    """Embed the latest user message, find relevant topics, return formatted
-    context string of their linked messages.
-
-    Returns (context_text, tokens_used). Returns ("", 0) on any failure.
-    """
-    try:
-        from utils.embedding_store import (
-            embed_text, find_relevant_topics, get_topic_messages)
-
-        # Find latest non-empty user message
-        query_text = None
-        for msg in reversed(conversation_msgs):
-            if msg.get("role") == "user" and msg.get("content", "").strip():
-                query_text = msg["content"].strip()
-                break
-        if not query_text:
-            logger.debug(f"Retrieval skip ch:{channel_id}: no user message in window")
-            return "", 0
-
-        query_vec = embed_text(query_text)
-        if query_vec is None:
-            logger.debug(f"Retrieval skip ch:{channel_id}: embed_text returned None for query {query_text[:60]!r}")
-            return "", 0
-
-        topics = find_relevant_topics(query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
-        if not topics:
-            logger.debug(f"Retrieval skip ch:{channel_id}: find_relevant_topics returned empty (no topic embeddings?)")
-            return "", 0
-
-        # Filter to topics above similarity threshold — drop unrelated noise
-        topics = [(tid, title, score) for tid, title, score in topics
-                  if score >= RETRIEVAL_MIN_SCORE]
-        logger.debug(f"Retrieval ch:{channel_id}: {len(topics)} topics above threshold, scores: {[round(s,3) for _,_,s in topics]}")
-        if not topics:
-            logger.debug(f"Retrieval skip ch:{channel_id}: no topics above min score {RETRIEVAL_MIN_SCORE}")
-            return "", 0
-
-        # IDs already in the recent window — avoid duplication
-        recent_ids = set()
-        for msg in conversation_msgs:
-            if "_msg_id" in msg:
-                recent_ids.add(msg["_msg_id"])
-
-        lines = []
-        tokens_used = 0
-        for topic_id, title, score in topics:
-            msgs = get_topic_messages(topic_id, exclude_ids=recent_ids)
-            if not msgs:
-                logger.debug(f"  topic {topic_id!r}: 0 messages (all excluded or none linked)")
-                continue
-            section = f"[Topic: {title}]\n"
-            section += "\n".join(
-                f"{author}: {content}"
-                for _, author, content, _ in msgs
-            )
-            section_tokens = estimate_tokens(section)
-            if tokens_used + section_tokens > token_budget:
-                logger.debug(f"  topic {topic_id!r}: budget exceeded ({tokens_used}+{section_tokens}>{token_budget}), stopping")
-                break
-            lines.append(section)
-            tokens_used += section_tokens
-
-        if not lines:
-            logger.debug(f"Retrieval skip ch:{channel_id}: all {len(topics)} topics had 0 usable messages")
-            return "", 0
-
-        logger.debug(
-            f"Retrieved {len(lines)} topics for ch:{channel_id} "
-            f"({tokens_used} tokens, query: {query_text[:60]!r})")
-        return "\n\n".join(lines), tokens_used
-
-    except Exception as e:
-        logger.warning(f"Topic retrieval failed for ch:{channel_id}: {e}")
-        return "", 0
-
-
 def build_context_for_provider(channel_id, provider):
     """Build a token-budget-aware message list for an AI provider call.
 
     Injects always-on context (overview, facts, actions, questions) plus
-    semantically retrieved topic messages. Falls back to full summary
+    semantically retrieved cluster messages. Falls back to full summary
     injection if retrieval is unavailable.
     """
+    from utils.context_retrieval import _retrieve_cluster_context
+
     all_messages = prepare_messages_for_api(channel_id)
 
     if not all_messages:
@@ -219,18 +124,17 @@ def build_context_for_provider(channel_id, provider):
         always_on = format_always_on_context(summary)
         always_on_tokens = estimate_tokens(always_on)
 
-        # Full remaining budget goes to retrieval. Retrieved content is injected
-        # into the system prompt, so system_tokens is recalculated below and the
-        # recent-message trimmer naturally drops oldest messages to compensate.
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
         retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
-        retrieved, retrieved_tokens = _retrieve_topic_context(
+        retrieved, retrieved_tokens = _retrieve_cluster_context(
             channel_id, conversation_msgs, retrieval_budget)
 
+        today = date.today().isoformat()
         if retrieved:
             context_block = (
-                f"--- CONVERSATION CONTEXT ---\n{always_on}\n\n"
+                f"--- CONVERSATION CONTEXT ---\n"
+                f"Today's date: {today}\n\n{always_on}\n\n"
                 f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
                 f"The following are real messages previously sent in this channel, "
                 f"retrieved because they are relevant to the current query. "
@@ -240,17 +144,18 @@ def build_context_for_provider(channel_id, provider):
                 f"Semantic context: {always_on_tokens} always-on + "
                 f"{retrieved_tokens} retrieved tokens for ch:{channel_id}")
         else:
-            # No topics retrieved — fall back to full summary
             full = format_summary_for_context(summary)
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n"
+                f"Today's date: {today}\n\n"
                 f"The following is a summary of this channel's conversation "
                 f"history. Use it to inform your responses.\n\n{full}"
             )
-            logger.debug(
-                f"Fallback to full summary for ch:{channel_id} "
-                f"(retrieval returned empty — see above for reason)")
+            logger.warning(
+                f"Retrieval fully degraded for ch:{channel_id} — "
+                f"no clusters and no message embeddings found.")
 
+        logger.debug(f"Context block injected (first 2000 chars):\n{context_block[:2000]}")
         combined = f"{system_msg['content']}\n\n{context_block}"
         system_msg = {"role": "system", "content": combined}
 

@@ -1,20 +1,13 @@
 # utils/summary_display.py
-# Version 1.3.0
+# Version 1.3.2
 """
 Summary display formatting and pagination for Discord output.
 
-CHANGES v1.3.0: Always-on context formatter for semantic retrieval (SOW v4.0.0)
-- ADDED: format_always_on_context() — slim context block injected every response:
-  overview, key facts, open action items, open questions. No topics (retrieved
-  semantically by context_manager.py v2.0.0).
-
+CHANGES v1.3.2: Fix footer for cluster-v5 summaries (cluster_count key)
+CHANGES v1.3.1: "Key facts:" → "Key facts established in this conversation:"
+CHANGES v1.3.0: format_always_on_context() for semantic retrieval (SOW v4.0.0)
 CHANGES v1.2.1: Key Facts in default !summary view
-- MOVED: Key Facts from full-only to default display
-
-CHANGES v1.2.0: Add format_summary_for_context() for M3 context injection
-- ADDED: format_summary_for_context() — formats full summary as plain text
-  for injection into the system prompt. No markdown, no Discord formatting.
-
+CHANGES v1.2.0: format_summary_for_context() for system prompt injection
 CHANGES v1.1.0: ℹ️ prefix on all output for noise filtering
 CREATED v1.0.0: Extracted from summary_commands.py v2.1.0
 """
@@ -50,7 +43,7 @@ def format_always_on_context(summary):
     facts = [f for f in summary.get("key_facts", [])
              if f.get("status") == "active" and f.get("fact")]
     if facts:
-        parts.append("Key facts:\n" + "\n".join(f"- {f['fact']}" for f in facts))
+        parts.append("Key facts established in this conversation:\n" + "\n".join(f"- {f['fact']}" for f in facts))
     actions = [a for a in summary.get("action_items", [])
                if a.get("status") in ("open", "in_progress")]
     if actions:
@@ -233,10 +226,15 @@ def format_summary(summary, full=False):
                 lines.append(f"• {p.get('text', '?')}")
             lines.append("")
 
-    tc = summary.get("summary_token_count", 0)
-    meta = summary.get("meta", {})
-    mr = meta.get("message_range", {})
-    count = mr.get("count", 0)
-    lines.append(f"*{count} messages summarized | {tc} tokens*")
+    if "cluster_count" in summary:
+        cc = summary["cluster_count"]
+        nc = summary.get("noise_message_count", 0)
+        lines.append(f"*{cc} clusters ({nc} noise) | cluster-v5*")
+    else:
+        tc = summary.get("summary_token_count", 0)
+        meta = summary.get("meta", {})
+        mr = meta.get("message_range", {})
+        count = mr.get("count", 0)
+        lines.append(f"*{count} messages summarized | {tc} tokens*")
 
     return lines

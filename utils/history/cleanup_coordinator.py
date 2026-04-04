@@ -244,9 +244,3 @@ async def _perform_final_validation(channel):
     }
 
 
-def _generate_history_statistics(channel_id):
-    """Generate basic statistics for validation reporting."""
-    return {
-        'total_messages': len(channel_history.get(channel_id, [])),
-        'note': 'detailed statistics removed for code optimization'
-    }

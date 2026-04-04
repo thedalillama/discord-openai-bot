@@ -3,24 +3,10 @@
 """
 SQLite message persistence layer for the Discord bot.
 
-CREATED v1.0.0: SQLite message persistence (SOW v3.0.0)
-- Database creation with WAL mode for concurrent read/write safety
-- Insert, update, soft-delete, and query operations
-- Channel state tracking (last_processed_id) for restart recovery
-- All write operations designed for asyncio.to_thread() wrapping
-
-CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
-- REMOVED: SCHEMA_SQL constant (moved to schema/001.sql)
-- MODIFIED: init_database() calls run_migrations() from db_migration.py
-- MODIFIED: insert_message(), insert_messages_batch() include 3 new columns
-  (reply_to_message_id, thread_id, attachments_metadata)
-- REPLACED: update_message_content() with update_message_content_and_edit_time()
-- MODIFIED: soft_delete_message() also sets deleted_at timestamp
-- MODIFIED: get_channel_messages() returns all 13 columns
-
-CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
-- MODIFIED: insert_message(), insert_messages_batch() include is_bot_author column
-- MODIFIED: get_channel_messages() maps column index 13 to is_bot_author
+CREATED v1.0.0: WAL-mode SQLite, insert/update/soft-delete, channel state tracking
+CHANGES v1.1.0: Schema extension — reply_to_message_id, thread_id, attachments_metadata;
+  init_database() runs migrations; update_message_content_and_edit_time()
+CHANGES v1.2.0: is_bot_author column in insert and get_channel_messages()
 """
 import sqlite3
 import os

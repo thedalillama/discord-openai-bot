@@ -1,27 +1,31 @@
 # commands/debug_commands.py
-# Version 1.2.0
+# Version 1.7.0
 """
-Debug and maintenance commands for the Discord bot.
+Debug and maintenance commands: noise scan, cleanup, summary status.
 
+CHANGES v1.7.0: Extract cluster commands to cluster_commands.py (SOW v5.6.0)
+- REMOVED: debug_backfill, debug_clusters, debug_summarize_clusters — moved to
+  commands/cluster_commands.py
+- CHANGED: register_debug_commands() returns debug_cmd group so
+  cluster_commands.py can add subcommands to it
+
+CHANGES v1.6.0: Fix !debug clusters pagination missing ℹ️ prefix
+CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
+CHANGES v1.4.1: Paginate !debug clusters output
+CHANGES v1.4.0: Add !debug clusters command (SOW v5.1.0)
+CHANGES v1.3.0: Batch embedding + archived topic re-link fix
 CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
-- ADDED: !debug backfill — embed all messages in channel lacking embeddings,
-  then re-link all topics. Reports progress and final counts.
-
 CHANGES v1.1.0: Show classifier drops in !debug status
-- ADDED: Classifier Drops section shows items filtered by GPT-5.4 nano
-
 CREATED v1.0.0: Consolidates cleanup + summary diagnostics
-- !debug noise    — scan for bot noise (preview, no delete)
-- !debug cleanup  — delete bot noise from Discord
-- !debug status   — internal summary state (IDs, hashes, statuses)
-
-All subcommands require administrator permissions.
 
 Usage:
-  !debug noise      - Preview deletable bot messages
-  !debug cleanup    - Delete bot noise from Discord history
-  !debug status     - Show summary internals (IDs, hashes, chains)
-  !debug backfill   - Embed all messages + re-link topics
+  !debug noise               - Preview deletable bot messages
+  !debug cleanup             - Delete bot noise from Discord history
+  !debug status              - Show summary internals (IDs, hashes, chains)
+  !debug backfill            - Embed all messages + re-link topics (contextual)
+  !debug reembed             - Delete all embeddings + re-embed with context
+  !debug clusters            - Run UMAP+HDBSCAN clustering, show report
+  !debug summarize_clusters  - Run per-cluster LLM summarization
 """
 import asyncio
 import json
@@ -33,6 +37,7 @@ _I = "ℹ️ "
 
 
 def register_debug_commands(bot):
+    """Register !debug command group. Returns the group for subcommand registration."""
 
     @bot.group(name='debug', invoke_without_command=True)
     async def debug_cmd(ctx):
@@ -40,7 +45,11 @@ def register_debug_commands(bot):
             f"{_I}**Debug commands:**\n"
             f"`!debug noise` — scan for bot noise\n"
             f"`!debug cleanup` — delete bot noise\n"
-            f"`!debug status` — summary internals")
+            f"`!debug status` — summary internals\n"
+            f"`!debug backfill` — embed missing messages\n"
+            f"`!debug reembed` — re-embed all with context\n"
+            f"`!debug clusters` — run clustering\n"
+            f"`!debug summarize_clusters` — summarize clusters")
 
     @debug_cmd.command(name='noise')
     async def debug_noise(ctx):
@@ -100,7 +109,6 @@ def register_debug_commands(bot):
                 await ctx.send(f"{_I}No summary for #{ctx.channel.name}.")
                 return
             summary = json.loads(raw)
-#            logger.info(f'Raw Summary: {summary}')
         except Exception as e:
             await ctx.send(f"{_I}Error loading summary: {e}")
             return
@@ -157,53 +165,10 @@ def register_debug_commands(bot):
                          f"{d.get('text','?')[:60]}" for d in drops)
             lines.append("")
 
-        # Send paginated
         from utils.summary_display import send_paginated
         await send_paginated(ctx, lines)
 
-    @debug_cmd.command(name='backfill')
-    async def debug_backfill(ctx):
-        """Embed all messages lacking embeddings, then re-link all topics."""
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"{_I}Admin only.")
-            return
-        channel_id = ctx.channel.id
-        await ctx.send(f"{_I}Starting embedding backfill for #{ctx.channel.name}...")
-        try:
-            from utils.embedding_store import (
-                get_messages_without_embeddings, embed_and_store_message,
-                link_topic_to_messages)
-            # Phase 1: embed missing messages
-            pending = await asyncio.to_thread(
-                get_messages_without_embeddings, channel_id, 2000)
-            await ctx.send(f"{_I}Found {len(pending)} messages to embed...")
-            embedded = failed = 0
-            for msg_id, content in pending:
-                try:
-                    await asyncio.to_thread(embed_and_store_message, msg_id, content)
-                    embedded += 1
-                except Exception as e:
-                    failed += 1
-                    logger.warning(f"Backfill embed failed {msg_id}: {e}")
-            await ctx.send(f"{_I}Embedded {embedded}/{len(pending)} ({failed} failed).")
-            # Phase 2: re-link topics
-            from utils.summary_store import get_channel_summary
-            raw, _ = await asyncio.to_thread(get_channel_summary, channel_id)
-            if not raw:
-                await ctx.send(f"{_I}No summary — run `!summary create` first.")
-                return
-            topics = json.loads(raw).get("active_topics", [])
-            relinked = 0
-            for topic in topics:
-                try:
-                    await asyncio.to_thread(link_topic_to_messages, topic["id"], channel_id)
-                    relinked += 1
-                except Exception as e:
-                    logger.warning(f"Re-link failed {topic['id']}: {e}")
-            await ctx.send(f"{_I}Re-linked {relinked} topics. Backfill complete.")
-        except Exception as e:
-            await ctx.send(f"{_I}Backfill failed: {e}")
-            logger.error(f"Backfill error for ch:{channel_id}: {e}")
+    return debug_cmd
 
 
 async def _find_noise(channel, bot_user_id):

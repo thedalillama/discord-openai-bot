@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 3.4.0
+# Version 5.1.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -12,10 +12,14 @@
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key (GPT + image gen) | `sk-proj-...` |
-| `ANTHROPIC_API_KEY` | Anthropic API key (Claude) | `sk-ant-...` |
+| `OPENAI_API_KEY` | OpenAI API key — required for embeddings + classifier | `sk-proj-...` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude conversation provider) | `sk-ant-...` |
 | `OPENAI_COMPATIBLE_API_KEY` | DeepSeek or compatible provider | `sk-...` |
 | `GEMINI_API_KEY` | Google Gemini API key (summarization) | `AIza...` |
+
+Note: `OPENAI_API_KEY` is required even if OpenAI is not the conversation provider,
+because it is used for message embeddings (`text-embedding-3-small`) and the
+GPT-4o-mini classifier in the summarization pipeline.
 
 ## Core Bot Configuration
 
@@ -34,11 +38,16 @@
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
+| `MAX_RECENT_MESSAGES` | Hard cap on recent messages in context | `5` |
 
 Budget formula: `input_budget = (context_window × % / 100) − max_output_tokens`
 
 The 20% default headroom absorbs tiktoken variance for Anthropic (~10-15%),
 per-message formatting overhead, and provider-side hidden tokens.
+
+`MAX_RECENT_MESSAGES` prevents recent history from overwhelming semantically
+retrieved topic context. Retrieved content is injected into the system prompt;
+the trimmer drops oldest recent messages to fit within the remaining budget.
 
 ## Database Configuration
 
@@ -46,8 +55,26 @@ per-message formatting overhead, and provider-side hidden tokens.
 |----------|-------------|---------|
 | `DATABASE_PATH` | Path to SQLite database file | `./data/messages.db` |
 
-The `data/` directory is created automatically on first run. Stores all
-messages in real-time for persistence across restarts and summarization.
+The `data/` directory is created automatically on first run.
+
+## Semantic Retrieval Configuration (v4.0.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
+| `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
+| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
+| `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
+
+All messages scoring above `TOPIC_LINK_MIN_SCORE` against a topic's embedding
+are linked to that topic. At query time, only topics scoring above
+`RETRIEVAL_MIN_SCORE` against the incoming message are injected into context.
+
+After changing `EMBEDDING_MODEL` or migrating to a new server, run:
+1. Clear `message_embeddings`, `topic_messages`, and `topics.embedding` columns
+2. `!debug backfill` in Discord — re-embeds all messages and re-links topics
+3. `!summary create` — regenerates topics with new embeddings
 
 ## Summarizer Configuration
 
@@ -61,11 +88,12 @@ The summarizer runs independently of conversation providers. Gemini is
 recommended due to its 1M token context window, which allows sending full
 channel history in a single pass without recursive chunking.
 
-Set `SUMMARIZER_BATCH_SIZE=500` for single-pass cold starts (recommended).
-The default of 50 is used for incremental batched updates.
+Controls both cold start batching and incremental batching. Cold start processes
+the first `SUMMARIZER_BATCH_SIZE` messages, then continues through the incremental
+loop for the remainder. Set to 500 to keep each Structurer response to a manageable
+size while still processing large channels efficiently.
 
-The `SUMMARIZER_MODEL` is overridden in `.env` on the server to
-`gemini-3.1-flash-lite-preview` for improved intelligence and speed.
+The server `.env` overrides `SUMMARIZER_MODEL` to `gemini-3.1-flash-lite-preview`.
 
 ## Provider-Specific Configuration
 
@@ -108,6 +136,19 @@ Note: DeepSeek's API enforces 64K context despite documentation claiming
 
 Gemini is used for summarization only, not for conversation responses.
 
+## Clustering Configuration (v5.1.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLUSTER_MIN_CLUSTER_SIZE` | Minimum messages per cluster (lower = more clusters) | `5` |
+| `CLUSTER_MIN_SAMPLES` | HDBSCAN noise sensitivity (higher = more noise) | `3` |
+| `UMAP_N_NEIGHBORS` | UMAP neighborhood size (lower = more local structure) | `15` |
+| `UMAP_N_COMPONENTS` | UMAP output dimensions | `5` |
+
+These control the UMAP + HDBSCAN pipeline used by `!debug clusters`.
+Tune via `.env` to adjust cluster granularity without code changes.
+`UMAP_N_NEIGHBORS` is automatically capped to `n_messages - 1` for small channels.
+
 ## Logging Configuration
 
 | Variable | Description | Default |
@@ -123,8 +164,8 @@ Gemini is used for summarization only, not for conversation responses.
 | `DEFAULT_SYSTEM_PROMPT` | Default system prompt for all channels | `You are a helpful assistant...` |
 
 Per-channel system prompts can be set with `!prompt <text>` and override
-this default. The channel summary is automatically appended to whichever
-system prompt is active (M3 context injection).
+this default. Always-on summary context and retrieved topic messages are
+automatically appended to whichever system prompt is active.
 
 ## Priority Order
 
@@ -148,8 +189,12 @@ SUMMARIZER_PROVIDER=gemini
 SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
 SUMMARIZER_BATCH_SIZE=500
 
-# Optional
+# Embeddings + classifier (required)
+OPENAI_API_KEY=your-openai-key
+
+# Optional tuning
 CONTEXT_BUDGET_PERCENT=80
+MAX_RECENT_MESSAGES=5
 DATABASE_PATH=./data/messages.db
 LOG_LEVEL=INFO
 ```
