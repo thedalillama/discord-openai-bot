@@ -1,8 +1,35 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.6.0
+# Version 5.6.1
 
 ## Current Version Features
+
+### Version 5.6.1 — Smart Query Embedding
+
+Fixes topic bleed-through when the user switches topics mid-conversation.
+Previously, a 3-message context window was always prepended to the query
+embedding, causing "what database are we using?" to embed with gorilla context
+and retrieve gorilla clusters.
+
+**Two-path query embedding (`embed_query_with_smart_context()`):**
+
+- **Path 1 — previous message was a question:** current message is likely a
+  response (e.g., "yes" after "Should we use PostgreSQL?"). Include the question
+  as context. 1 API call.
+- **Path 2 — otherwise:** embed raw, then cosine-compare to the previous
+  message's stored embedding. If `sim > RETRIEVAL_MIN_SCORE` (same topic),
+  re-embed with context. If below (topic shift), use the raw embedding already
+  computed. 1–2 API calls.
+
+Question detection is a pure heuristic (`is_question()`) — no LLM call.
+`build_contextual_text()` for stored embeddings is unchanged.
+
+**Modified files:**
+- `utils/embedding_context.py` v1.1.0 — `is_question()`, `embed_query_with_smart_context()`
+- `utils/embedding_store.py` v1.9.0 — `get_stored_embedding(message_id)`
+- `utils/context_retrieval.py` v1.1.0 — query path uses smart context
+
+---
 
 ### Config tuning — RETRIEVAL_MIN_SCORE raised to 0.45
 

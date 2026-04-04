@@ -1,20 +1,43 @@
 # HANDOFF.md
-# Version 5.6.0
+# Version 5.6.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.6.0
+**Bot version**: v5.6.1
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live; contextual embeddings live; `!debug reembed`
-run (792 messages re-embedded); `!summary create` needed to rebuild clusters
+**Pipeline**: cluster-v5 fully live; contextual embeddings live; 792 messages
+re-embedded with contextual text; `!summary create` still needed to rebuild clusters
 **RETRIEVAL_MIN_SCORE**: 0.45 (set in `.env`, overrides default 0.25)
 
 ---
 
 ## What Just Happened
+
+### v5.6.1 — Smart Query Embedding
+
+Fixes topic bleed-through when user switches topics. Previously the query
+always embedded with a 3-message context window, so "what database are we using?"
+after a gorilla discussion would retrieve gorilla clusters.
+
+**`embed_query_with_smart_context()`** in `utils/embedding_context.py` v1.1.0:
+
+- **Path 1:** if the previous message was a question (heuristic `is_question()`),
+  embed current message with that question as context — it's likely a response.
+- **Path 2:** embed raw, cosine-compare to the previous message's stored embedding
+  (`get_stored_embedding()`). If `sim > RETRIEVAL_MIN_SCORE` → same topic → re-embed
+  with context. If below → topic shift → use the raw vector already computed.
+
+Fallback to raw `embed_text()` on any failure.
+
+**Files changed:**
+- `utils/embedding_context.py` v1.1.0 — `is_question()`, `embed_query_with_smart_context()`
+- `utils/embedding_store.py` v1.9.0 — `get_stored_embedding(message_id)`
+- `utils/context_retrieval.py` v1.1.0 — query path replaced
+
+---
 
 ### v5.6.0 — Context-Prepended Embeddings + 250-Line Refactors
 
