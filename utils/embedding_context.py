@@ -1,32 +1,20 @@
 # utils/embedding_context.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Context construction for context-prepended message embeddings (SOW v5.6.0).
 
-CHANGES v1.3.0: Topic-boundary-aware context filtering in build_contextual_text()
-  (SOW v5.8.0)
-- ADDED: CONTEXT_SIMILARITY_THRESHOLD = 0.3 constant
-- MODIFIED: build_contextual_text() now filters previous messages by cosine
-  similarity before prepending. Only same-topic predecessors are included.
-  Questions are always included regardless of similarity (likely a response).
-  Falls back to unfiltered context on any similarity-check failure.
-- MODIFIED: get_previous_messages() returns (message_id, author, content)
-  3-tuples so build_contextual_text() can look up stored embeddings.
-  Reply chain path (reply_to_id) is unchanged — bypasses similarity check.
-
-CHANGES v1.2.0: embed_query_with_smart_context() returns (vec, path_name) (SOW v5.7.0)
-- MODIFIED: all return sites now return (vector, path_name) tuple so callers can
-  record which embedding path was taken for context receipts
-- Path names: "raw", "question_context", "similarity_context"
-
-CHANGES v1.1.0: Smart query embedding to prevent topic bleed-through (SOW v5.6.1)
-- ADDED: is_question() — heuristic question detection (no LLM)
-- ADDED: embed_query_with_smart_context() — two-path query embedding
-
-CREATED v1.0.0: Context-prepended embeddings (SOW v5.6.0)
-- build_contextual_text() — prepend N prior messages before embedding
-- get_previous_messages() — fetch N messages before a given message_id
-- get_reply_context() — fetch replied-to message + N before it
+CHANGES v1.4.0: raw_vec + raw_vecs_cache params for bulk pre-batching (SOW v5.8.2)
+- MODIFIED: build_contextual_text() accepts optional raw_vec (pre-computed vec
+  for current msg) and raw_vecs_cache ({msg_id: vec} for prev msg lookups).
+  Bulk callers pre-batch all raws and pass them in (0 per-msg API calls);
+  single-message callers omit both params — behavior unchanged.
+CHANGES v1.3.0: Topic-boundary-aware context filtering (SOW v5.8.0)
+- ADDED: CONTEXT_SIMILARITY_THRESHOLD = 0.3; filters previous messages by
+  cosine similarity; questions always included; fallback to unfiltered.
+- MODIFIED: get_previous_messages() returns (message_id, author, content).
+CHANGES v1.2.0: embed_query_with_smart_context() returns (vec, path_name).
+CHANGES v1.1.0: is_question(), embed_query_with_smart_context().
+CREATED v1.0.0: build_contextual_text(), get_previous_messages(), get_reply_context().
 
 All DB functions are synchronous; wrap in asyncio.to_thread() at call sites.
 Graceful degradation: on any error, build_contextual_text() returns raw content.
@@ -186,12 +174,15 @@ def get_reply_context(channel_id, reply_to_id, n=2):
 
 
 def build_contextual_text(channel_id, message_id, author, content,
-                           reply_to_id=None, window=3):
+                           reply_to_id=None, window=3,
+                           raw_vec=None, raw_vecs_cache=None):
     """Build context-prepended text for embedding with topic-boundary filtering.
 
-    Reply chains always use replied-to message as context (no similarity check).
-    For regular messages, previous messages are filtered by cosine similarity —
-    only same-topic predecessors are included. Questions are always included.
+    raw_vec: pre-computed embedding for the current message. If None, calls
+      embed_text() internally (single-message path).
+    raw_vecs_cache: dict of {message_id: vec} for previous message lookups.
+      If None, falls back to get_stored_embedding() (single-message path).
+    Reply chains bypass the similarity check entirely.
     Falls back to unfiltered context if similarity check fails.
 
     Returns:
@@ -216,23 +207,22 @@ def build_contextual_text(channel_id, message_id, author, content,
         try:
             from utils.embedding_store import (
                 embed_text, cosine_similarity, get_stored_embedding)
-            raw_vec = embed_text(f"{author}: {content}")
-            if raw_vec is None:
+            cur_vec = raw_vec if raw_vec is not None else embed_text(f"{author}: {content}")
+            if cur_vec is None:
                 raise ValueError("raw embed returned None")
             filtered = []
             for msg_id, prev_author, prev_content in previous:
                 if is_question(prev_content):
                     filtered.append((prev_author, prev_content))
                     continue
-                prev_vec = get_stored_embedding(msg_id)
+                prev_vec = (raw_vecs_cache.get(msg_id) if raw_vecs_cache
+                            else None) or get_stored_embedding(msg_id)
                 if prev_vec is None:
                     continue
-                if cosine_similarity(raw_vec, prev_vec) > CONTEXT_SIMILARITY_THRESHOLD:
+                if cosine_similarity(cur_vec, prev_vec) > CONTEXT_SIMILARITY_THRESHOLD:
                     filtered.append((prev_author, prev_content))
             ctx_msgs = filtered
-            logger.debug(
-                f"Context filter: {len(filtered)}/{len(previous)} msgs kept "
-                f"for msg:{message_id}")
+            logger.debug(f"Context filter: {len(filtered)}/{len(previous)} kept msg:{message_id}")
         except Exception as e:
             logger.warning(f"Similarity filter failed, using unfiltered: {e}")
             ctx_msgs = [(a, c) for _, a, c in previous]
