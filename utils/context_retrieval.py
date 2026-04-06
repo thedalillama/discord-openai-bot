@@ -1,15 +1,16 @@
 # utils/context_retrieval.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Cluster-based semantic retrieval for context injection (SOW v5.6.0).
 
-CHANGES v1.2.0: Return cluster receipt data for explainability (SOW v5.7.0)
-- MODIFIED: _retrieve_cluster_context() returns 3-tuple
-  (context_text, tokens_used, cluster_receipt) — cluster_receipt contains
-  embedding_path, retrieved_clusters, clusters_below_threshold, fallback info
-- MODIFIED: _fallback_msg_search() returns (text, tokens, msg_count) 3-tuple
-- MODIFIED: unpack (vec, path_name) from embed_query_with_smart_context()
+CHANGES v1.3.0: Citation numbering + citation_map in return value (SOW v5.9.0)
+- MODIFIED: _retrieve_cluster_context() returns 4-tuple
+  (context_text, tokens_used, cluster_receipt, citation_map)
+  citation_map: {int: {"author", "content", "date"}} for each numbered message
+- MODIFIED: Retrieved messages labeled [N] in context text for LLM citation
+- Fallback path returns citation_map={} (fallback messages not numbered)
 
+CHANGES v1.2.0: Return cluster receipt data for explainability (SOW v5.7.0)
 CHANGES v1.1.0: Smart query embedding to prevent topic bleed-through (SOW v5.6.1)
 CREATED v1.0.0: Extracted from context_manager.py v2.3.0 (SOW v5.6.0)
 
@@ -58,13 +59,12 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
     context string of their member messages plus a receipt dict.
 
     Returns:
-        tuple: (context_text, tokens_used, cluster_receipt)
-        cluster_receipt contains embedding_path, retrieved_clusters,
-        clusters_below_threshold, fallback_used, fallback_messages, query.
-        Returns ("", 0, {}) on any failure.
+        tuple: (context_text, tokens_used, cluster_receipt, citation_map)
+        citation_map: {int: {"author", "content", "date"}} for numbered messages.
+        Returns ("", 0, {}, {}) on any failure.
     """
     from utils.context_manager import estimate_tokens
-    _empty = ("", 0, {})
+    _empty = ("", 0, {}, {})
     try:
         from utils.embedding_context import embed_query_with_smart_context
         from utils.cluster_retrieval import find_relevant_clusters, get_cluster_messages
@@ -102,9 +102,10 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
                 "retrieved_clusters": [], "clusters_below_threshold": below_threshold,
                 "fallback_used": bool(text), "fallback_messages": count,
             }
-            return text, tokens, receipt
+            return text, tokens, receipt, {}
 
         lines, tokens_used, injected = [], 0, []
+        citation_map, citation_num = {}, 1
         for cluster_id, label, score in clusters:
             msgs = get_cluster_messages(cluster_id, exclude_ids=recent_ids)
             if not msgs:
@@ -112,15 +113,23 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
                     f"Cluster '{label[:40]}' (score {round(score, 3)}): "
                     f"0 messages, skipping")
                 continue
-            section = f"[Topic: {label}]\n" + "\n".join(
-                f"[{(created_at or '')[:10]}] {author}: {content}"
-                for _, author, content, created_at in msgs)
+            # Build numbered lines and temp citation entries
+            msg_lines, temp_cites = [], {}
+            for _, author, content, created_at in msgs:
+                temp_cites[citation_num] = {
+                    "author": author, "content": content, "date": created_at or ""}
+                msg_lines.append(
+                    f"[{citation_num}] [{(created_at or '')[:10]}] {author}: {content}")
+                citation_num += 1
+            section = f"[Topic: {label}]\n" + "\n".join(msg_lines)
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
+                citation_num -= len(msgs)  # revert counter
                 logger.debug(
                     f"Cluster '{label[:40]}' (score {round(score, 3)}): "
                     f"{len(msgs)} msgs, {section_tokens} tokens — exceeds budget")
                 break
+            citation_map.update(temp_cites)
             logger.debug(
                 f"Cluster '{label[:40]}' (score {round(score, 3)}): "
                 f"{len(msgs)} messages, {section_tokens} tokens — injected")
@@ -140,7 +149,7 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
                 "retrieved_clusters": [], "clusters_below_threshold": below_threshold,
                 "fallback_used": bool(text), "fallback_messages": count,
             }
-            return text, tokens, receipt
+            return text, tokens, receipt, {}
 
         logger.debug(
             f"Retrieved {len(lines)} clusters ({tokens_used} tokens) "
@@ -151,7 +160,7 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
             "clusters_below_threshold": below_threshold,
             "fallback_used": False, "fallback_messages": 0,
         }
-        return "\n\n".join(lines), tokens_used, receipt
+        return "\n\n".join(lines), tokens_used, receipt, citation_map
 
     except Exception as e:
         logger.warning(f"Cluster retrieval failed ch:{channel_id}: {e}")

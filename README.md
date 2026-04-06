@@ -1,5 +1,5 @@
 # README.md
-# Version 5.8.2
+# Version 5.9.0
 
 # Synthergy Discord Bot
 
@@ -12,6 +12,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
 - **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
+- **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
 - **Settings recovery** — settings restored from Discord message history on startup

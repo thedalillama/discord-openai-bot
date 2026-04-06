@@ -1,7 +1,12 @@
 # utils/response_handler.py
-# Version 1.2.0
+# Version 1.3.0
 """
 AI response handling utilities for Discord bot.
+
+CHANGES v1.3.0: Citation footer support (SOW v5.9.0)
+- MODIFIED: handle_ai_response_task() accepts citation_map=None; calls apply_citations()
+  on response text before send; sends footer as ℹ️ follow-up if it doesn't fit inline
+- MODIFIED: handle_ai_response() forwards citation_map to task
 
 CHANGES v1.2.0: Receipt storage after response send (SOW v5.7.0)
 - MODIFIED: handle_ai_response_task() accepts receipt_data=None; stores receipt
@@ -9,26 +14,10 @@ CHANGES v1.2.0: Receipt storage after response send (SOW v5.7.0)
 - MODIFIED: handle_ai_response() forwards receipt_data to task
 
 CHANGES v1.1.4: Post-assistant-append trim (SOW v2.23.0)
-- MODIFIED: add_response_to_history() now trims channel_history to MAX_HISTORY
-  after appending the assistant message, preventing temporary overshoot to
-  MAX_HISTORY + 1 between user/assistant append cycles
-
 CHANGES v1.1.3: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
-- CHANGED: Split on REASONING_SEPARATOR ([DEEPSEEK_ANSWER]:) instead of
-  first \n\n — prevents reasoning paragraphs from being mistaken for the
-  split point when reasoning_content contains blank lines
-
 CHANGES v1.1.2: Handle [DEEPSEEK_REASONING]: prefix (SOW v2.20.0)
-- MODIFIED: handle_ai_response_task() detects REASONING_PREFIX and splits
-  response into two separate Discord messages — reasoning first, answer second
-- ADDED: REASONING_PREFIX and REASONING_SEPARATOR constants
-
 CHANGES v1.1.1: User-friendly API error messages (SOW v2.19.0)
-- MODIFIED: Error messages sent to Discord with standard prefix, never stored
-- ADDED: API_ERROR_PREFIX constant
-
 CHANGES v1.1.0: Filter noise from runtime history storage (SOW v2.19.0)
-- MODIFIED: add_response_to_history() checks is_history_output() before storing
 """
 import asyncio
 import io
@@ -49,9 +38,12 @@ API_ERROR_PREFIX = "I'm sorry an API error occurred when attempting to respond: 
 REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
 REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
 
+_I = "ℹ️ "
+
 
 async def handle_ai_response_task(message, channel_id, messages,
-                                   provider_override=None, receipt_data=None):
+                                   provider_override=None, receipt_data=None,
+                                   citation_map=None):
     """
     Background task to handle AI response (text and optional images).
 
@@ -65,7 +57,9 @@ async def handle_ai_response_task(message, channel_id, messages,
         messages: List of messages for AI context
         provider_override: Optional provider name to override channel default
         receipt_data: Optional context receipt dict to persist after send
+        citation_map: Optional {int: {author, content, date}} for citation validation
     """
+    from utils.citation_utils import apply_citations
     try:
         bot_response = await generate_ai_response(
             messages,
@@ -89,25 +83,34 @@ async def handle_ai_response_task(message, channel_id, messages,
 
             # Send answer and store in history
             if answer.strip():
+                answer, cite_footer = apply_citations(answer, citation_map or {})
                 answer_chunks = split_message(answer)
                 for chunk in answer_chunks:
                     response_msg = await message.channel.send(chunk)
+                if cite_footer:
+                    await message.channel.send(_I + cite_footer)
                 add_response_to_history(channel_id, answer)
 
         elif isinstance(bot_response, str):
+            bot_response, cite_footer = apply_citations(bot_response, citation_map or {})
             text_chunks = split_message(bot_response)
             for chunk in text_chunks:
                 response_msg = await message.channel.send(chunk)
+            if cite_footer:
+                await message.channel.send(_I + cite_footer)
             add_response_to_history(channel_id, bot_response)
 
         elif isinstance(bot_response, dict):
             text_content = bot_response.get("text", "")
             images = bot_response.get("images", [])
+            text_content, cite_footer = apply_citations(text_content, citation_map or {})
 
             if text_content.strip():
                 text_chunks = split_message(text_content)
                 for chunk in text_chunks:
                     response_msg = await message.channel.send(chunk)
+                if cite_footer:
+                    await message.channel.send(_I + cite_footer)
 
             for i, image in enumerate(images):
                 try:
@@ -139,7 +142,7 @@ async def handle_ai_response_task(message, channel_id, messages,
 
 
 async def handle_ai_response(message, channel_id, messages, provider_override=None,
-                             receipt_data=None):
+                             receipt_data=None, citation_map=None):
     """
     Handle AI response using a background task to avoid blocking Discord's heartbeat.
 
@@ -149,11 +152,13 @@ async def handle_ai_response(message, channel_id, messages, provider_override=No
         messages: List of messages for AI context
         provider_override: Optional provider name to override channel default
         receipt_data: Optional context receipt dict to persist after send
+        citation_map: Optional {int: {author, content, date}} for citation validation
     """
     async with message.channel.typing():
         task = asyncio.create_task(
             handle_ai_response_task(
-                message, channel_id, messages, provider_override, receipt_data)
+                message, channel_id, messages, provider_override,
+                receipt_data, citation_map)
         )
         try:
             await task
