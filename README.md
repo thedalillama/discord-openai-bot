@@ -1,5 +1,5 @@
 # README.md
-# Version 5.7.0
+# Version 5.7.1
 
 # Synthergy Discord Bot
 
@@ -50,7 +50,9 @@ python main.py
 | `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
 | `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!explain` | all | Show context receipt for the last bot response |
+| `!explain detail` | all | Receipt + injected messages per cluster |
 | `!explain <id>` | all | Show context receipt for a specific response by message ID |
+| `!explain detail <id>` | all | Detail view for a specific response |
 | `!status` | all | Show bot settings for this channel |
 | `!autorespond on/off` | admin | Toggle auto-response |
 | `!ai [provider]` | admin | Switch AI provider (openai/anthropic/deepseek) |

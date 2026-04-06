@@ -1,8 +1,22 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.7.0
+# Version 5.7.1
 
 ## Current Version Features
+
+### Version 5.7.1 — !explain detail
+
+`!explain detail` extends the context receipt with the actual messages that
+were injected into the bot's context, fetched live from the database.
+
+- Messages truncated to 150 characters
+- Clusters with > 10 messages show first 5 + last 5 with a gap line
+- Supports `!explain detail <id>` for a specific response
+
+**Modified files:**
+- `commands/explain_commands.py` v1.1.0
+
+---
 
 ### Version 5.7.0 — Explainability & Context Receipts
 
