@@ -1,11 +1,11 @@
 # HANDOFF.md
-# Version 5.7.1
+# Version 5.8.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.7.1
+**Bot version**: v5.8.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 **Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
@@ -14,6 +14,27 @@
 ---
 
 ## What Just Happened
+
+### v5.8.0 — Topic-Boundary-Aware Context Prepending
+
+Fixes cross-topic contamination in stored embeddings. `build_contextual_text()`
+now filters previous messages by cosine similarity before prepending as context.
+
+**Logic:**
+1. Get previous 3 messages from DB (now returns 3-tuples with message_id)
+2. Embed current message raw
+3. Per previous message: if it's a question → always include; else check
+   cosine sim vs stored embedding — include only if sim > 0.3
+4. Fall back to unfiltered context if similarity check fails at any point
+5. Reply chains (reply_to_id set) bypass check entirely — unchanged
+
+**Constant:** `CONTEXT_SIMILARITY_THRESHOLD = 0.3` in `embedding_context.py`
+
+**After deploy:** `!debug reembed` → `!summary create` to rebuild clusters.
+
+**Modified:** `utils/embedding_context.py` v1.3.0
+
+---
 
 ### v5.7.1 — !explain detail
 
