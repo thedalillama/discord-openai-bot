@@ -1,8 +1,11 @@
 # commands/__init__.py
-# Version 2.6.0
+# Version 2.7.0
 """
 Commands package initialization.
 Registers all command modules with the bot.
+
+CHANGES v2.7.0: Register dedup_commands (SOW v5.8.1)
+- ADDED: register_dedup_commands — !debug dedup [confirm]
 
 CHANGES v2.6.0: Register explain_commands (SOW v5.7.0)
 - ADDED: register_explain_commands — !explain command
@@ -29,6 +32,7 @@ from .summary_commands import register_summary_commands
 from .debug_commands import register_debug_commands
 from .cluster_commands import register_cluster_commands
 from .explain_commands import register_explain_commands
+from .dedup_commands import register_dedup_commands
 
 
 def register_commands(bot, auto_respond_channels):
@@ -42,4 +46,5 @@ def register_commands(bot, auto_respond_channels):
     register_summary_commands(bot)
     debug_cmd = register_debug_commands(bot)
     register_cluster_commands(debug_cmd)
+    register_dedup_commands(debug_cmd)
     register_explain_commands(bot)
