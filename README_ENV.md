@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 5.8.0
+# Version 5.8.1
 # Environment Variables Configuration Guide
 
 ## Required Variables

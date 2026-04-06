@@ -1,5 +1,5 @@
 # README.md
-# Version 5.8.0
+# Version 5.8.1
 
 # Synthergy Discord Bot
 
@@ -47,6 +47,8 @@ python main.py
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
 | `!debug backfill` | admin | Embed unembedded messages with contextual text + re-link topics |
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
+| `!debug dedup` | admin | Scan for duplicate test messages (3+ identical) |
+| `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
 | `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
 | `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!explain` | all | Show context receipt for the last bot response |

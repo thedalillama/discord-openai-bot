@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.8.0
+# Version 5.8.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles

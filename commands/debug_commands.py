@@ -1,7 +1,10 @@
 # commands/debug_commands.py
-# Version 1.7.0
+# Version 1.8.0
 """
 Debug and maintenance commands: noise scan, cleanup, summary status.
+
+CHANGES v1.8.0: Add !debug dedup to help text (SOW v5.8.1)
+- MODIFIED: debug_cmd group help lists !debug dedup
 
 CHANGES v1.7.0: Extract cluster commands to cluster_commands.py (SOW v5.6.0)
 - REMOVED: debug_backfill, debug_clusters, debug_summarize_clusters — moved to
@@ -49,7 +52,9 @@ def register_debug_commands(bot):
             f"`!debug backfill` — embed missing messages\n"
             f"`!debug reembed` — re-embed all with context\n"
             f"`!debug clusters` — run clustering\n"
-            f"`!debug summarize_clusters` — summarize clusters")
+            f"`!debug summarize_clusters` — summarize clusters\n"
+            f"`!debug dedup` — scan for duplicate test messages\n"
+            f"`!debug dedup confirm` — remove duplicates")
 
     @debug_cmd.command(name='noise')
     async def debug_noise(ctx):
