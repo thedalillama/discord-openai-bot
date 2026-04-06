@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 5.1.0
+# Version 5.7.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -57,24 +57,24 @@ the trimmer drops oldest recent messages to fit within the remaining budget.
 
 The `data/` directory is created automatically on first run.
 
-## Semantic Retrieval Configuration (v4.0.0)
+## Semantic Retrieval Configuration (v5.6.0+)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for topic retrieval | `0.25` |
-| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
+| `RETRIEVAL_TOP_K` | Max clusters retrieved per query | `5` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval (also used as topic-shift threshold for smart query embedding) | `0.25` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
+| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for v4.x topic-message linking (retained for rollback) | `0.3` |
 
-All messages scoring above `TOPIC_LINK_MIN_SCORE` against a topic's embedding
-are linked to that topic. At query time, only topics scoring above
-`RETRIEVAL_MIN_SCORE` against the incoming message are injected into context.
+Production `.env` sets `RETRIEVAL_MIN_SCORE=0.45` — higher signal with contextual embeddings.
+
+At query time, only clusters scoring above `RETRIEVAL_MIN_SCORE` against the query
+embedding are injected. Fallback fires when no clusters pass the threshold.
 
 After changing `EMBEDDING_MODEL` or migrating to a new server, run:
-1. Clear `message_embeddings`, `topic_messages`, and `topics.embedding` columns
-2. `!debug backfill` in Discord — re-embeds all messages and re-links topics
-3. `!summary create` — regenerates topics with new embeddings
+1. `!debug reembed` in Discord — wipes and re-embeds all messages with contextual text
+2. `!summary create` — rebuilds clusters from the new embeddings
 
 ## Summarizer Configuration
 
