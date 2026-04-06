@@ -1,8 +1,29 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.7.1
+# Version 5.8.0
 
 ## Current Version Features
+
+### Version 5.8.0 — Topic-Boundary-Aware Context Prepending
+
+Fixes cross-topic contamination in stored embeddings. Previously
+`build_contextual_text()` blindly prepended the 3 prior messages regardless
+of topic. Redis questions got embedded with gorilla context; HDBSCAN then
+placed them in the gorilla cluster.
+
+**Fix:** before prepending, embed the current message raw and compute cosine
+similarity against each previous message's stored embedding. Only same-topic
+predecessors (sim > 0.3) are included. Questions are always included —
+they're likely being answered. Reply chains bypass the check entirely.
+Falls back to unfiltered context if the similarity check fails.
+
+**After deploy:** run `!debug reembed` then `!summary create` to rebuild
+clusters with the corrected embeddings.
+
+**Modified files:**
+- `utils/embedding_context.py` v1.3.0
+
+---
 
 ### Version 5.7.1 — !explain detail
 
