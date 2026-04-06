@@ -1,7 +1,18 @@
 # utils/embedding_context.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Context construction for context-prepended message embeddings (SOW v5.6.0).
+
+CHANGES v1.3.0: Topic-boundary-aware context filtering in build_contextual_text()
+  (SOW v5.8.0)
+- ADDED: CONTEXT_SIMILARITY_THRESHOLD = 0.3 constant
+- MODIFIED: build_contextual_text() now filters previous messages by cosine
+  similarity before prepending. Only same-topic predecessors are included.
+  Questions are always included regardless of similarity (likely a response).
+  Falls back to unfiltered context on any similarity-check failure.
+- MODIFIED: get_previous_messages() returns (message_id, author, content)
+  3-tuples so build_contextual_text() can look up stored embeddings.
+  Reply chain path (reply_to_id) is unchanged — bypasses similarity check.
 
 CHANGES v1.2.0: embed_query_with_smart_context() returns (vec, path_name) (SOW v5.7.0)
 - MODIFIED: all return sites now return (vector, path_name) tuple so callers can
@@ -10,10 +21,7 @@ CHANGES v1.2.0: embed_query_with_smart_context() returns (vec, path_name) (SOW v
 
 CHANGES v1.1.0: Smart query embedding to prevent topic bleed-through (SOW v5.6.1)
 - ADDED: is_question() — heuristic question detection (no LLM)
-- ADDED: embed_query_with_smart_context() — two-path query embedding:
-    Path 1: previous message was a question → embed with question as context
-    Path 2: check cosine similarity to previous stored embedding; if similar
-    (same topic) re-embed with context, if dissimilar (topic shift) use raw
+- ADDED: embed_query_with_smart_context() — two-path query embedding
 
 CREATED v1.0.0: Context-prepended embeddings (SOW v5.6.0)
 - build_contextual_text() — prepend N prior messages before embedding
@@ -28,6 +36,10 @@ from config import DATABASE_PATH
 from utils.logging_utils import get_logger
 
 logger = get_logger('embedding_context')
+
+# Minimum cosine similarity for a previous message to be included as context.
+# Lower than RETRIEVAL_MIN_SCORE (0.45) — more inclusive for context prepending.
+CONTEXT_SIMILARITY_THRESHOLD = 0.3
 
 _QUESTION_STARTERS = (
     'who ', 'what ', 'where ', 'when ', 'why ', 'how ',
@@ -63,7 +75,7 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
         conversation_msgs: In-memory history dicts with role/content/_msg_id.
 
     Returns:
-        list: Embedding vector, or None on total failure.
+        (vector, path_name) tuple, or (None, "raw") on total failure.
     """
     from utils.embedding_store import embed_text, cosine_similarity, get_stored_embedding
     from config import RETRIEVAL_MIN_SCORE
@@ -72,7 +84,6 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
         if not conversation_msgs:
             return embed_text(query_text), "raw"
 
-        # Find the previous user/assistant message
         prev = None
         for msg in reversed(conversation_msgs):
             if msg.get("role") in ("user", "assistant") and msg.get("content", "").strip():
@@ -98,19 +109,17 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
 
         prev_vec = get_stored_embedding(prev_msg_id)
         if prev_vec is None:
-            return raw_vec, "raw"  # no stored embedding to compare, use raw
+            return raw_vec, "raw"
 
         sim = cosine_similarity(raw_vec, prev_vec)
         logger.debug(
             f"Query Path 2: sim={sim:.3f} vs threshold={RETRIEVAL_MIN_SCORE} "
             f"ch:{channel_id}")
         if sim > RETRIEVAL_MIN_SCORE:
-            # Same topic — re-embed with context
             ctx = f"[Context: {prev_label}: {prev_content[:200]}]"
             logger.debug(f"Same topic (sim={sim:.3f}), re-embedding with context")
             return embed_text(f"{ctx}\n{query_text}"), "similarity_context"
         else:
-            # Topic shift — use raw embedding already computed
             logger.debug(f"Topic shift (sim={sim:.3f}), using raw query embedding")
             return raw_vec, "raw"
 
@@ -122,12 +131,12 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
 def get_previous_messages(channel_id, message_id, n=3):
     """Return up to N messages before message_id in channel, oldest first.
 
-    Skips noise/commands. Returns list of (author_name, content) tuples.
+    Skips noise/commands. Returns list of (message_id, author_name, content).
     """
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         rows = conn.execute(
-            "SELECT author_name, content FROM messages "
+            "SELECT id, author_name, content FROM messages "
             "WHERE channel_id=? AND id < ? AND is_deleted=0 "
             "  AND content != '' AND content NOT LIKE '!%' "
             "  AND content NOT LIKE '\u2139\ufe0f%' "
@@ -135,7 +144,7 @@ def get_previous_messages(channel_id, message_id, n=3):
             "ORDER BY created_at DESC LIMIT ?",
             (channel_id, message_id, n)
         ).fetchall()
-        return [(r[0], r[1]) for r in reversed(rows)]
+        return [(r[0], r[1], r[2]) for r in reversed(rows)]
     except Exception as e:
         logger.warning(f"get_previous_messages failed msg {message_id}: {e}")
         return []
@@ -178,19 +187,12 @@ def get_reply_context(channel_id, reply_to_id, n=2):
 
 def build_contextual_text(channel_id, message_id, author, content,
                            reply_to_id=None, window=3):
-    """Build context-prepended text for embedding.
+    """Build context-prepended text for embedding with topic-boundary filtering.
 
-    Prepends prior messages as [Context: a1: msg1 | a2: msg2] before the
-    current message. Uses replied-to message as primary context when set.
-    Falls back to raw content on any failure.
-
-    Args:
-        channel_id: Discord channel ID
-        message_id: Discord message ID (used to fetch prior messages)
-        author: Author name of the current message
-        content: Message content to embed
-        reply_to_id: Optional replied-to message ID (overrides window)
-        window: Number of prior messages to use as context (default 3)
+    Reply chains always use replied-to message as context (no similarity check).
+    For regular messages, previous messages are filtered by cosine similarity —
+    only same-topic predecessors are included. Questions are always included.
+    Falls back to unfiltered context if similarity check fails.
 
     Returns:
         str: Context-prepended text, or raw content on any error.
@@ -200,16 +202,47 @@ def build_contextual_text(channel_id, message_id, author, content,
     try:
         if reply_to_id:
             ctx_msgs = get_reply_context(channel_id, reply_to_id, n=window - 1)
-        else:
-            ctx_msgs = get_previous_messages(channel_id, message_id, n=window)
+            if not ctx_msgs:
+                return f"{author}: {content}"
+            ctx_parts = " | ".join(f"{a}: {c[:120]}" for a, c in ctx_msgs if c.strip())
+            return f"[Context: {ctx_parts}]\n{author}: {content}" if ctx_parts \
+                else f"{author}: {content}"
+
+        previous = get_previous_messages(channel_id, message_id, n=window)
+        if not previous:
+            return f"{author}: {content}"
+
+        # Similarity filter — fall back to unfiltered on any failure
+        try:
+            from utils.embedding_store import (
+                embed_text, cosine_similarity, get_stored_embedding)
+            raw_vec = embed_text(f"{author}: {content}")
+            if raw_vec is None:
+                raise ValueError("raw embed returned None")
+            filtered = []
+            for msg_id, prev_author, prev_content in previous:
+                if is_question(prev_content):
+                    filtered.append((prev_author, prev_content))
+                    continue
+                prev_vec = get_stored_embedding(msg_id)
+                if prev_vec is None:
+                    continue
+                if cosine_similarity(raw_vec, prev_vec) > CONTEXT_SIMILARITY_THRESHOLD:
+                    filtered.append((prev_author, prev_content))
+            ctx_msgs = filtered
+            logger.debug(
+                f"Context filter: {len(filtered)}/{len(previous)} msgs kept "
+                f"for msg:{message_id}")
+        except Exception as e:
+            logger.warning(f"Similarity filter failed, using unfiltered: {e}")
+            ctx_msgs = [(a, c) for _, a, c in previous]
+
         if not ctx_msgs:
             return f"{author}: {content}"
-        ctx_parts = " | ".join(
-            f"{a}: {c[:120]}" for a, c in ctx_msgs if c.strip()
-        )
-        if not ctx_parts:
-            return f"{author}: {content}"
-        return f"[Context: {ctx_parts}]\n{author}: {content}"
+        ctx_parts = " | ".join(f"{a}: {c[:120]}" for a, c in ctx_msgs if c.strip())
+        return f"[Context: {ctx_parts}]\n{author}: {content}" if ctx_parts \
+            else f"{author}: {content}"
+
     except Exception as e:
         logger.warning(f"build_contextual_text failed msg {message_id}: {e}")
         return content
