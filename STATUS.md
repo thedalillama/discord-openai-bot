@@ -1,8 +1,38 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.8.2
+# Version 5.9.0
 
 ## Current Version Features
+
+### Version 5.9.0 — Citation-Backed Responses
+
+When the bot answers using retrieved conversation history, it now cites
+the specific messages it used, inline with the response.
+
+**Example response:**
+> Gorillas can lift about 5-10 times their body weight! [1][2]
+>
+> **Sources:**
+> [1] absolutebeginner (2026-02-25): "how strong are gorillas?"
+> [2] Synthergy-GPT4 (2026-02-25): "Gorillas can lift 5-10x their body weight..."
+
+**How it works:**
+1. Retrieved messages labeled `[N]` in context (contiguous across clusters)
+2. Citation instruction injected into context block header
+3. LLM response scanned for `[N]` markers; hallucinated numbers stripped
+4. Sources footer built (capped at 5), appended inline if ≤1950 chars, else sent as ℹ️ follow-up
+5. No citations when retrieval empty or LLM uses training knowledge only
+
+**New files:**
+- `utils/citation_utils.py` v1.0.0 — `strip_hallucinated_citations()`, `build_citation_footer()`, `apply_citations()`
+
+**Modified files:**
+- `utils/context_retrieval.py` v1.3.0 — citation numbering + 4-tuple return
+- `utils/context_manager.py` v2.5.0 — unpack 4-tuple, inject citation instruction, return 3-tuple
+- `utils/response_handler.py` v1.3.0 — `citation_map` param, `apply_citations()` call, footer follow-up
+- `bot.py` v3.2.0 — unpack 3-tuple, pass `citation_map` to handler
+
+---
 
 ### Version 5.8.2 — Batch Pre-computation for !debug reembed
 

@@ -1,7 +1,13 @@
 # utils/context_manager.py
-# Version 2.4.0
+# Version 2.5.0
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.5.0: Citation map pass-through (SOW v5.9.0)
+- MODIFIED: build_context_for_provider() unpacks 4-tuple from _retrieve_cluster_context()
+  and returns 3-tuple (messages, receipt_data, citation_map)
+- MODIFIED: Citation instruction injected into context block when citation_map is non-empty
+- All early returns now yield (messages, None, {})
 
 CHANGES v2.4.0: Return (messages, receipt_data) tuple from build_context_for_provider()
   (SOW v5.7.0)
@@ -109,7 +115,7 @@ def build_context_for_provider(channel_id, provider):
 
     if not all_messages:
         logger.warning(f"No messages for channel {channel_id}")
-        return all_messages, None
+        return all_messages, None, {}
 
     context_window = provider.max_context_length
     max_output = provider.max_response_tokens
@@ -118,12 +124,13 @@ def build_context_for_provider(channel_id, provider):
     if budget <= 0:
         logger.warning(
             f"Token budget non-positive ({budget}) for {provider.name}")
-        return all_messages, None
+        return all_messages, None, {}
 
     system_msg = all_messages[0]
     conversation_msgs = all_messages[1:]
     summary = _load_summary(channel_id)
     receipt_data = None
+    citation_map = {}
 
     if summary:
         from utils.summary_display import (
@@ -135,15 +142,20 @@ def build_context_for_provider(channel_id, provider):
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
         retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
-        retrieved, retrieved_tokens, cluster_receipt = _retrieve_cluster_context(
+        retrieved, retrieved_tokens, cluster_receipt, citation_map = _retrieve_cluster_context(
             channel_id, conversation_msgs, retrieval_budget)
 
         today = date.today().isoformat()
         if retrieved:
+            cite_instr = (
+                "Messages are numbered [1], [2], etc. Cite with [N] when "
+                "using specific facts from those messages.\n\n"
+            ) if citation_map else ""
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n"
                 f"Today's date: {today}\n\n{always_on}\n\n"
                 f"--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
+                f"{cite_instr}"
                 f"The following are real messages previously sent in this channel, "
                 f"retrieved because they are relevant to the current query. "
                 f"They ARE part of this conversation's history.\n\n{retrieved}"
@@ -174,7 +186,7 @@ def build_context_for_provider(channel_id, provider):
         logger.warning(
             f"System prompt ({system_tokens} tokens) exceeds "
             f"budget ({budget}) for {provider.name}")
-        return [system_msg], None
+        return [system_msg], None, {}
 
     selected = []
     tokens_used = 0
@@ -228,4 +240,4 @@ def build_context_for_provider(channel_id, provider):
             "model": getattr(provider, 'model', '?'),
         }
 
-    return [system_msg] + selected, receipt_data
+    return [system_msg] + selected, receipt_data, citation_map

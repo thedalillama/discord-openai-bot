@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.8.2
+# Version 5.9.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -92,10 +92,17 @@ Fallback chain:
 Timestamps: every retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected
 at top of context block. Section header uses `[Topic: {label}]` — model-facing framing.
 
+Citations (v5.9.0): retrieved messages numbered `[N]` contiguously across clusters;
+citation instruction injected into context block header; `apply_citations()` strips
+hallucinations and builds Sources footer after response; footer sent as ℹ️ follow-up
+if combined length > 1950 chars. No citations when retrieval empty or for commands.
+Key files: `utils/citation_utils.py` (strip/build/apply), `utils/context_retrieval.py`
+(citation numbering + 4-tuple return), `utils/context_manager.py` (citation pass-through)
+
 Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_messages),
 `utils/context_retrieval.py` (retrieval + fallback, extracted v5.6.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
-`utils/context_manager.py` (always-on + budget + timestamps)
+`utils/context_manager.py` (always-on + budget + timestamps + citation pass-through)
 
 ### Incremental Assignment (v5.4.0)
 After embedding, `raw_events.py` calls `assign_to_nearest_cluster(channel_id, message_id)`
