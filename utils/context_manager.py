@@ -1,7 +1,14 @@
 # utils/context_manager.py
-# Version 2.3.0
+# Version 2.4.0
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.4.0: Return (messages, receipt_data) tuple from build_context_for_provider()
+  (SOW v5.7.0)
+- MODIFIED: build_context_for_provider() now returns (messages, receipt_data) tuple;
+  receipt_data is a dict with query, embedding path, always-on counts, cluster info,
+  token stats, and provider — or None on early returns / no summary
+- All callers (bot.py) must destructure the return value
 
 CHANGES v2.3.0: Extract retrieval to context_retrieval.py (SOW v5.6.0)
 - REMOVED: _fallback_msg_search(), _retrieve_cluster_context() — moved to
@@ -102,7 +109,7 @@ def build_context_for_provider(channel_id, provider):
 
     if not all_messages:
         logger.warning(f"No messages for channel {channel_id}")
-        return all_messages
+        return all_messages, None
 
     context_window = provider.max_context_length
     max_output = provider.max_response_tokens
@@ -111,11 +118,12 @@ def build_context_for_provider(channel_id, provider):
     if budget <= 0:
         logger.warning(
             f"Token budget non-positive ({budget}) for {provider.name}")
-        return all_messages
+        return all_messages, None
 
     system_msg = all_messages[0]
     conversation_msgs = all_messages[1:]
     summary = _load_summary(channel_id)
+    receipt_data = None
 
     if summary:
         from utils.summary_display import (
@@ -127,7 +135,7 @@ def build_context_for_provider(channel_id, provider):
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
         retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
-        retrieved, retrieved_tokens = _retrieve_cluster_context(
+        retrieved, retrieved_tokens, cluster_receipt = _retrieve_cluster_context(
             channel_id, conversation_msgs, retrieval_budget)
 
         today = date.today().isoformat()
@@ -166,7 +174,7 @@ def build_context_for_provider(channel_id, provider):
         logger.warning(
             f"System prompt ({system_tokens} tokens) exceeds "
             f"budget ({budget}) for {provider.name}")
-        return [system_msg]
+        return [system_msg], None
 
     selected = []
     tokens_used = 0
@@ -192,4 +200,32 @@ def build_context_for_provider(channel_id, provider):
             f"Context for {provider.name}: {total_tokens} tokens, "
             f"{len(selected)} msgs")
 
-    return [system_msg] + selected
+    if summary and cluster_receipt:
+        receipt_data = {
+            "query": cluster_receipt.get("query", ""),
+            "query_embedding_path": cluster_receipt.get("embedding_path", "unknown"),
+            "always_on": {
+                "overview_tokens": always_on_tokens,
+                "key_facts_count": len([f for f in summary.get("key_facts", [])
+                                        if f.get("status") == "active"]),
+                "decisions_count": len([d for d in summary.get("decisions", [])
+                                        if d.get("status") == "active"]),
+                "action_items_count": len([a for a in summary.get("action_items", [])
+                                           if a.get("status") in ("open", "in_progress")]),
+                "open_questions_count": len([q for q in summary.get("open_questions", [])
+                                             if q.get("status") == "open"]),
+                "total_tokens": always_on_tokens,
+            },
+            "retrieved_clusters": cluster_receipt.get("retrieved_clusters", []),
+            "clusters_below_threshold": cluster_receipt.get("clusters_below_threshold", []),
+            "fallback_used": cluster_receipt.get("fallback_used", False),
+            "fallback_messages": cluster_receipt.get("fallback_messages", 0),
+            "recent_messages": len(selected),
+            "total_context_tokens": total_tokens,
+            "budget_tokens": budget,
+            "budget_used_pct": round(total_tokens / budget * 100, 1) if budget else 0,
+            "provider": provider.name,
+            "model": getattr(provider, 'model', '?'),
+        }
+
+    return [system_msg] + selected, receipt_data

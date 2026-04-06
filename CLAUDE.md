@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.6.1
+# Version 5.7.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -182,6 +182,8 @@ Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()
 | `!summary create/clear` | Run summarization / delete (admin) |
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
 | `!debug backfill` | Embed missing messages + re-link all topics (admin) |
+| `!explain` | Context receipt for most recent bot response |
+| `!explain <id>` | Context receipt for specific response message ID |
 | `!status` | Bot settings for this channel |
 | `!autorespond` | Auto-response toggle |
 | `!ai` | AI provider switch |

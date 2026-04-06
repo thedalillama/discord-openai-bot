@@ -1,8 +1,52 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.6.1
+# Version 5.7.0
 
 ## Current Version Features
+
+### Version 5.7.0 — Explainability & Context Receipts
+
+Every bot response now records a context receipt — a permanent log of exactly
+what context was assembled: which clusters were retrieved and their scores,
+whether fallback was used, always-on token counts, budget consumption, and
+the query embedding path taken.
+
+**`!explain`** — show the context receipt for the most recent bot response:
+```
+ℹ️ Context Receipt (response to: "how strong are squirrels?")
+Query Embedding: raw
+Always-On Context (278 tokens): Overview ✓, 8 key facts, 5 decisions, 3 action items
+Retrieved Clusters (3,563 tokens):
+  1. Squirrel Strength Discussion — score 0.846, 12 msgs (557 tok)
+  2. Animal Strength Comparison — score 0.742, 25 msgs (3,006 tok)
+Below Threshold: Bot Availability Check — score 0.21
+Recent Messages: 5
+Budget: 4,168 / 12,000 tokens (34.7%)
+Provider: deepseek / deepseek-reasoner
+```
+
+**`!explain <message_id>`** — receipt for a specific response by Discord message ID.
+
+Receipt storage never blocks or prevents bot responses — stored after send,
+fails silently if the table write fails.
+
+**New files:**
+- `utils/receipt_store.py` v1.0.0 — save/get receipts in `response_context_receipts` table
+- `commands/explain_commands.py` v1.0.0 — `!explain` command + `format_receipt()`
+
+**Modified files:**
+- `utils/embedding_context.py` v1.2.0 — `embed_query_with_smart_context()` returns
+  `(vec, path_name)` tuple so callers can record which embedding path was taken
+- `utils/context_retrieval.py` v1.2.0 — `_retrieve_cluster_context()` returns
+  `(text, tokens, cluster_receipt)` 3-tuple; `_fallback_msg_search()` returns
+  `(text, tokens, count)` 3-tuple
+- `utils/context_manager.py` v2.4.0 — assembles full receipt dict, returns
+  `(messages, receipt_data)` tuple from `build_context_for_provider()`
+- `utils/response_handler.py` v1.2.0 — stores receipt after send via `save_receipt()`
+- `bot.py` v3.1.0 — destructures `(messages, receipt_data)` at both call sites
+- `commands/__init__.py` v2.6.0 — registers `explain_commands`
+
+---
 
 ### Version 5.6.1 — Smart Query Embedding
 
