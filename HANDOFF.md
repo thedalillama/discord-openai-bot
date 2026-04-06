@@ -1,11 +1,11 @@
 # HANDOFF.md
-# Version 5.8.1
+# Version 5.8.2
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.8.1
+**Bot version**: v5.8.2
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 **Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
@@ -14,6 +14,26 @@
 ---
 
 ## What Just Happened
+
+### v5.8.2 — Batch Pre-computation for !debug reembed
+
+`!debug reembed` / `!debug backfill` now runs in 2 API calls total.
+
+`build_contextual_text()` gets two new optional params:
+- `raw_vec`: pre-computed embedding for the current message
+- `raw_vecs_cache`: `{msg_id: vec}` dict for previous message lookups
+
+In `debug_backfill`, before the context loop:
+1. Batch-embed all raw texts → `raw_vec_map` (1 API call)
+2. Build `raw_id_to_vec = {pending[i][0]: vec}`
+3. Pass both into each `build_contextual_text()` call — 0 per-msg API calls
+4. Final contextual batch embed → 1 API call
+
+Progress: pre-batch status, every 100 msgs during context loop, per-batch embed.
+
+Single-message callers (`raw_events.py`) pass neither param — unchanged.
+
+---
 
 ### v5.8.1 — Duplicate Test Message Cleanup
 

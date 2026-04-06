@@ -1,7 +1,14 @@
 # commands/cluster_commands.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters.
+
+CHANGES v1.1.0: Pre-batch raw embeddings in backfill to eliminate per-message
+  embed_text() calls (SOW v5.8.2)
+- MODIFIED: debug_backfill() batch-embeds all raw texts in one API call before
+  the context loop, builds raw_id_to_vec cache, passes raw_vec + raw_vecs_cache
+  to build_contextual_text() — reduces API calls from N+1 to 2 for N messages
+- ADDED: progress updates every 100 messages during context-building loop
 
 CREATED v1.0.0: Extracted from debug_commands.py v1.7.0 (SOW v5.6.0)
 - !debug backfill — contextual embedding backfill (v5.6.0: uses build_contextual_text)
@@ -47,15 +54,31 @@ def register_cluster_commands(debug_cmd):
             embedded = failed = 0
             if pending:
                 BATCH = 1000
+                # Pre-batch all raw embeddings (1 API call) for similarity filter
+                await ctx.send(f"{_I}Pre-computing raw embeddings...")
+                raw_texts = [f"{author}: {content}" for _, content, author, _ in pending]
+                raw_results = await asyncio.to_thread(embed_texts_batch, raw_texts, BATCH)
+                raw_vec_map = {idx: vec for idx, vec in raw_results}
+                raw_id_to_vec = {pending[i][0]: vec for i, vec in raw_vec_map.items()}
+                await ctx.send(
+                    f"{_I}Raw embeddings done ({len(raw_vec_map)}/{len(pending)}). "
+                    f"Building contextual embeddings...")
                 for batch_start in range(0, len(pending), BATCH):
                     batch = pending[batch_start:batch_start + BATCH]
-                    # Build contextual text for each message
                     ctx_texts = []
-                    for mid, content, author, reply_to_id in batch:
+                    for i, (mid, content, author, reply_to_id) in enumerate(batch):
                         ctx_text = await asyncio.to_thread(
-                            build_contextual_text, channel_id, mid,
-                            author, content, reply_to_id=reply_to_id)
+                            build_contextual_text, channel_id, mid, author, content,
+                            reply_to_id=reply_to_id,
+                            raw_vec=raw_vec_map.get(batch_start + i),
+                            raw_vecs_cache=raw_id_to_vec)
                         ctx_texts.append(ctx_text)
+                        done = batch_start + i + 1
+                        if done % 100 == 0:
+                            await ctx.send(f"{_I}Context: {done}/{len(pending)}...")
+                    await ctx.send(
+                        f"{_I}Embedding batch "
+                        f"{batch_start + 1}–{batch_start + len(batch)}...")
                     results = await asyncio.to_thread(
                         embed_texts_batch, ctx_texts, BATCH)
                     result_map = {idx: vec for idx, vec in results}

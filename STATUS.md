@@ -1,8 +1,31 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.8.1
+# Version 5.8.2
 
 ## Current Version Features
+
+### Version 5.8.2 — Batch Pre-computation for !debug reembed
+
+`!debug reembed` (and `!debug backfill`) now completes in 2 API calls
+instead of N+1 for N messages.
+
+**Before:** each `build_contextual_text()` call made one `embed_text()` API
+call for the similarity filter — 792 sequential calls for 792 messages.
+
+**After:** all raw texts batch-embedded upfront in one API call; the
+resulting `raw_vec_map` (index→vec) and `raw_id_to_vec` (msg_id→vec) are
+passed into each `build_contextual_text()` call, which uses them directly
+instead of hitting the API. The final contextual embed is still 1 batch
+call. Total: 2 API calls regardless of channel size.
+
+Progress feedback added: pre-batch status, then every 100 messages during
+context building, then per-batch embed announcement.
+
+**Modified files:**
+- `utils/embedding_context.py` v1.4.0 — `raw_vec` + `raw_vecs_cache` params
+- `commands/cluster_commands.py` v1.1.0 — pre-batch + pass vecs in
+
+---
 
 ### Version 5.8.1 — Duplicate Test Message Cleanup
 
