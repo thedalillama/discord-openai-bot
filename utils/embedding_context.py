@@ -1,7 +1,12 @@
 # utils/embedding_context.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Context construction for context-prepended message embeddings (SOW v5.6.0).
+
+CHANGES v1.2.0: embed_query_with_smart_context() returns (vec, path_name) (SOW v5.7.0)
+- MODIFIED: all return sites now return (vector, path_name) tuple so callers can
+  record which embedding path was taken for context receipts
+- Path names: "raw", "question_context", "similarity_context"
 
 CHANGES v1.1.0: Smart query embedding to prevent topic bleed-through (SOW v5.6.1)
 - ADDED: is_question() — heuristic question detection (no LLM)
@@ -65,7 +70,7 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
 
     try:
         if not conversation_msgs:
-            return embed_text(query_text)
+            return embed_text(query_text), "raw"
 
         # Find the previous user/assistant message
         prev = None
@@ -74,7 +79,7 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
                 prev = msg
                 break
         if prev is None:
-            return embed_text(query_text)
+            return embed_text(query_text), "raw"
 
         prev_content = prev.get("content", "")
         prev_label = prev.get("role", "user")
@@ -84,16 +89,16 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
         if is_question(prev_content):
             ctx = f"[Context: {prev_label}: {prev_content[:200]}]"
             logger.debug(f"Query Path 1 (question context) ch:{channel_id}")
-            return embed_text(f"{ctx}\n{query_text}")
+            return embed_text(f"{ctx}\n{query_text}"), "question_context"
 
         # Path 2: cosine similarity check to detect topic shift
         raw_vec = embed_text(query_text)
         if raw_vec is None:
-            return None
+            return None, "raw"
 
         prev_vec = get_stored_embedding(prev_msg_id)
         if prev_vec is None:
-            return raw_vec  # no stored embedding to compare, use raw
+            return raw_vec, "raw"  # no stored embedding to compare, use raw
 
         sim = cosine_similarity(raw_vec, prev_vec)
         logger.debug(
@@ -103,15 +108,15 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
             # Same topic — re-embed with context
             ctx = f"[Context: {prev_label}: {prev_content[:200]}]"
             logger.debug(f"Same topic (sim={sim:.3f}), re-embedding with context")
-            return embed_text(f"{ctx}\n{query_text}")
+            return embed_text(f"{ctx}\n{query_text}"), "similarity_context"
         else:
             # Topic shift — use raw embedding already computed
             logger.debug(f"Topic shift (sim={sim:.3f}), using raw query embedding")
-            return raw_vec
+            return raw_vec, "raw"
 
     except Exception as e:
         logger.warning(f"embed_query_with_smart_context failed: {e}")
-        return embed_text(query_text)
+        return embed_text(query_text), "raw"
 
 
 def get_previous_messages(channel_id, message_id, n=3):

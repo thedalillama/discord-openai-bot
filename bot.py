@@ -1,7 +1,12 @@
 # bot.py
-# Version 3.0.0
+# Version 3.1.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+
+CHANGES v3.1.0: Destructure (messages, receipt_data) from build_context_for_provider()
+  (SOW v5.7.0)
+- MODIFIED: Both call sites now unpack tuple return from build_context_for_provider()
+  and pass receipt_data to handle_ai_response()
 
 CHANGES v3.0.0: SQLite message persistence (SOW v3.0.0)
 - ADDED: Import and call setup_raw_events() to register SQLite persistence handlers
@@ -158,8 +163,10 @@ def create_bot():
 
             # Resolve provider and build token-budget-aware context
             provider = get_provider(provider_name=provider_override, channel_id=channel_id)
-            messages = build_context_for_provider(channel_id, provider)
-            await handle_ai_response(message, channel_id, messages, provider_override)
+            messages, receipt_data = build_context_for_provider(channel_id, provider)
+            await handle_ai_response(
+                message, channel_id, messages, provider_override,
+                receipt_data=receipt_data)
             await bot.process_commands(message)
             return
 
@@ -189,8 +196,9 @@ def create_bot():
             logger.debug(f"Auto-responding to message in #{message.channel.name}")
             # Resolve provider and build token-budget-aware context
             provider = get_provider(channel_id=channel_id)
-            messages = build_context_for_provider(channel_id, provider)
-            await handle_ai_response(message, channel_id, messages)
+            messages, receipt_data = build_context_for_provider(channel_id, provider)
+            await handle_ai_response(message, channel_id, messages,
+                                     receipt_data=receipt_data)
 
         await bot.process_commands(message)
 

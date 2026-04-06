@@ -1,7 +1,12 @@
 # utils/response_handler.py
-# Version 1.1.4
+# Version 1.2.0
 """
 AI response handling utilities for Discord bot.
+
+CHANGES v1.2.0: Receipt storage after response send (SOW v5.7.0)
+- MODIFIED: handle_ai_response_task() accepts receipt_data=None; stores receipt
+  via save_receipt() after sending — never blocks or prevents response delivery
+- MODIFIED: handle_ai_response() forwards receipt_data to task
 
 CHANGES v1.1.4: Post-assistant-append trim (SOW v2.23.0)
 - MODIFIED: add_response_to_history() now trims channel_history to MAX_HISTORY
@@ -45,19 +50,21 @@ REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
 REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
 
 
-async def handle_ai_response_task(message, channel_id, messages, provider_override=None):
+async def handle_ai_response_task(message, channel_id, messages,
+                                   provider_override=None, receipt_data=None):
     """
     Background task to handle AI response (text and optional images).
 
     When response starts with REASONING_PREFIX, splits on REASONING_SEPARATOR
     into two Discord messages: reasoning first (not stored in history),
-    answer second (stored normally).
+    answer second (stored normally). Stores context receipt after send.
 
     Args:
         message: Discord message object that triggered the response
         channel_id: Discord channel ID where response should be sent
         messages: List of messages for AI context
         provider_override: Optional provider name to override channel default
+        receipt_data: Optional context receipt dict to persist after send
     """
     try:
         bot_response = await generate_ai_response(
@@ -65,6 +72,8 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             channel_id=channel_id,
             provider_override=provider_override
         )
+
+        response_msg = None
 
         if isinstance(bot_response, str) and bot_response.startswith(REASONING_PREFIX):
             # Split on unambiguous separator — not \n\n which may appear in reasoning
@@ -82,13 +91,13 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             if answer.strip():
                 answer_chunks = split_message(answer)
                 for chunk in answer_chunks:
-                    await message.channel.send(chunk)
+                    response_msg = await message.channel.send(chunk)
                 add_response_to_history(channel_id, answer)
 
         elif isinstance(bot_response, str):
             text_chunks = split_message(bot_response)
             for chunk in text_chunks:
-                await message.channel.send(chunk)
+                response_msg = await message.channel.send(chunk)
             add_response_to_history(channel_id, bot_response)
 
         elif isinstance(bot_response, dict):
@@ -98,7 +107,7 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
             if text_content.strip():
                 text_chunks = split_message(text_content)
                 for chunk in text_chunks:
-                    await message.channel.send(chunk)
+                    response_msg = await message.channel.send(chunk)
 
             for i, image in enumerate(images):
                 try:
@@ -114,13 +123,23 @@ async def handle_ai_response_task(message, channel_id, messages, provider_overri
 
             add_response_to_history(channel_id, text_content, len(images))
 
+        if receipt_data and response_msg:
+            try:
+                from utils.receipt_store import save_receipt
+                await asyncio.to_thread(
+                    save_receipt, response_msg.id, message.id,
+                    channel_id, receipt_data)
+            except Exception as re:
+                logger.warning(f"Receipt storage failed ch:{channel_id}: {re}")
+
     except Exception as e:
         error_msg = f"{API_ERROR_PREFIX}{str(e)}"
         await message.channel.send(error_msg)
         logger.error(f"Error processing AI response: {e}")
 
 
-async def handle_ai_response(message, channel_id, messages, provider_override=None):
+async def handle_ai_response(message, channel_id, messages, provider_override=None,
+                             receipt_data=None):
     """
     Handle AI response using a background task to avoid blocking Discord's heartbeat.
 
@@ -129,10 +148,12 @@ async def handle_ai_response(message, channel_id, messages, provider_override=No
         channel_id: Discord channel ID where response should be sent
         messages: List of messages for AI context
         provider_override: Optional provider name to override channel default
+        receipt_data: Optional context receipt dict to persist after send
     """
     async with message.channel.typing():
         task = asyncio.create_task(
-            handle_ai_response_task(message, channel_id, messages, provider_override)
+            handle_ai_response_task(
+                message, channel_id, messages, provider_override, receipt_data)
         )
         try:
             await task
