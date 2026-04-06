@@ -1,11 +1,11 @@
 # HANDOFF.md
-# Version 5.8.0
+# Version 5.8.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.8.0
+**Bot version**: v5.8.1
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 **Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
@@ -14,6 +14,19 @@
 ---
 
 ## What Just Happened
+
+### v5.8.1 — Duplicate Test Message Cleanup
+
+`!debug dedup` — scan for messages appearing 3+ times, show report.
+`!debug dedup confirm` — soft-delete dupes, clean embeddings and
+cluster_messages, mark affected clusters dirty.
+
+Named `dedup` not `cleanup` because `!debug cleanup` was already taken
+(Discord noise deletion).
+
+**New file:** `commands/dedup_commands.py` v1.0.0
+
+---
 
 ### v5.8.0 — Topic-Boundary-Aware Context Prepending
 

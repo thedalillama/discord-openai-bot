@@ -1,8 +1,31 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.8.0
+# Version 5.8.1
 
 ## Current Version Features
+
+### Version 5.8.1 — Duplicate Test Message Cleanup
+
+`!debug dedup` scans a channel for messages appearing 3+ times
+(identical content) — typical of development testing. Shows a preview
+of what will be removed. `!debug dedup confirm` executes:
+
+- Soft-deletes duplicate messages (`is_deleted=1` — oldest copy kept)
+- Hard-deletes their embeddings from `message_embeddings`
+- Hard-deletes their cluster memberships from `cluster_messages`
+- Marks affected clusters `needs_resummarize=1`
+
+Note: the SOW named this `!debug cleanup` but that name was already taken
+by the Discord noise-deletion command. `dedup` is more accurate.
+
+**New files:**
+- `commands/dedup_commands.py` v1.0.0
+
+**Modified files:**
+- `commands/debug_commands.py` v1.8.0 — updated help text
+- `commands/__init__.py` v2.7.0 — registers dedup_commands
+
+---
 
 ### Version 5.8.0 — Topic-Boundary-Aware Context Prepending
 
