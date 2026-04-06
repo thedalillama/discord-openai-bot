@@ -1,7 +1,16 @@
 # commands/explain_commands.py
-# Version 1.0.0
+# Version 1.1.0
 """
 !explain command — show context receipt for the most recent bot response.
+
+CHANGES v1.1.0: Add !explain detail mode (SOW v5.7.1)
+- ADDED: format_injected_messages() — fetch and format cluster messages on demand
+- MODIFIED: explain_cmd() accepts variadic args instead of typed int:
+    !explain              — summary receipt (unchanged)
+    !explain detail       — receipt + injected messages per cluster
+    !explain <id>         — receipt for specific response message ID
+    !explain detail <id>  — detail for specific response message ID
+- Messages truncated to 150 chars; clusters > 10 msgs show first 5 + last 5
 
 CREATED v1.0.0: Context receipt display (SOW v5.7.0)
 - !explain         — receipt for the most recent bot response in this channel
@@ -15,6 +24,8 @@ from utils.logging_utils import get_logger
 logger = get_logger('commands.explain')
 
 _I = "ℹ️ "
+_MSG_TRUNCATE = 150
+_CLUSTER_SHOW = 5  # show first N + last N when cluster exceeds 2*N messages
 
 
 def format_receipt(receipt):
@@ -71,12 +82,84 @@ def format_receipt(receipt):
     return lines
 
 
+def format_injected_messages(receipt):
+    """Fetch and format injected cluster messages for detail view.
+
+    Fetches messages live from the DB using cluster_ids stored in the receipt.
+    Truncates content to _MSG_TRUNCATE chars. Clusters with > 2*_CLUSTER_SHOW
+    messages show first + last N with a gap line.
+    Returns list of lines; fails gracefully per cluster.
+    """
+    from utils.cluster_retrieval import get_cluster_messages
+
+    clusters = receipt.get("retrieved_clusters", [])
+    if not clusters:
+        return []
+
+    lines = ["\n--- Injected Messages ---"]
+    for c in clusters:
+        cluster_id = c.get("cluster_id")
+        label = c.get("label", "?")
+        lines.append(f"\n**[Topic: {label}]**")
+        try:
+            msgs = get_cluster_messages(cluster_id)
+            if not msgs:
+                lines.append("  (no messages found)")
+                continue
+
+            threshold = _CLUSTER_SHOW * 2
+            if len(msgs) > threshold:
+                omitted = len(msgs) - threshold
+                display = msgs[:_CLUSTER_SHOW] + [None] + msgs[-_CLUSTER_SHOW:]
+            else:
+                omitted = 0
+                display = msgs
+
+            for item in display:
+                if item is None:
+                    lines.append(f"  ... and {omitted} more messages ...")
+                    continue
+                _, author, content, created_at = item
+                date = (created_at or "")[:10]
+                text = (content or "")
+                if len(text) > _MSG_TRUNCATE:
+                    text = text[:_MSG_TRUNCATE] + "…"
+                lines.append(f"  [{date}] **{author}**: {text}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch messages for cluster {cluster_id}: {e}")
+            lines.append(f"  (error fetching messages)")
+
+    return lines
+
+
 def register_explain_commands(bot):
 
     @bot.command(name='explain')
-    async def explain_cmd(ctx, message_id: int = None):
-        """Show context receipt for the most recent (or specified) bot response."""
+    async def explain_cmd(ctx, *args):
+        """Show context receipt. Usage: !explain | !explain detail |
+        !explain <id> | !explain detail <id>"""
         channel_id = ctx.channel.id
+
+        # Parse args — valid forms:
+        # ()                  → summary, latest
+        # ('detail',)         → detail, latest
+        # ('<id>',)           → summary, specific id
+        # ('detail', '<id>')  → detail, specific id
+        mode = None
+        message_id = None
+        try:
+            if args and args[0].lower() == 'detail':
+                mode = 'detail'
+                if len(args) > 1:
+                    message_id = int(args[1])
+            elif args:
+                message_id = int(args[0])
+        except ValueError:
+            await ctx.send(
+                f"{_I}Usage: `!explain` | `!explain detail` | "
+                f"`!explain <id>` | `!explain detail <id>`")
+            return
+
         try:
             from utils.receipt_store import get_latest_receipt, get_receipt_by_response
 
@@ -95,6 +178,12 @@ def register_explain_commands(bot):
                     return
 
             lines = format_receipt(receipt)
+
+            if mode == 'detail':
+                detail_lines = await asyncio.to_thread(
+                    format_injected_messages, receipt)
+                lines.extend(detail_lines)
+
             from utils.summary_display import send_paginated
             await send_paginated(ctx, lines)
 

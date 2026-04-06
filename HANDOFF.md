@@ -1,11 +1,11 @@
 # HANDOFF.md
-# Version 5.7.0
+# Version 5.7.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.7.0
+**Bot version**: v5.7.1
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 **Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
@@ -14,6 +14,20 @@
 ---
 
 ## What Just Happened
+
+### v5.7.1 — !explain detail
+
+`!explain detail` adds a second section to the receipt output showing the
+actual messages that were injected into the bot's context, fetched live
+from the database using the `cluster_id` values stored in the receipt.
+
+- Messages truncated to 150 chars
+- Clusters > 10 msgs: first 5 + last 5 with gap line
+- `!explain detail <id>` supported for specific responses
+
+**Modified:** `commands/explain_commands.py` v1.1.0
+
+---
 
 ### v5.7.0 — Explainability & Context Receipts
 
