@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.6.1
+# Version 5.7.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -81,6 +81,17 @@
 - Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
 - Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
 - `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+
+### Context Receipts & !explain (v5.7.0)
+- Every bot response stores a context receipt in `response_context_receipts` (schema 002.sql)
+- Receipt contains: query, embedding path, always-on counts, retrieved clusters, below-threshold
+  clusters, fallback info, recent message count, token budget, provider/model
+- Signal chain: `embed_query_with_smart_context()` → `(vec, path_name)` →
+  `_retrieve_cluster_context()` → `(text, tokens, cluster_receipt)` →
+  `build_context_for_provider()` → `(messages, receipt_data)` →
+  `handle_ai_response_task()` → `save_receipt()` after send
+- `!explain` / `!explain <id>` — retrieve and display receipt via `format_receipt()`
+- Receipt storage is fail-safe: never blocks or prevents bot responses
 
 ### Smart Query Embedding (v5.6.1)
 - `embed_query_with_smart_context()` in `embedding_context.py` — two-path logic:

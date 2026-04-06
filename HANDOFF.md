@@ -1,20 +1,56 @@
 # HANDOFF.md
-# Version 5.6.1
+# Version 5.7.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.6.1
+**Bot version**: v5.7.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live; contextual embeddings live; 792 messages
-re-embedded with contextual text; `!summary create` still needed to rebuild clusters
+**Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
 **RETRIEVAL_MIN_SCORE**: 0.45 (set in `.env`, overrides default 0.25)
 
 ---
 
 ## What Just Happened
+
+### v5.7.0 — Explainability & Context Receipts
+
+Every bot response now logs a context receipt to `response_context_receipts`
+(table was created in schema 002.sql; now populated for the first time).
+
+**`!explain`** — shows what context was assembled for the last response:
+- Query embedding path (raw / question_context / similarity_context)
+- Always-on context token counts and item counts
+- Retrieved clusters: label, score, message count, tokens
+- Clusters below threshold (filtered out)
+- Fallback info (direct message similarity) if triggered
+- Recent message count, token budget, and provider/model
+
+Receipt storage is fail-safe: stored after the response is sent, wrapped in
+try/except, never blocks or prevents delivery.
+
+**Signal chain:**
+1. `embed_query_with_smart_context()` → `(vec, path_name)`
+2. `_retrieve_cluster_context()` → `(text, tokens, cluster_receipt)`
+3. `build_context_for_provider()` → `(messages, receipt_data)`
+4. `handle_ai_response_task()` → sends response → `save_receipt()`
+5. `!explain` → `get_latest_receipt()` → `format_receipt()` → Discord
+
+**New files:**
+- `utils/receipt_store.py` v1.0.0
+- `commands/explain_commands.py` v1.0.0
+
+**Modified files:**
+- `utils/embedding_context.py` v1.2.0 — returns `(vec, path_name)` tuple
+- `utils/context_retrieval.py` v1.2.0 — returns 3-tuples with receipt data
+- `utils/context_manager.py` v2.4.0 — assembles receipt, returns `(messages, receipt)`
+- `utils/response_handler.py` v1.2.0 — stores receipt after send
+- `bot.py` v3.1.0 — destructures tuple at both call sites
+- `commands/__init__.py` v2.6.0 — registers explain_commands
+
+---
 
 ### v5.6.1 — Smart Query Embedding
 

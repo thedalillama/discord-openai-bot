@@ -49,6 +49,8 @@ python main.py
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
 | `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
+| `!explain` | all | Show context receipt for the last bot response |
+| `!explain <id>` | all | Show context receipt for a specific response by message ID |
 | `!status` | all | Show bot settings for this channel |
 | `!autorespond on/off` | admin | Toggle auto-response |
 | `!ai [provider]` | admin | Switch AI provider (openai/anthropic/deepseek) |
