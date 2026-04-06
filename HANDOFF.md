@@ -1,19 +1,40 @@
 # HANDOFF.md
-# Version 5.8.2
+# Version 5.9.0
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.8.2
+**Bot version**: v5.9.0
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
-**Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live
+**Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live; citations live
 **RETRIEVAL_MIN_SCORE**: 0.45 (set in `.env`, overrides default 0.25)
 
 ---
 
 ## What Just Happened
+
+### v5.9.0 — Citation-Backed Responses
+
+Retrieved messages injected into context are now numbered `[N]`. The LLM
+cites them inline. After the response, hallucinated citations are stripped
+and a Sources footer is built and appended.
+
+**Data flow:**
+1. `_retrieve_cluster_context()` numbers each message `[N]`, builds `citation_map`
+2. `build_context_for_provider()` injects citation instruction, returns 3-tuple `(messages, receipt, citation_map)`
+3. `bot.py` unpacks 3-tuple, passes `citation_map` to `handle_ai_response()`
+4. `handle_ai_response_task()` calls `apply_citations(text, citation_map)` before send
+5. `apply_citations()` strips hallucinations, builds footer; if ≤1950 chars total → appended; else footer sent as `ℹ️` follow-up
+
+**No citations when:** retrieval empty, LLM uses training knowledge, commands (`!summary`, `!explain`, etc.)
+
+**New file:** `utils/citation_utils.py` v1.0.0
+**Modified:** `context_retrieval.py` v1.3.0, `context_manager.py` v2.5.0,
+`response_handler.py` v1.3.0, `bot.py` v3.2.0
+
+---
 
 ### v5.8.2 — Batch Pre-computation for !debug reembed
 
