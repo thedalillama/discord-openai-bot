@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 5.8.2
+# Version 5.9.1
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -67,7 +67,11 @@ The `data/` directory is created automatically on first run.
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 | `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for v4.x topic-message linking (retained for rollback) | `0.3` |
 
-Production `.env` sets `RETRIEVAL_MIN_SCORE=0.45` — higher signal with contextual embeddings.
+Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`.
+
+**Budget note:** for providers with large `MAX_TOKENS` relative to context window (e.g. DeepSeek:
+64k context − 8k max_tokens at 15% = only 1,600 token budget), keep `CONTEXT_BUDGET_PERCENT`
+at 80 or cluster retrieval will be starved and fall back to message similarity.
 
 At query time, only clusters scoring above `RETRIEVAL_MIN_SCORE` against the query
 embedding are injected. Fallback fires when no clusters pass the threshold.
@@ -166,6 +170,18 @@ Tune via `.env` to adjust cluster granularity without code changes.
 Per-channel system prompts can be set with `!prompt <text>` and override
 this default. Always-on summary context and retrieved topic messages are
 automatically appended to whichever system prompt is active.
+
+## Debug Tools
+
+When `LOG_LEVEL=DEBUG`, the full combined system prompt (base prompt +
+citation instruction + context block) is written to `/tmp/last_system_prompt.txt`
+after every bot response. Read it with:
+
+```bash
+cat /tmp/last_system_prompt.txt
+```
+
+This is the exact text sent to the AI provider API.
 
 ## Priority Order
 

@@ -1,5 +1,5 @@
 # README.md
-# Version 5.9.0
+# Version 5.9.1
 
 # Synthergy Discord Bot
 
