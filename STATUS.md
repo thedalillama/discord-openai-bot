@@ -1,8 +1,42 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.9.0
+# Version 5.9.1
 
 ## Current Version Features
+
+### Post-5.9.1 Fixes
+
+- **`!help` noise filter** (`raw_events.py` v1.7.0) — discord.py built-in help
+  output now detected via `"Type !help command for more info"` substring and
+  excluded from embedding/clustering
+- **`!debug` help description** (`debug_commands.py`) — `!help` now shows a
+  description for the debug command group
+- **Debug prompt dump** (`context_manager.py` v2.5.1) — full combined system
+  prompt written to `/tmp/last_system_prompt.txt` on every request when
+  `LOG_LEVEL=DEBUG`; read with `cat /tmp/last_system_prompt.txt`
+
+---
+
+### Version 5.9.1 — Citation Tuning + Partial Cluster Injection
+
+- **Citation instruction** moved to context block immediately before numbered
+  messages, with concrete example: `"Gorillas can lift 5-10x their weight [1]."`
+- **Partial cluster injection** (`context_retrieval.py` v1.4.0) — when the
+  best-match cluster exceeds the token budget, messages are injected one by one
+  until budget is hit rather than dropping the cluster entirely
+- **`CONTEXT_BUDGET_PERCENT`** raised from 15 → 80 in `.env`; was causing
+  cluster budget exhaustion for DeepSeek (64k context − 8k max_tokens = only
+  1,600 tokens at 15%)
+- **Citation behavior by provider**: Anthropic (Claude) follows citation
+  instructions reliably; DeepSeek Reasoner and gpt-4o-mini do not regardless
+  of instruction phrasing — per-provider limitation
+
+**Modified files:**
+- `utils/context_retrieval.py` v1.4.0 — partial cluster injection
+- `utils/context_manager.py` v2.5.1 — example-based citation instruction;
+  debug prompt dump
+
+---
 
 ### Version 5.9.0 — Citation-Backed Responses
 

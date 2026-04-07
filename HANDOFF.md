@@ -1,19 +1,50 @@
 # HANDOFF.md
-# Version 5.9.0
+# Version 5.9.1
 # Agent Development Handoff Document
 
 ## Current Status
 
 **Branch**: claude-code
-**Bot version**: v5.9.0
+**Bot version**: v5.9.1 + post-release fixes
 **Bot**: Running on GCP VM as systemd service (`discord-bot`)
 **Main branch**: tagged v4.0.0
 **Pipeline**: cluster-v5 fully live; contextual embeddings live; receipts live; citations live
-**RETRIEVAL_MIN_SCORE**: 0.45 (set in `.env`, overrides default 0.25)
+**RETRIEVAL_MIN_SCORE**: 0.5 (set in `.env`)
+**CONTEXT_BUDGET_PERCENT**: 80 (set in `.env`)
 
 ---
 
 ## What Just Happened
+
+### Post-5.9.1 Fixes
+
+- `raw_events.py` v1.7.0: discord.py `!help` output now filtered from
+  embedding via `"Type !help command for more info"` substring detection
+- `debug_commands.py`: added `help=` description to `!debug` group so
+  `!help` shows a description
+- `context_manager.py` v2.5.1: full system prompt persisted to
+  `/tmp/last_system_prompt.txt` on every request when `LOG_LEVEL=DEBUG`
+
+### Citation behavior by provider
+- **Anthropic (Claude)**: follows `[N]` citation instructions reliably ✓
+- **DeepSeek Reasoner / gpt-4o-mini**: consistently ignore citation
+  instructions regardless of phrasing — known limitation
+
+### Debug: view full API context
+```bash
+cat /tmp/last_system_prompt.txt   # updated after every bot response
+```
+
+---
+
+### v5.9.1 — Citation Tuning + Partial Cluster Injection
+
+Citation instruction moved to context block (near numbered messages) with
+concrete example. Partial cluster injection: best-match cluster contributes
+as many messages as fit rather than being dropped if it exceeds budget.
+`CONTEXT_BUDGET_PERCENT` raised 15→80 (was starving DeepSeek of context).
+
+---
 
 ### v5.9.0 — Citation-Backed Responses
 
