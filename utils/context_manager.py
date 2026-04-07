@@ -1,8 +1,10 @@
 # utils/context_manager.py
-# Version 2.5.0
+# Version 2.5.1
 """
 Token-budget-aware context management and usage tracking.
 
+CHANGES v2.5.1: Persist full system prompt to /tmp/last_system_prompt.txt when
+  LOG_LEVEL=DEBUG — overwritten on each request for inspection
 CHANGES v2.5.0: Citation map pass-through (SOW v5.9.0)
 - MODIFIED: build_context_for_provider() unpacks 4-tuple from _retrieve_cluster_context()
   and returns 3-tuple (messages, receipt_data, citation_map)
@@ -23,12 +25,7 @@ CHANGES v2.3.0: Extract retrieval to context_retrieval.py (SOW v5.6.0)
   build_context_for_provider() — public API intact
 
 CHANGES v2.2.0: Cluster-based retrieval replaces topic-based (SOW v5.5.0)
-CHANGES v2.1.5: Inject today's date into context block
-CHANGES v2.1.4: Prepend [YYYY-MM-DD] to retrieved message lines
-CHANGES v2.1.3: Restore always-on context injection
-CHANGES v2.1.2: Full summary fallback logs WARNING instead of DEBUG
-CHANGES v2.1.1: Richer retrieval debug logging
-CHANGES v2.1.0: Direct message embedding fallback (SOW v4.1.0)
+CHANGES v2.1.x: Date injection, always-on context, fallback logging (SOW v4.x)
 CHANGES v2.0.0: Semantic retrieval replaces full summary injection (SOW v4.0.0)
 CREATED v1.0.0: Initial implementation (SOW v2.23.0)
 """
@@ -179,6 +176,12 @@ def build_context_for_provider(channel_id, provider):
 
         logger.debug(f"Context block injected (first 2000 chars):\n{context_block[:2000]}")
         combined = f"{system_msg['content']}\n\n{context_block}"
+        if logger.isEnabledFor(10):  # DEBUG level
+            try:
+                with open('/tmp/last_system_prompt.txt', 'w') as _f:
+                    _f.write(combined)
+            except Exception:
+                pass
         system_msg = {"role": "system", "content": combined}
 
     system_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
