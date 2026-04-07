@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.9.1
+# Version 5.10.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -106,7 +106,6 @@
 - Reply chains: replied-to message used as primary context
 - Query embedding also contextual: last 3 in-memory conversation messages prepended
 - `!debug reembed` + `!summary create` required after deploy to rebuild embeddings/clusters
-- `utils/topic_store.py` — topic functions extracted from embedding_store.py (retained)
 - `utils/context_retrieval.py` — retrieval extracted from context_manager.py
 - `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
 
@@ -119,7 +118,7 @@
 
 ### Semantic Retrieval (v5.5.0 — cluster-based)
 - Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
-  `cluster_retrieval.py`; topic functions in `embedding_store.py` retained but unused
+  `cluster_retrieval.py`
 - `_retrieve_cluster_context()` in `context_manager.py` replaces `_retrieve_topic_context()`
 - `[Topic: {label}]` section header preserved — model framing unchanged
 - Fallback (`find_similar_messages`) still fires when no clusters pass threshold
@@ -140,7 +139,7 @@
 - Dedup (`cluster_qa.py`): embedding cosine similarity, 0.85 threshold, all four arrays
 - Answered-Q check (`cluster_qa.py`): GPT-4o-mini YES/NO, removes questions answered by facts/decisions
 - Field translation at storage time: `text` → `fact`/`task`/`question`/`decision` (v4.x display layer unchanged)
-- v4.x three-pass pipeline (`summarizer_authoring.py`) retained for rollback — not called
+- v4.x three-pass pipeline removed in v5.10.0 (10 files deleted, git history preserves)
 
 ### Clustering Core (v5.1.0)
 - `utils/cluster_engine.py` — UMAP (cosine, 1536→5 dims) + HDBSCAN (euclidean, eom)
@@ -154,7 +153,7 @@
 - Token-budget context: always-on + retrieved + 5 recent messages
 
 ### Persistence
-- SQLite with WAL mode: messages, summaries, embeddings, topics, topic_messages
+- SQLite with WAL mode: messages, summaries, embeddings, clusters, cluster_messages
 - Settings recovered from Discord message history on startup
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 

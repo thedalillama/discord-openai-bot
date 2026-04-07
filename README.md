@@ -1,5 +1,5 @@
 # README.md
-# Version 5.9.1
+# Version 5.10.0
 
 # Synthergy Discord Bot
 
@@ -46,7 +46,7 @@ python main.py
 | `!debug noise` | admin | Scan for deletable bot noise in channel |
 | `!debug cleanup` | admin | Delete bot noise from Discord history |
 | `!debug status` | admin | Show summary internals (IDs, hashes, chains) |
-| `!debug backfill` | admin | Embed unembedded messages with contextual text + re-link topics |
+| `!debug backfill` | admin | Embed unembedded messages with contextual text |
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug dedup` | admin | Scan for duplicate test messages (3+ identical) |
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
@@ -99,18 +99,9 @@ discord-bot/
     ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
     ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
     ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
-    ├── topic_store.py                 # Topic CRUD + message linking (v4.x rollback)
-    ├── summarizer.py                  # Summarization router
-    ├── summarizer_authoring.py        # Three-pass Secretary/Structurer/Classifier
-    ├── summary_schema.py              # Schema, hashes, delta ops
-    ├── summary_delta_schema.py        # anyOf discriminated union schema
-    ├── summary_classifier.py          # GPT-4o-mini classifier (KEEP/DROP/RECLASSIFY)
-    ├── summary_prompts.py             # Incremental delta prompt
-    ├── summary_prompts_authoring.py   # Secretary + Structurer prompts
+    ├── summarizer.py                  # Summarization router (v4.0.0)
     ├── summary_display.py             # Paginated Discord output + always-on formatter
     ├── summary_store.py               # SQLite summary persistence
-    ├── summary_normalization.py       # Response parsing + classification
-    ├── summary_validation.py          # Domain validation
     ├── models.py                      # StoredMessage dataclass
     ├── message_store.py               # SQLite message persistence
     ├── raw_events.py                  # Real-time capture + embedding on arrival
@@ -147,8 +138,6 @@ Every response is built from two context layers:
 5. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items across all four arrays
 6. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + key facts in the same summary; removes answered questions
 7. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
-
-The v4.x three-pass Secretary/Structurer/Classifier pipeline (`summarizer_authoring.py`) is retained but no longer called — rollback safety only.
 
 **Key design choices:**
 - Classifier runs before overview LLM — prevents 16K+ token response with 50+ clusters
@@ -198,7 +187,7 @@ After first deploy or embedding strategy change (v5.6.0+):
 
 Incremental backfill (embed only missing messages):
 ```bash
-!debug backfill      # embed unembedded messages with context + re-link topics
+!debug backfill      # embed unembedded messages with context
 ```
 
 ## Documentation
