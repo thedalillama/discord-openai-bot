@@ -1,14 +1,14 @@
 # utils/raw_events.py
-# Version 1.6.0
+# Version 1.7.0
 """
 Discord event handlers for SQLite message persistence.
 
+CHANGES v1.7.0: Filter discord.py built-in help output from embedding
+- MODIFIED: _looks_like_diagnostic() also matches help command output via
+  "Type !help command for more info" substring (discord.py footer)
 CHANGES v1.6.0: Context-prepended embeddings on arrival (SOW v5.6.0)
-- embed path uses build_contextual_text(); graceful fallback to raw text
 CHANGES v1.5.0: _looks_like_diagnostic() guard — skip unprefixed bot diagnostics
-CHANGES v1.4.0: Assign new messages to nearest cluster on arrival (SOW v5.4.0)
-CHANGES v1.3.0: Embed message vectors on arrival (SOW v4.0.0)
-CHANGES v1.0.x-v1.2.0: reply, thread, attachments, is_bot_author capture
+CHANGES v1.0.x-v1.4.0: cluster assign, embeddings, reply/thread/attachment capture
 CREATED v1.0.0: on_message → SQLite, on_raw_message_edit/delete, startup_backfill
 """
 import asyncio
@@ -35,9 +35,17 @@ _DIAGNOSTIC_PREFIXES = (
     '**Cluster Analysis', '**Cluster Summariz', '**Overview**',
 )
 
+# Substrings that identify discord.py built-in command output (e.g. !help)
+_DIAGNOSTIC_SUBSTRINGS = (
+    'Type !help command for more info',
+)
+
 
 def _looks_like_diagnostic(content):
-    return any(content.startswith(p) for p in _DIAGNOSTIC_PREFIXES)
+    return (
+        any(content.startswith(p) for p in _DIAGNOSTIC_PREFIXES) or
+        any(s in content for s in _DIAGNOSTIC_SUBSTRINGS)
+    )
 
 # Maximum messages to fetch per channel during backfill
 MAX_BACKFILL_PER_CHANNEL = 10000
@@ -154,16 +162,7 @@ def setup_raw_events(bot):
 
 
 async def startup_backfill(bot):
-    """
-    Backfill missed messages after bot restart.
-
-    For each visible text channel, fetches messages newer than the last
-    stored message ID. On first run (no state), fetches up to
-    MAX_BACKFILL_PER_CHANNEL recent messages.
-
-    Args:
-        bot: The discord.py Bot instance
-    """
+    """Backfill missed messages after bot restart across all visible channels."""
     logger.info("Starting message backfill...")
     tasks = []
 
