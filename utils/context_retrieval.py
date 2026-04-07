@@ -1,7 +1,12 @@
 # utils/context_retrieval.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Cluster-based semantic retrieval for context injection (SOW v5.6.0).
+
+CHANGES v1.4.0: Partial cluster injection when cluster exceeds token budget
+- MODIFIED: Over-budget clusters are partially injected (messages added one by
+  one until budget is hit) rather than dropped entirely; then loop breaks.
+  Best-match cluster always contributes something if any messages fit.
 
 CHANGES v1.3.0: Citation numbering + citation_map in return value (SOW v5.9.0)
 - MODIFIED: _retrieve_cluster_context() returns 4-tuple
@@ -125,10 +130,41 @@ def _retrieve_cluster_context(channel_id, conversation_msgs, token_budget):
             section_tokens = estimate_tokens(section)
             if tokens_used + section_tokens > token_budget:
                 citation_num -= len(msgs)  # revert counter
-                logger.debug(
-                    f"Cluster '{label[:40]}' (score {round(score, 3)}): "
-                    f"{len(msgs)} msgs, {section_tokens} tokens — exceeds budget")
-                break
+                remaining = token_budget - tokens_used
+                partial_lines, partial_cites, partial_used = [], {}, 0
+                for _, p_author, p_content, p_date in msgs:
+                    line = (f"[{citation_num}] [{(p_date or '')[:10]}] "
+                            f"{p_author}: {p_content}")
+                    lt = estimate_tokens(line) + 1
+                    if partial_used + lt > remaining:
+                        break
+                    partial_cites[citation_num] = {
+                        "author": p_author, "content": p_content,
+                        "date": p_date or ""}
+                    partial_lines.append(line)
+                    citation_num += 1
+                    partial_used += lt
+                if partial_lines:
+                    partial_section = (f"[Topic: {label}]\n"
+                                       + "\n".join(partial_lines))
+                    citation_map.update(partial_cites)
+                    lines.append(partial_section)
+                    tokens_used += partial_used
+                    injected.append({
+                        "cluster_id": str(cluster_id), "label": label,
+                        "score": round(score, 3),
+                        "messages_injected": len(partial_lines),
+                        "tokens": partial_used,
+                    })
+                    logger.debug(
+                        f"Cluster '{label[:40]}' (score {round(score, 3)}): "
+                        f"partial {len(partial_lines)}/{len(msgs)} msgs "
+                        f"({partial_used} tokens) — budget partial")
+                else:
+                    logger.debug(
+                        f"Cluster '{label[:40]}' (score {round(score, 3)}): "
+                        f"0 msgs fit in budget — skipped")
+                break  # budget exhausted after partial
             citation_map.update(temp_cites)
             logger.debug(
                 f"Cluster '{label[:40]}' (score {round(score, 3)}): "

@@ -148,8 +148,10 @@ def build_context_for_provider(channel_id, provider):
         today = date.today().isoformat()
         if retrieved:
             cite_instr = (
-                "Messages are numbered [1], [2], etc. Cite with [N] when "
-                "using specific facts from those messages.\n\n"
+                "CITATION INSTRUCTIONS: Messages are numbered [1], [2], etc. "
+                "When your answer uses specific information from these messages, "
+                'cite with [N] inline. Example: "Gorillas can lift 5-10x their '
+                'weight [1]."\n\n'
             ) if citation_map else ""
             context_block = (
                 f"--- CONVERSATION CONTEXT ---\n"
