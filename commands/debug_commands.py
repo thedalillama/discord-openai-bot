@@ -42,7 +42,8 @@ _I = "ℹ️ "
 def register_debug_commands(bot):
     """Register !debug command group. Returns the group for subcommand registration."""
 
-    @bot.group(name='debug', invoke_without_command=True)
+    @bot.group(name='debug', invoke_without_command=True,
+               help='Maintenance tools: noise cleanup, backfill, reembed, dedup (admin)')
     async def debug_cmd(ctx):
         await ctx.send(
             f"{_I}**Debug commands:**\n"
