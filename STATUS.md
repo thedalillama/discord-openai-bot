@@ -560,7 +560,7 @@ only the clusters that received new messages since the last run.
 
 ```
 discord-bot/
-├── bot.py                         # v3.1.0
+├── bot.py                         # v3.2.0
 ├── config.py                      # v1.12.6
 ├── main.py
 ├── .env
@@ -583,7 +583,7 @@ discord-bot/
 │   ├── openai_compatible_provider.py  # v1.2.0
 │   └── gemini_provider.py         # v1.2.1
 ├── commands/
-│   ├── __init__.py                # v2.4.0
+│   ├── __init__.py                # v2.7.0
 │   ├── auto_respond_commands.py   # v2.1.0
 │   ├── ai_provider_commands.py    # v2.1.0
 │   ├── thinking_commands.py       # v2.2.0
@@ -591,9 +591,13 @@ discord-bot/
 │   ├── status_commands.py         # v2.1.0
 │   ├── history_commands.py        # v2.1.0
 │   ├── summary_commands.py        # v2.4.0
-│   └── debug_commands.py          # v1.6.0
-│   └── debug_commands.py          # v1.5.0
+│   ├── debug_commands.py          # v1.8.0
+│   ├── cluster_commands.py        # v1.1.0
+│   ├── dedup_commands.py          # v1.0.0
+│   └── explain_commands.py        # v1.1.0
 ├── utils/
+│   ├── citation_utils.py          # v1.0.0
+│   ├── receipt_store.py           # v1.0.0
 │   ├── cluster_engine.py          # v1.0.1
 │   ├── cluster_store.py           # v2.0.0
 │   ├── cluster_summarizer.py      # v1.0.0
@@ -606,11 +610,13 @@ discord-bot/
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.2.0
 │   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.5.0
+│   ├── raw_events.py              # v1.7.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.5.0
-│   ├── context_manager.py         # v2.2.0
-│   ├── response_handler.py        # v1.1.4
+│   ├── embedding_store.py         # v1.9.0
+│   ├── embedding_context.py       # v1.4.0
+│   ├── context_retrieval.py       # v1.4.0
+│   ├── context_manager.py         # v2.5.1
+│   ├── response_handler.py        # v1.3.0
 │   ├── summarizer.py              # v3.1.0
 │   ├── summarizer_authoring.py    # v1.10.2
 │   ├── summary_schema.py          # v1.4.0
@@ -671,15 +677,31 @@ discord-bot/
 
 ## Known Limitations / Next Priorities
 
-### 1. Orphaned Messages — partially addressed in v4.1.0
-Direct message fallback now surfaces orphaned messages via embedding similarity
-when no topics match. However, messages with very low similarity scores (below
-RETRIEVAL_MIN_SCORE=0.3) will still be missed. A future topic discovery pass
-could cluster orphaned messages into new topics.
+### 1. Citation — Model-Dependent (v5.9.x)
+Citations work reliably with Anthropic (Claude) but DeepSeek Reasoner and
+gpt-4o-mini consistently ignore `[N]` citation instructions regardless of
+instruction phrasing or placement. A prefill/few-shot approach (injecting a
+fake assistant turn like "I will cite retrieved messages as [N]") may help
+but hasn't been tested. Alternative: post-hoc citation matching by string
+similarity rather than relying on model compliance.
 
-### 2. config.py Default SUMMARIZER_MODEL
-Default `gemini-2.5-flash-lite` is stale. Server runs
-`gemini-3.1-flash-lite-preview` via .env override.
+### 2. Hierarchical Semantic Memory
+Channel summaries are flat and per-channel. There is no cross-channel memory,
+no user-level memory (facts about specific users accessible across channels),
+and no long-term summarization that survives a `!summary create` wipe. A
+hierarchical approach — cluster summaries → channel summary → user profile →
+global facts — would significantly improve response personalization.
 
-### 3. WAL File Stats Bug
-`get_database_stats()` reports 0.0 MB — only measures main file, not WAL.
+### 3. Context-Prepending Evaluation (v5.8.0)
+Topic-boundary cosine similarity filtering in `build_contextual_text()` was
+added in v5.8.0 to prevent cross-topic contamination in stored embeddings.
+The `CONTEXT_SIMILARITY_THRESHOLD=0.3` constant was set heuristically and has
+not been systematically evaluated. Impact on cluster quality vs. v5.6.0 plain
+contextual embeddings is unknown.
+
+### 4. Legacy Cluster Noise
+Command outputs and help text that slipped through before v5.5.1/v1.7.0 may
+still be in existing clusters. A `!summary create` in affected channels will
+re-cluster from current embeddings (already filtered), removing the noise from
+retrieval context. Old embedded command messages are not re-embedded on
+`!debug reembed` (only unembedded messages are processed).
