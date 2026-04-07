@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.9.1
+# Version 5.10.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -120,7 +120,7 @@ Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_updat
 (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v5.3.0 — cluster-based)
-`!summary create` runs the full cluster pipeline via `summarizer.py` v3.0.0:
+`!summary create` runs the full cluster pipeline via `summarizer.py` v4.0.0:
 ```
 run_cluster_pipeline(channel_id)               ← cluster_overview.py
   → UMAP + HDBSCAN clustering                  ← cluster_engine.py
@@ -148,8 +148,8 @@ Key files: `summarizer.py` (router), `cluster_overview.py` (orchestrator + overv
 `cluster_qa.py` (dedup + answered-Q check), `cluster_engine.py` (UMAP + HDBSCAN),
 `cluster_store.py` (CRUD)
 
-**v4.x three-pass pipeline** (`summarizer_authoring.py` etc.) is retained but
-no longer called — rollback safety only.
+**v4.x three-pass pipeline** was removed in v5.10.0 (10 files deleted, git
+history preserves). Only the cluster pipeline is active.
 
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).
@@ -164,7 +164,7 @@ Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()
 
 ### Persistence
 - SQLite with WAL mode (`data/messages.db`)
-- Tables: messages, summaries, message_embeddings, topics, topic_messages
+- Tables: messages, summaries, message_embeddings, clusters, cluster_messages
 - `raw_events.py` captures all messages including bot responses + embeds them
 - `db_migration.py` applies `schema/NNN.sql` files sequentially
 - Settings recovered from Discord history on startup
@@ -188,7 +188,7 @@ Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()
 | `!summary full/raw` | Full view / Secretary's raw minutes |
 | `!summary create/clear` | Run summarization / delete (admin) |
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
-| `!debug backfill` | Embed missing messages + re-link all topics (admin) |
+| `!debug backfill` | Embed missing messages + contextual text (admin) |
 | `!explain` | Context receipt for most recent bot response |
 | `!explain detail` | Receipt + injected messages per cluster |
 | `!explain <id>` | Context receipt for specific response message ID |
