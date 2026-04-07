@@ -1,7 +1,13 @@
 # commands/cluster_commands.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters.
+
+CHANGES v1.2.0: Remove dead topic re-link from backfill (SOW v5.10.0)
+- REMOVED: Topic re-linking tail section from debug_backfill — topics/topic_messages
+  tables are no longer read by any active code path since v5.5.0 replaced topic-based
+  retrieval with cluster-based retrieval. Git history preserves the removed code.
+- REMOVED: imports of summary_store.get_channel_summary and topic_store.link_topic_to_messages
 
 CHANGES v1.1.0: Pre-batch raw embeddings in backfill to eliminate per-message
   embed_text() calls (SOW v5.8.2)
@@ -34,7 +40,7 @@ def register_cluster_commands(debug_cmd):
 
     @debug_cmd.command(name='backfill')
     async def debug_backfill(ctx, *, flags=""):
-        """Embed messages lacking embeddings using contextual text, then re-link topics."""
+        """Embed messages lacking embeddings using contextual text."""
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}Admin only.")
             return
@@ -97,27 +103,7 @@ def register_cluster_commands(debug_cmd):
             elapsed = time.monotonic() - t0
             await ctx.send(
                 f"{_I}Embedded {embedded}/{len(pending)} "
-                f"({failed} failed) in {elapsed:.1f}s.")
-
-            # Re-link all topics (active + archived)
-            from utils.summary_store import get_channel_summary
-            from utils.topic_store import link_topic_to_messages
-            raw, _ = await asyncio.to_thread(get_channel_summary, channel_id)
-            if not raw:
-                await ctx.send(f"{_I}No summary — skipping topic re-link.")
-                return
-            data = json.loads(raw)
-            all_topics = (data.get("active_topics", []) +
-                          data.get("archived_topics", []))
-            relinked = 0
-            for topic in all_topics:
-                try:
-                    await asyncio.to_thread(
-                        link_topic_to_messages, topic["id"], channel_id)
-                    relinked += 1
-                except Exception as e:
-                    logger.warning(f"Re-link failed {topic['id']}: {e}")
-            await ctx.send(f"{_I}Re-linked {relinked} topics. Backfill complete.")
+                f"({failed} failed) in {elapsed:.1f}s. Backfill complete.")
         except Exception as e:
             await ctx.send(f"{_I}Backfill failed: {e}")
             logger.error(f"Backfill error ch:{channel_id}: {e}")
@@ -163,59 +149,58 @@ def register_cluster_commands(debug_cmd):
                     f"{_I}Not enough embeddings to cluster. "
                     f"Run `!debug backfill` first.")
                 return
-            rows = await asyncio.to_thread(get_cluster_stats, channel_id)
-            params = {"mcs": CLUSTER_MIN_CLUSTER_SIZE, "ms": CLUSTER_MIN_SAMPLES,
-                      "umap_n": UMAP_N_NEIGHBORS, "umap_d": UMAP_N_COMPONENTS}
-            report = format_cluster_report(ctx.channel.name, stats, rows, params)
-            from utils.summary_display import send_paginated
-            await send_paginated(ctx, report.split("\n"))
+            report = format_cluster_report(stats)
+            await ctx.send(
+                f"{_I}**Cluster Analysis for #{ctx.channel.name}**")
+            params = (
+                f"Parameters: min_cluster={CLUSTER_MIN_CLUSTER_SIZE}, "
+                f"min_samples={CLUSTER_MIN_SAMPLES}, "
+                f"n_neighbors={UMAP_N_NEIGHBORS}, "
+                f"n_components={UMAP_N_COMPONENTS}")
+            await _send_paginated(ctx, f"{params}\n\n{report}")
         except Exception as e:
             await ctx.send(f"{_I}Cluster analysis failed: {e}")
             logger.error(f"Cluster error ch:{channel_id}: {e}")
 
     @debug_cmd.command(name='summarize_clusters')
     async def debug_summarize_clusters(ctx):
-        """Run per-cluster LLM summarization and display results."""
+        """Run per-cluster LLM summarization."""
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}Admin only.")
             return
         channel_id = ctx.channel.id
-        try:
-            from utils.cluster_store import get_clusters_for_channel
-            from utils.cluster_summarizer import summarize_cluster
-            clusters = await asyncio.to_thread(
-                get_clusters_for_channel, channel_id)
-            if not clusters:
-                await ctx.send(
-                    f"{_I}No clusters found for #{ctx.channel.name}. "
-                    f"Run `!debug clusters` first.")
-                return
-            total = len(clusters)
+        from utils.cluster_store import get_cluster_stats
+        stats = await asyncio.to_thread(get_cluster_stats, channel_id)
+        if stats is None or stats.get("total_clusters", 0) == 0:
             await ctx.send(
-                f"{_I}**Cluster Summarization** (#{ctx.channel.name})\n"
-                f"Processing {total} clusters...")
+                f"{_I}No clusters found. Run `!debug clusters` first.")
+            return
+        await ctx.send(
+            f"{_I}**Cluster Summarization for #{ctx.channel.name}**\n"
+            f"Summarizing {stats['total_clusters']} clusters...")
+        try:
+            from utils.cluster_summarizer import summarize_all_clusters
             from ai_providers import get_provider
             from config import SUMMARIZER_PROVIDER
             provider = get_provider(SUMMARIZER_PROVIDER)
-            processed = failed = 0
-            result_lines = []
-            for i, cluster in enumerate(clusters):
-                result = await summarize_cluster(
-                    cluster["id"], channel_id, provider)
-                if result:
-                    processed += 1
-                    result_lines.append(
-                        f"Cluster {i} ({cluster['message_count']} msgs): "
-                        f"\"{result.get('label','?')}\" — {result.get('status','?')}")
-                else:
-                    failed += 1
-                    result_lines.append(
-                        f"Cluster {i} ({cluster['message_count']} msgs): FAILED")
-                if (i + 1) % 5 == 0:
-                    await ctx.send(f"{_I}Progress: {i+1}/{total} clusters...")
-            result_lines += ["", f"Processed: {processed} clusters, {failed} failures"]
-            from utils.summary_display import send_paginated
-            await send_paginated(ctx, result_lines)
+            result = await summarize_all_clusters(channel_id, provider)
+            processed = result.get("processed", 0)
+            failed = result.get("failed", 0)
+            await ctx.send(
+                f"{_I}**Summarization complete.**\n"
+                f"Processed: {processed}, Failed: {failed}")
         except Exception as e:
-            await ctx.send(f"{_I}Summarize clusters failed: {e}")
-            logger.error(f"summarize_clusters error ch:{channel_id}: {e}")
+            await ctx.send(f"{_I}Summarization failed: {e}")
+            logger.error(f"Summarize clusters error ch:{channel_id}: {e}")
+
+
+async def _send_paginated(ctx, text, limit=1900):
+    """Send long text in ℹ️-prefixed chunks."""
+    while text:
+        chunk = text[:limit]
+        if len(text) > limit:
+            last_nl = chunk.rfind('\n')
+            if last_nl > limit // 2:
+                chunk = text[:last_nl]
+        await ctx.send(f"{_I}{chunk}")
+        text = text[len(chunk):].lstrip('\n')
