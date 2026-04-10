@@ -1,7 +1,12 @@
 # utils/history/channel_coordinator.py
-# Version 2.0.0
+# Version 2.1.0
 """
 Channel coordination and locking management for Discord message history loading.
+
+CHANGES v2.1.0: Add load_channel_history() public API (SOW v5.11.0)
+- ADDED: load_channel_history() — moved from loading.py (now deleted); thin
+  wrapper around coordinate_channel_loading() that preserves the public API
+  so `from utils.history import load_channel_history` continues to work
 
 CHANGES v2.0.0: Removed legacy settings restoration
 - REMOVED: Legacy post-loading settings restoration (now handled during Discord loading)
@@ -33,6 +38,23 @@ from .storage import (
 from .discord_loader import load_messages_from_discord
 
 logger = get_logger('history.channel_coordinator')
+
+
+async def load_channel_history(channel, is_automatic=False):
+    """
+    Public API entry point for loading channel history.
+
+    Moved from loading.py (deleted in v5.11.0). Delegates to
+    coordinate_channel_loading() — behavior is identical.
+
+    Args:
+        channel: The Discord channel to load history from
+        is_automatic: Whether this is an automatic load (triggered by new message)
+    """
+    logger.debug(f"Public API load_channel_history called for channel #{channel.name}")
+    await coordinate_channel_loading(channel, is_automatic)
+    logger.debug(f"Public API load_channel_history completed for channel #{channel.name}")
+
 
 async def coordinate_channel_loading(channel, is_automatic=False):
     """
