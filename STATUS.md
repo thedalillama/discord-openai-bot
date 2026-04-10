@@ -15,14 +15,21 @@ are gone.
 - `utils/history/api_imports.py` v1.3.0 — pure wildcard re-import passthrough, single caller (`__init__.py`)
 - `utils/history/api_exports.py` v1.3.0 — pure `__all__` definition, single consumer (`__init__.py`)
 - `utils/history/loading.py` v2.5.0 — passthrough; `load_channel_history()` moved to `channel_coordinator.py`
+- `utils/history/loading_utils.py` v1.3.0 — 3 functions (`get_loading_status`, `force_reload_channel_history`, `get_history_statistics`) with zero external callers; exported only via the now-deleted passthrough layer
 
 **Modified files:**
 - `utils/history/__init__.py` v3.2.0 — rewritten with direct imports; `__all__` trimmed from ~40 symbols to the 11 that external code actually imports
 - `utils/history/channel_coordinator.py` v2.1.0 — added `load_channel_history()` public API function (moved from deleted `loading.py`)
 - `utils/history/management_utilities.py` v2.0.0 — stripped from 5 functions to 1; 4 dead functions removed, `validate_setting_value()` kept (called by `settings_manager.py`)
 
-**Known limitation added:**
-- `status_commands.py` does `from utils.history import get_thinking_enabled` but that function lives in `thinking_commands.py`, not the history package. Pre-existing bug — `!status` thinking display is likely broken. Out of scope for this pass.
+**Schema:**
+- `schema/007.sql` — drops `topics` and `topic_messages` tables (v4.x relics, replaced by clusters in v5.5.0, no active code since v5.10.0)
+
+### Post-5.11.0 Fixes
+
+- `commands/status_commands.py` v2.2.0: fixed `get_thinking_enabled` import — was `from utils.history import ...` (never exported there); corrected to `from commands.thinking_commands import ...`
+- `utils/embedding_store.py` v1.9.1: corrected stale v1.8.0 changelog entry referencing `topic_store.py` (deleted v5.10.0)
+- `config.py` v1.14.0: updated default Gemini model names to `gemini-3.1-flash-lite-preview`
 
 ---
 
@@ -47,7 +54,7 @@ preserves all deleted code.
 - `ai_providers/__init__.py`: `clear_provider_cache()` — no callers in active codebase
 
 **Deleted file:**
-- `utils/history/diagnostics.py` v1.0.0 — 4 dev diagnostic helpers (`get_channel_diagnostics`, `identify_potential_issues`, `estimate_memory_usage`, `analyze_channel_health`) with no command callers since extraction in v2.x. Removed import chain from `__init__.py`, `loading_utils.py`, `loading.py`.
+- `utils/history/diagnostics.py` v1.0.0 — 4 dev diagnostic helpers (`get_channel_diagnostics`, `identify_potential_issues`, `estimate_memory_usage`, `analyze_channel_health`) with no command callers since extraction in v2.x. Removed import chain from `__init__.py` and `loading_utils.py` (itself deleted in v5.11.0).
 
 ---
 
@@ -101,7 +108,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 ```
 discord-bot/
 ├── bot.py                         # v3.3.0
-├── config.py                      # v1.12.6
+├── config.py                      # v1.14.0
 ├── main.py
 ├── .env
 ├── data/
@@ -112,7 +119,8 @@ discord-bot/
 │   ├── 003.sql                    # v3.2.3 is_bot_author
 │   ├── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
 │   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
-│   └── 006.sql                    # v5.4.0 needs_resummarize column
+│   ├── 006.sql                    # v5.4.0 needs_resummarize column
+│   └── 007.sql                    # v5.11.0 drop topics, topic_messages
 ├── ai_providers/
 │   ├── __init__.py                # v1.5.0
 │   ├── openai_provider.py         # v1.4.0
@@ -130,7 +138,7 @@ discord-bot/
 │   ├── ai_provider_commands.py    # v2.1.0
 │   ├── thinking_commands.py       # v2.2.0
 │   ├── prompt_commands.py         # v2.2.0
-│   ├── status_commands.py         # v2.1.0
+│   ├── status_commands.py         # v2.2.0
 │   └── history_commands.py        # v2.1.0
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
@@ -149,7 +157,7 @@ discord-bot/
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.7.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.9.0
+│   ├── embedding_store.py         # v1.9.1
 │   ├── embedding_context.py       # v1.4.0
 │   ├── context_retrieval.py       # v1.4.0
 │   ├── context_manager.py         # v2.5.1
