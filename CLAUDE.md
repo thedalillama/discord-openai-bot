@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.10.1
+# Version 5.11.0
 
 This file provides guidance to Claude Code when working with this repository.
 

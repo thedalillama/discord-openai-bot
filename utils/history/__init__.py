@@ -1,64 +1,58 @@
 # utils/history/__init__.py
-# Version 3.1.0
+# Version 3.2.0
 """
 History management package for Discord bot.
 
+CHANGES v3.2.0: Consolidation — remove passthrough layers (SOW v5.11.0)
+- DELETED: api_imports.py, api_exports.py (pure passthrough files)
+- DELETED: loading.py (passthrough; load_channel_history moved to channel_coordinator.py)
+- MODIFIED: __init__.py now imports directly from source modules
+- MODIFIED: __all__ trimmed to only the 11 symbols external code actually imports
+- NOTE: Internal modules continue to import directly from submodules
+  (e.g. `from utils.history.message_processing import prepare_messages_for_api`)
+  and are unaffected by this change.
+
 CHANGES v3.1.0: Dead code cleanup (SOW v5.10.1)
-- REMOVED: diagnostics.py imports (get_channel_diagnostics, identify_potential_issues,
-  estimate_memory_usage, analyze_channel_health) — dev-only helpers, no active callers
-- REMOVED: corresponding __all__ additions
+- REMOVED: diagnostics.py imports
 
 CHANGES v3.0.0: Major architecture simplification
-- REMOVED: settings_parser.py (obsolete post-processing parsing method)
-- REMOVED: settings_backup.py (unnecessary backup system without Discord content)
-- SIMPLIFIED: Single settings persistence method via realtime parsing
-- MAINTAINED: 100% backward compatibility for remaining functions
+- REMOVED: settings_parser.py, settings_backup.py
 
-CHANGES v2.5.0: Added settings backup module imports
-- Added imports from new settings_backup.py module
-- Maintained backward compatibility for backup/restore functions
-- Enhanced backup capabilities while keeping settings_manager focused
-
-CHANGES v2.4.0: Added diagnostics module imports
-- Added imports from new diagnostics.py module
-- Maintained backward compatibility for get_channel_diagnostics function
-- Enhanced diagnostic capabilities while keeping loading_utils focused
-
-CHANGES v2.3.0: Refactored imports for maintainability
-- Split large import/export list into focused coordination modules
-- Reduced from 263 to under 250 lines for better maintainability
-- Maintained 100% backward compatibility with existing imports
-- Organized imports and exports in dedicated modules
-
-This package provides comprehensive conversation history management including:
-- Message storage and retrieval (storage.py)
-- Message processing and filtering (message_processing.py) 
-- System prompt and AI provider management (prompts.py)
-- Discord API interaction (discord_fetcher.py)
-- Message conversion (discord_converter.py)
-- Real-time settings parsing (realtime_settings_parser.py)
-- Discord coordination (discord_loader.py)
-- Configuration settings management (settings_manager.py)
-- History loading coordination (loading.py)
-
-The refactoring improves maintainability while preserving the existing API,
-so existing imports like `from utils.history import channel_history` continue to work.
-
-ARCHITECTURE IMPROVEMENTS v3.0.0:
-   - Single settings persistence method (realtime parsing only) ✅
-   - Eliminated redundant parsing approaches ✅
-   - 66% code reduction while maintaining functionality ✅
-   - Simplified architecture with clear separation of concerns ✅
-   - All files now under 250 lines ✅
-
-Future developers should:
-- Use realtime parsing for all settings persistence needs
-- Use diagnostic functions for troubleshooting and analysis
-- Maintain the simplified single-method architecture
-- Update __all__ when adding new public functions
-- Keep the clean API design without unnecessary complexity
+Public API — only the symbols external code actually imports from this package.
+All other history internals are accessed directly from their submodules.
 """
 
-# Import all functions and variables from coordination modules
-from .api_imports import *
-from .api_exports import __all__
+from .storage import (
+    channel_history,
+    loaded_history_channels,
+    channel_system_prompts,
+    channel_ai_providers,
+)
+
+from .prompts import (
+    get_system_prompt,
+    set_system_prompt,
+    remove_system_prompt,
+    get_ai_provider,
+    set_ai_provider,
+    remove_ai_provider,
+)
+
+from .channel_coordinator import load_channel_history
+
+__all__ = [
+    # Storage
+    'channel_history',
+    'loaded_history_channels',
+    'channel_system_prompts',
+    'channel_ai_providers',
+    # Prompts & providers
+    'get_system_prompt',
+    'set_system_prompt',
+    'remove_system_prompt',
+    'get_ai_provider',
+    'set_ai_provider',
+    'remove_ai_provider',
+    # Loading
+    'load_channel_history',
+]
