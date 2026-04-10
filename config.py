@@ -1,79 +1,40 @@
 # config.py
-# Version 1.13.0
+# Version 1.14.0
 """
-Bot configuration module.
-Loads and provides access to environment variables and other configuration.
+Bot configuration - all settings loaded from environment variables with defaults.
 
-CHANGES v1.12.6: Add RETRIEVAL_MSG_FALLBACK (default 15) for direct message fallback
+CHANGES v1.14.0: Fix stale model defaults (SOW v5.10.0)
+- FIXED: GEMINI_MODEL default 'gemini-2.5-flash-lite' → 'gemini-3.1-flash-lite-preview'
+- FIXED: SUMMARIZER_MODEL default 'gemini-2.5-flash-lite' → 'gemini-3.1-flash-lite-preview'
+- Production .env already overrode these; this aligns defaults with production.
 
-CHANGES v1.12.5: Replace TOPIC_MSG_LIMIT with TOPIC_LINK_MIN_SCORE
-- REMOVED: TOPIC_MSG_LIMIT — arbitrary count cap replaced by similarity threshold
-- ADDED: TOPIC_LINK_MIN_SCORE (default 0.3) — links all messages above threshold
+CHANGES v1.13.0: HDBSCAN clustering configuration (SOW v5.1.0)
+- ADDED: CLUSTER_MIN_CLUSTER_SIZE (default 5) — minimum messages per cluster
+- ADDED: CLUSTER_MIN_SAMPLES (default 3) — HDBSCAN noise sensitivity
+- ADDED: UMAP_N_NEIGHBORS (default 15) — UMAP neighborhood size
+- ADDED: UMAP_N_COMPONENTS (default 5) — UMAP output dimensions
 
-CHANGES v1.12.4: Add RETRIEVAL_MIN_SCORE config (default 0.4)
+CHANGES v1.12.6: Semantic retrieval configuration (SOW v4.1.0)
+- ADDED: RETRIEVAL_MSG_FALLBACK (default 15) — max messages for direct fallback
 
-CHANGES v1.12.3: Add MAX_RECENT_MESSAGES config (default 5)
-
-CHANGES v1.12.2: Switch embedding provider to OpenAI
-- CHANGED: EMBEDDING_MODEL default gemini-embedding-001 → text-embedding-3-small
-
-CHANGES v1.12.1: Fix EMBEDDING_MODEL default
-- FIXED: default changed from text-embedding-004 → gemini-embedding-001
-
-CHANGES v1.12.0: Semantic retrieval configuration (SOW v4.0.0)
-- ADDED: EMBEDDING_MODEL — Gemini embedding model (default gemini-embedding-001)
-- ADDED: RETRIEVAL_TOP_K — topics to retrieve per query (default 5)
-- ADDED: TOPIC_MSG_LIMIT — messages linked per topic via similarity (default 20)
-
-CHANGES v1.11.0: Reduce default batch size to prevent response truncation
-- CHANGED: SUMMARIZER_BATCH_SIZE default 200 → 50 — 200-message batches caused
-  Gemini to generate too many ops, truncating the JSON before closing braces;
-  50 messages keeps output well within the response token window
-
-CHANGES v1.10.0: Summarizer batch size + Gemini output limit (SOW v3.2.0)
-- ADDED: SUMMARIZER_BATCH_SIZE env var (default 200) — messages per Gemini call
-- CHANGED: GEMINI_MAX_TOKENS default 8192 → 32768 — previous limit truncated
-  delta JSON for batches of 200 messages (~8K output tokens needed)
-
-CHANGES v1.9.0: Gemini provider configuration (SOW v3.2.0)
-- ADDED: GEMINI_API_KEY, GEMINI_MODEL, GEMINI_CONTEXT_LENGTH, GEMINI_MAX_TOKENS
-- CHANGED: SUMMARIZER_PROVIDER default 'AI_PROVIDER' → 'gemini'
-- CHANGED: SUMMARIZER_MODEL default 'deepseek-chat' → 'gemini-2.5-flash-lite'
-
-CHANGES v1.8.0: Summarizer provider configuration (SOW v3.2.0)
-- ADDED: SUMMARIZER_PROVIDER env var (default: AI_PROVIDER) — provider used
-  for summarization calls; independent of per-channel conversation providers
-- ADDED: SUMMARIZER_MODEL env var (default: deepseek-chat) — stored in summary
-  meta for reference; actual model is determined by provider initialisation
+CHANGES v1.12.5: Semantic retrieval configuration (SOW v4.0.0)
+- ADDED: EMBEDDING_MODEL, RETRIEVAL_TOP_K, RETRIEVAL_MIN_SCORE,
+  TOPIC_LINK_MIN_SCORE, MAX_RECENT_MESSAGES
 
 CHANGES v1.7.0: SQLite message persistence (SOW v3.0.0)
-- ADDED: DATABASE_PATH env var (default ./data/messages.db) — path to SQLite
-  database file for message persistence. Directory created automatically on
-  first run. No .env change needed unless overriding the default location.
+- ADDED: DATABASE_PATH env var (default './data/messages.db'). The data/
+  directory is created automatically on first run. Override via env var or
+  .env if you prefer a different location.
 
 CHANGES v1.6.0: Token-budget context management (SOW v2.23.0)
-- ADDED: CONTEXT_BUDGET_PERCENT env var (default 80) — percentage of context
-  window to use for input token budget. The remaining headroom absorbs
-  tokenizer estimation variance and provider-side formatting overhead.
-- FIXED: OPENAI_COMPATIBLE_CONTEXT_LENGTH default 128000 → 64000. DeepSeek
-  pricing-details page shows 64K for deepseek-chat and deepseek-reasoner.
-  Their models page says "128K context limit" for V3.2 but API enforces 64K.
-  Override via env var if higher limit confirmed.
-- UPDATED: ANTHROPIC_MODEL default synced to current Haiku 4.5
-  (claude-haiku-4-5-20251001). Previous default claude-3-haiku-20240307 was
-  stale; README_ENV.md already referenced the new model.
+- ADDED: CONTEXT_BUDGET_PERCENT env var (default 80)
+- FIXED: OPENAI_COMPATIBLE_CONTEXT_LENGTH default 128000 → 64000
+- UPDATED: ANTHROPIC_MODEL default synced to claude-haiku-4-5-20251001
 
 CHANGES v1.5.0: Dead code cleanup (SOW v2.16.0)
-- REMOVED: INITIAL_HISTORY_LOAD variable (no longer needed; full history fetch
-  is now unconditional via limit=None in discord_fetcher.py)
+- REMOVED: INITIAL_HISTORY_LOAD variable
 
 CHANGES v1.4.0: Final BaseTen cleanup - removed all legacy references
-- REMOVED: BASETEN_DEEPSEEK_KEY environment variable
-- REMOVED: DEEPSEEK_MODEL, DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MAX_TOKENS variables
-- REMOVED: BaseTen DeepSeek configuration comment block
-- NOTE: DeepSeek is now fully handled via OPENAI_COMPATIBLE_* variables
-- MAINTAINED: All other provider configurations unchanged
-
 CHANGES v1.3.0: Added CHANNEL_LOCK_TIMEOUT as configurable env var
 CHANGES v1.2.0: Added OpenAI-compatible provider configuration
 CHANGES v1.1.0: Added ENABLE_IMAGE_GENERATION flag
@@ -133,7 +94,7 @@ OPENAI_COMPATIBLE_MAX_TOKENS = int(os.environ.get('OPENAI_COMPATIBLE_MAX_TOKENS'
 # Gemini configuration
 # Used primarily for summarization (1M token context fits full message history).
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-lite')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-flash-lite-preview')
 GEMINI_CONTEXT_LENGTH = int(os.environ.get('GEMINI_CONTEXT_LENGTH', 1000000))
 GEMINI_MAX_TOKENS = int(os.environ.get('GEMINI_MAX_TOKENS', 32768))
 
@@ -142,7 +103,7 @@ GEMINI_MAX_TOKENS = int(os.environ.get('GEMINI_MAX_TOKENS', 32768))
 # in a single pass without recursive chunking. Set to another provider to
 # override (shares that provider's singleton and model).
 SUMMARIZER_PROVIDER = os.environ.get('SUMMARIZER_PROVIDER', 'gemini')
-SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-2.5-flash-lite')
+SUMMARIZER_MODEL = os.environ.get('SUMMARIZER_MODEL', 'gemini-3.1-flash-lite-preview')
 # SUMMARIZER_BATCH_SIZE: messages per Gemini call. Keeps output JSON small
 # enough to stay within Gemini's response token limit. Default 50 — larger
 # batches cause too many ops in a single response, truncating the JSON.
