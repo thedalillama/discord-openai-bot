@@ -1,7 +1,12 @@
 # commands/status_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
 Bot status display command.
+
+CHANGES v2.2.0: Fix get_thinking_enabled import (SOW v5.11.0)
+- FIXED: _get_thinking_status() was importing get_thinking_enabled from
+  utils.history (where it doesn't exist) — changed to correct source:
+  commands.thinking_commands
 
 CHANGES v2.1.0: ℹ️ prefix tagging for noise filtering
 - All output prefixed with ℹ️
@@ -24,7 +29,7 @@ _I = "ℹ️ "
 def _get_thinking_status(channel_id):
     """Get thinking display status string."""
     try:
-        from utils.history import get_thinking_enabled
+        from commands.thinking_commands import get_thinking_enabled
         return "enabled" if get_thinking_enabled(channel_id) else "disabled"
     except Exception:
         return "unknown"
