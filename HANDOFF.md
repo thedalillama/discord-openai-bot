@@ -206,15 +206,6 @@ user-level memory, no long-term summarization surviving `!summary create` wipe.
 Topic-boundary cosine similarity filtering `CONTEXT_SIMILARITY_THRESHOLD=0.3`
 was set heuristically and has not been systematically evaluated.
 
-### 5. `!status` Thinking Display — Broken Import
-
-`status_commands.py` does `from utils.history import get_thinking_enabled` but
-that function is defined in `commands/thinking_commands.py`, not in the history
-package. The history package has never exported this name. The dynamic import
-inside `!status` likely raises `ImportError` silently, causing the thinking
-status line to display incorrectly or be skipped. Fix: change the import in
-`status_commands.py` to `from commands.thinking_commands import get_thinking_enabled`.
-
 ### 4. Legacy Cluster Noise
 Command outputs that slipped through before v5.5.1/v1.7.0 may still be in
 existing clusters. A `!summary create` in affected channels will re-cluster
