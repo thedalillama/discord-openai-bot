@@ -174,10 +174,7 @@ Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()
 - **Decision = agreement on action** — "I think X" / "Agreed" → decision.
   "What is X?" / "X is Y" → fact, NOT a decision.
 - **Fresh-from-source > recursive** — Gemini's 1M context sends raw messages directly
-- **Secretary writes freely** — no JSON constraint in Pass 1
 - **Prefix-based filtering** — single ℹ️/⚙️ check replaces 30+ patterns
-- **Hash protection** — SHA-256 on protected fields, supersession lifecycle
-- **Threshold-based linking** — all messages above score threshold linked to topic, not top-N
 - **Full budget for retrieval** — no pre-allocated slice; trimmer adjusts recent messages
 
 ## Commands Reference
