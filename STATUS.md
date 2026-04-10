@@ -1,8 +1,30 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.10.1
+# Version 5.11.0
 
 ## Current Version Features
+
+### Version 5.11.0 — History Package Consolidation
+
+Removed 3 passthrough indirection files from `utils/history/` and trimmed
+`management_utilities.py` to its single active function. The package public
+API (`from utils.history import X`) is unchanged — only the intermediate hops
+are gone.
+
+**Deleted files:**
+- `utils/history/api_imports.py` v1.3.0 — pure wildcard re-import passthrough, single caller (`__init__.py`)
+- `utils/history/api_exports.py` v1.3.0 — pure `__all__` definition, single consumer (`__init__.py`)
+- `utils/history/loading.py` v2.5.0 — passthrough; `load_channel_history()` moved to `channel_coordinator.py`
+
+**Modified files:**
+- `utils/history/__init__.py` v3.2.0 — rewritten with direct imports; `__all__` trimmed from ~40 symbols to the 11 that external code actually imports
+- `utils/history/channel_coordinator.py` v2.1.0 — added `load_channel_history()` public API function (moved from deleted `loading.py`)
+- `utils/history/management_utilities.py` v2.0.0 — stripped from 5 functions to 1; 4 dead functions removed, `validate_setting_value()` kept (called by `settings_manager.py`)
+
+**Known limitation added:**
+- `status_commands.py` does `from utils.history import get_thinking_enabled` but that function lives in `thinking_commands.py`, not the history package. Pre-existing bug — `!status` thinking display is likely broken. Out of scope for this pass.
+
+---
 
 ### Version 5.10.1 — Dead Code Removal (Imports + Dev Helpers)
 
@@ -136,8 +158,10 @@ discord-bot/
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.2
 │   └── history/
-│       ├── message_processing.py  # v2.3.0
-│       ├── realtime_settings_parser.py  # v2.2.0
+│       ├── message_processing.py       # v2.3.0
+│       ├── realtime_settings_parser.py # v2.2.0
+│       ├── channel_coordinator.py      # v2.1.0
+│       ├── management_utilities.py     # v2.0.0
 │       └── ...
 └── docs/
     └── sow/                       # Design documents

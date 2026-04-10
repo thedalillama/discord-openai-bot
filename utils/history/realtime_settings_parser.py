@@ -42,7 +42,7 @@ from .settings_appliers import (
 
 logger = get_logger('history.realtime_settings_parser')
 
-# Re-export so existing callers (api_imports.py, discord_loader.py) still work
+# Re-export so existing callers (discord_loader.py) still work
 __all__ = ['parse_settings_during_load', 'extract_prompt_from_update_message']
 
 
