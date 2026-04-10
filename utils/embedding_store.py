@@ -1,13 +1,17 @@
 # utils/embedding_store.py
-# Version 1.9.0
+# Version 1.9.1
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
 
 CHANGES v1.9.0: Add get_stored_embedding() for smart query context (SOW v5.6.1)
 - ADDED: get_stored_embedding(message_id) — fetch a single message's embedding blob
 
+CHANGES v1.9.1: Stale changelog fix (SOW v5.11.0)
+- CORRECTED: v1.8.0 entry below — topic functions were moved to topic_store.py
+  which was deleted in v5.10.0; no active callers remain
+
 CHANGES v1.8.0: Extract topic functions + contextual embedding support (SOW v5.6.0)
-- REMOVED: topic functions moved to utils/topic_store.py
+- REMOVED: topic functions moved to topic_store.py (deleted v5.10.0)
 - MODIFIED: get_messages_without_embeddings() returns (id, content, author, reply_to_id)
   and orders by created_at ASC (chronological, required for context building)
 - ADDED: delete_channel_embeddings(channel_id) — wipe all embeddings for reembed
