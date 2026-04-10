@@ -1,7 +1,10 @@
 # commands/auto_respond_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
 Auto-response management command for the Discord bot.
+
+CHANGES v2.2.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: DEFAULT_AUTO_RESPOND import (unused)
 
 CHANGES v2.1.0: ℹ️/⚙️ prefix tagging for noise filtering
 - Settings changes prefixed with ⚙️ (persist for replay)
@@ -16,7 +19,6 @@ Usage:
   !autorespond on     - Enable auto-response (admin only)
   !autorespond off    - Disable auto-response (admin only)
 """
-from config import DEFAULT_AUTO_RESPOND
 from utils.logging_utils import get_logger
 
 logger = get_logger('commands.auto_respond')

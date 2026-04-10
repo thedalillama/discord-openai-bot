@@ -1,7 +1,12 @@
 # utils/history/__init__.py
-# Version 3.0.0
+# Version 3.1.0
 """
 History management package for Discord bot.
+
+CHANGES v3.1.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: diagnostics.py imports (get_channel_diagnostics, identify_potential_issues,
+  estimate_memory_usage, analyze_channel_health) — dev-only helpers, no active callers
+- REMOVED: corresponding __all__ additions
 
 CHANGES v3.0.0: Major architecture simplification
 - REMOVED: settings_parser.py (obsolete post-processing parsing method)
@@ -35,7 +40,6 @@ This package provides comprehensive conversation history management including:
 - Discord coordination (discord_loader.py)
 - Configuration settings management (settings_manager.py)
 - History loading coordination (loading.py)
-- Diagnostic and analysis tools (diagnostics.py)
 
 The refactoring improves maintainability while preserving the existing API,
 so existing imports like `from utils.history import channel_history` continue to work.
@@ -58,23 +62,3 @@ Future developers should:
 # Import all functions and variables from coordination modules
 from .api_imports import *
 from .api_exports import __all__
-
-# Import diagnostic functions from diagnostics module
-from .diagnostics import (
-    get_channel_diagnostics,
-    identify_potential_issues,
-    estimate_memory_usage,
-    analyze_channel_health
-)
-
-# Update __all__ to include diagnostic functions
-__all__ += [
-    'get_channel_diagnostics',
-    'identify_potential_issues', 
-    'estimate_memory_usage',
-    'analyze_channel_health'
-]
-
-# Re-export everything to maintain the exact same public API
-# This ensures existing imports like `from utils.history import channel_history` 
-# still work with the simplified structure

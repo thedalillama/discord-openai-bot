@@ -1,7 +1,10 @@
 # utils/history/loading.py
-# Version 2.4.0
+# Version 2.5.0
 """
 Discord message history loading - main public interface.
+
+CHANGES v2.5.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: get_channel_diagnostics from import (diagnostics.py deleted)
 
 CHANGES v2.4.0: Dead code cleanup (SOW v2.16.0)
 - REMOVED: get_loading_status_for_channel() backward compat alias
@@ -21,7 +24,6 @@ from .loading_utils import (
     get_loading_status,
     force_reload_channel_history,
     get_history_statistics,
-    get_channel_diagnostics
 )
 
 logger = get_logger('history.loading')

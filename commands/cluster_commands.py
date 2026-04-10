@@ -1,7 +1,10 @@
 # commands/cluster_commands.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters.
+
+CHANGES v1.3.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: import json (unused)
 
 CHANGES v1.2.0: Remove dead topic re-link from backfill (SOW v5.10.0)
 - REMOVED: Topic re-linking tail section from debug_backfill — topics/topic_messages
@@ -27,7 +30,6 @@ Registered via register_cluster_commands(debug_cmd) where debug_cmd is the
 !debug group created in debug_commands.py.
 """
 import asyncio
-import json
 from utils.logging_utils import get_logger
 
 logger = get_logger('commands.cluster')
