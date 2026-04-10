@@ -1,7 +1,12 @@
 # bot.py
-# Version 3.2.0
+# Version 3.3.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+
+CHANGES v3.3.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: defaultdict import (unused)
+- REMOVED: DEFAULT_SYSTEM_PROMPT from config import (unused)
+- REMOVED: is_bot_command, channel_locks from utils.history import (unused)
 
 CHANGES v3.2.0: Unpack citation_map from build_context_for_provider() (SOW v5.9.0)
 - MODIFIED: Both call sites unpack 3-tuple (messages, receipt_data, citation_map)
@@ -43,16 +48,15 @@ CHANGES v2.4.0: Refactored message utilities into separate module
 """
 import discord
 from discord.ext import commands
-from collections import defaultdict
 import datetime
 
 from config import (
     DEFAULT_AUTO_RESPOND, MAX_HISTORY,
-    MAX_RESPONSE_TOKENS, DEFAULT_SYSTEM_PROMPT, BOT_PREFIX
+    MAX_RESPONSE_TOKENS, BOT_PREFIX
 )
 from utils.history import (
-    load_channel_history, is_bot_command,
-    channel_history, loaded_history_channels, channel_locks
+    load_channel_history,
+    channel_history, loaded_history_channels
 )
 from utils.logging_utils import get_logger
 from utils.message_utils import format_user_message_for_history

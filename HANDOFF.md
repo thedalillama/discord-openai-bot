@@ -1,8 +1,33 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.10.0
+# Version 5.10.1
 
 ## Current Version Features
+
+### Version 5.10.1 — Dead Code Removal (Imports + Dev Helpers)
+
+Removed 11 unused imports across 7 files, 3 unused functions, and the
+`utils/history/diagnostics.py` dev-helper module (4 functions with no active
+callers since extraction in v2.x). All removals are import-clean — git history
+preserves all deleted code.
+
+**Removed imports:**
+- `bot.py`: `defaultdict`, `DEFAULT_SYSTEM_PROMPT`, `is_bot_command`, `channel_locks`
+- `ai_providers/__init__.py`: `AIProvider` (base class, not referenced at module level)
+- `ai_providers/openai_provider.py`: `io` (BytesIO only needed in response_handler)
+- `commands/auto_respond_commands.py`: `DEFAULT_AUTO_RESPOND`
+- `commands/cluster_commands.py`: `json`
+- `commands/prompt_commands.py`: `channel_history`, `DEFAULT_SYSTEM_PROMPT`
+- `utils/models.py`: `field` from dataclasses
+
+**Removed functions:**
+- `utils/response_handler.py`: `send_text_response()`, `send_image_response()` — image/text sending is done inline in `handle_ai_response_task()`
+- `ai_providers/__init__.py`: `clear_provider_cache()` — no callers in active codebase
+
+**Deleted file:**
+- `utils/history/diagnostics.py` v1.0.0 — 4 dev diagnostic helpers (`get_channel_diagnostics`, `identify_potential_issues`, `estimate_memory_usage`, `analyze_channel_health`) with no command callers since extraction in v2.x. Removed import chain from `__init__.py`, `loading_utils.py`, `loading.py`.
+
+---
 
 ### Version 5.10.0 — Dead Code Removal (v4.x Pipeline)
 
@@ -53,7 +78,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 
 ```
 discord-bot/
-├── bot.py                         # v3.2.0
+├── bot.py                         # v3.3.0
 ├── config.py                      # v1.12.6
 ├── main.py
 ├── .env
@@ -67,8 +92,8 @@ discord-bot/
 │   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
 │   └── 006.sql                    # v5.4.0 needs_resummarize column
 ├── ai_providers/
-│   ├── __init__.py                # v1.4.0
-│   ├── openai_provider.py         # v1.3.0
+│   ├── __init__.py                # v1.5.0
+│   ├── openai_provider.py         # v1.4.0
 │   ├── anthropic_provider.py      # v1.1.0
 │   ├── openai_compatible_provider.py  # v1.2.0
 │   └── gemini_provider.py         # v1.2.1
@@ -76,13 +101,13 @@ discord-bot/
 │   ├── __init__.py                # v2.7.0
 │   ├── summary_commands.py        # v2.4.0
 │   ├── debug_commands.py          # v1.8.0
-│   ├── cluster_commands.py        # v1.2.0
+│   ├── cluster_commands.py        # v1.3.0
 │   ├── dedup_commands.py          # v1.0.0
 │   ├── explain_commands.py        # v1.1.0
-│   ├── auto_respond_commands.py   # v2.1.0
+│   ├── auto_respond_commands.py   # v2.2.0
 │   ├── ai_provider_commands.py    # v2.1.0
 │   ├── thinking_commands.py       # v2.2.0
-│   ├── prompt_commands.py         # v2.1.0
+│   ├── prompt_commands.py         # v2.2.0
 │   ├── status_commands.py         # v2.1.0
 │   └── history_commands.py        # v2.1.0
 ├── utils/
@@ -98,7 +123,7 @@ discord-bot/
 │   ├── cluster_update.py          # v1.0.0
 │   ├── cluster_retrieval.py       # v1.0.0
 │   ├── logging_utils.py           # v1.1.0
-│   ├── models.py                  # v1.2.0
+│   ├── models.py                  # v1.3.0
 │   ├── message_store.py           # v1.2.0
 │   ├── raw_events.py              # v1.7.0
 │   ├── db_migration.py            # v1.0.0
@@ -106,7 +131,7 @@ discord-bot/
 │   ├── embedding_context.py       # v1.4.0
 │   ├── context_retrieval.py       # v1.4.0
 │   ├── context_manager.py         # v2.5.1
-│   ├── response_handler.py        # v1.3.0
+│   ├── response_handler.py        # v1.4.0
 │   ├── summarizer.py              # v4.0.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.2

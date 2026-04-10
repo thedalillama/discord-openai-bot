@@ -1,5 +1,5 @@
 # ai_providers/__init__.py
-# Version 1.4.0
+# Version 1.5.0
 """
 AI Providers package - factory for creating AI provider instances.
 
@@ -7,6 +7,10 @@ CHANGES v1.4.0: Gemini provider (SOW v3.2.0)
 - ADDED: 'gemini' case in get_provider() factory → GeminiProvider
 - ADDED: GeminiProvider import (lazy, inside the if-block to avoid import
   errors when google-genai is not installed and Gemini is not being used)
+
+CHANGES v1.5.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: AIProvider import (unused — base class not referenced at module level)
+- REMOVED: clear_provider_cache() (no callers in active codebase)
 
 CHANGES v1.3.0: Provider singleton caching (SOW v2.22.0)
 - ADDED: _provider_cache module-level dictionary
@@ -25,7 +29,6 @@ CHANGES v1.2.0: Removed BaseTen provider and updated deepseek routing
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
 from .openai_compatible_provider import OpenAICompatibleProvider
-from .base import AIProvider
 from utils.logging_utils import get_logger
 
 logger = get_logger('ai_providers')
@@ -88,13 +91,3 @@ def get_provider(provider_name=None, channel_id=None):
         logger.debug(f"Returning cached {provider_name} provider instance")
 
     return _provider_cache[provider_name]
-
-
-def clear_provider_cache():
-    """
-    Clear all cached provider instances.
-    Primarily for testing. Also useful if provider configuration changes
-    at runtime and instances need to be re-initialized.
-    """
-    _provider_cache.clear()
-    logger.info("Provider cache cleared")

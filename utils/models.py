@@ -1,5 +1,5 @@
 # utils/models.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Data models for the Discord bot persistence layer.
 
@@ -17,11 +17,14 @@ CHANGES v1.1.0: Schema extension & enhanced capture (SOW v3.1.0)
 - ADDED: attachments_metadata — JSON string of attachment info, or None
 - All new fields default to None for backward compatibility with existing rows
 
+CHANGES v1.3.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: field from dataclasses import (unused)
+
 CHANGES v1.2.0: Bot author flag (SOW v3.2.1)
 - ADDED: is_bot_author — True if message was sent by a bot user;
   used by summarizer to exclude bot-authored messages from input
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)

@@ -1,7 +1,10 @@
 # ai_providers/openai_provider.py
-# Version 1.3.0
+# Version 1.4.0
 """
 OpenAI provider implementation with image generation support.
+
+CHANGES v1.4.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: import io (unused — BytesIO only needed in response_handler.py)
 
 CHANGES v1.3.0: Token usage logging (SOW v2.23.0)
 - ADDED: Extract response.usage (input_tokens, output_tokens) after API call
@@ -18,7 +21,6 @@ import asyncio
 import concurrent.futures
 from openai import OpenAI
 import base64
-import io
 from .base import AIProvider
 from config import (OPENAI_API_KEY, DEFAULT_TEMPERATURE,
                     OPENAI_MODEL, OPENAI_CONTEXT_LENGTH, OPENAI_MAX_TOKENS,

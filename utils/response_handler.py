@@ -1,7 +1,11 @@
 # utils/response_handler.py
-# Version 1.3.0
+# Version 1.4.0
 """
 AI response handling utilities for Discord bot.
+
+CHANGES v1.4.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: send_text_response() (no callers — text sending done inline in task)
+- REMOVED: send_image_response() (no callers — image sending done inline in task)
 
 CHANGES v1.3.0: Citation footer support (SOW v5.9.0)
 - MODIFIED: handle_ai_response_task() accepts citation_map=None; calls apply_citations()
@@ -165,36 +169,6 @@ async def handle_ai_response(message, channel_id, messages, provider_override=No
         except Exception as e:
             logger.error(f"Error in AI response task: {e}")
             await message.channel.send("Sorry, I encountered an error processing your request.")
-
-
-async def send_text_response(channel, text_content):
-    """Send text response to Discord channel with automatic message splitting."""
-    if not text_content or not text_content.strip():
-        logger.debug("No text content to send")
-        return 0
-    text_chunks = split_message(text_content)
-    for i, chunk in enumerate(text_chunks):
-        await channel.send(chunk)
-        logger.debug(f"Sent text chunk {i+1}/{len(text_chunks)}")
-    return len(text_chunks)
-
-
-async def send_image_response(channel, images):
-    """Send image response(s) to Discord channel."""
-    sent_count = 0
-    for i, image in enumerate(images):
-        try:
-            image_buffer = io.BytesIO(image["data"])
-            discord_file = discord.File(
-                image_buffer, filename=f"generated_image_{i+1}.png"
-            )
-            await channel.send(file=discord_file)
-            logger.debug(f"Sent generated image {i+1}")
-            sent_count += 1
-        except Exception as e:
-            logger.error(f"Error sending generated image {i+1}: {e}")
-            await channel.send("⚠️ I generated an image but couldn't send it.")
-    return sent_count
 
 
 def add_response_to_history(channel_id, text_content, images_count=0):
