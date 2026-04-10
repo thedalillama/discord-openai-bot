@@ -1,7 +1,11 @@
 # utils/history/loading_utils.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Core utility functions for Discord message history loading operations.
+
+CHANGES v1.3.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: get_channel_diagnostics() wrapper (diagnostics.py deleted)
+- MODIFIED: get_history_statistics() — removed estimate_memory_usage import/field
 
 CHANGES v1.2.0: Dead code cleanup (SOW v2.16.0)
 - REMOVED: get_loading_status_for_channel() backward compat alias
@@ -94,8 +98,6 @@ def get_history_statistics():
     Returns:
         dict: System-wide statistics
     """
-    from .diagnostics import estimate_memory_usage
-
     total_channels = len(loaded_history_channels)
 
     if total_channels == 0:
@@ -106,7 +108,6 @@ def get_history_statistics():
             'channels_with_settings': 0,
             'largest_channel': None,
             'smallest_channel': None,
-            'memory_usage_estimate': estimate_memory_usage(0)
         }
 
     channel_message_counts = {}
@@ -136,7 +137,6 @@ def get_history_statistics():
             'message_count': smallest_count
         }
 
-    memory_usage_estimate = estimate_memory_usage(total_messages)
     channels_with_settings = len(channel_system_prompts)
 
     logger.debug(f"Generated system statistics: {total_channels} channels, {total_messages} total messages")
@@ -148,13 +148,4 @@ def get_history_statistics():
         'channels_with_settings': channels_with_settings,
         'largest_channel': largest_channel,
         'smallest_channel': smallest_channel,
-        'memory_usage_estimate': memory_usage_estimate
     }
-
-def get_channel_diagnostics(channel_id):
-    """
-    Get diagnostic information for a specific channel.
-    Delegates to diagnostics module.
-    """
-    from .diagnostics import get_channel_diagnostics as _get_channel_diagnostics
-    return _get_channel_diagnostics(channel_id)

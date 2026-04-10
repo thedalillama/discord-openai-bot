@@ -1,7 +1,11 @@
 # commands/prompt_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
 System prompt management command for the Discord bot.
+
+CHANGES v2.2.0: Dead code cleanup (SOW v5.10.1)
+- REMOVED: channel_history import (unused)
+- REMOVED: DEFAULT_SYSTEM_PROMPT import (unused)
 
 CHANGES v2.1.0: ℹ️/⚙️ prefix tagging for noise filtering
 - Settings changes prefixed with ⚙️ (persist for replay)
@@ -16,10 +20,9 @@ Usage:
   !prompt reset        - Reset to default prompt (admin only)
 """
 from utils.history import (
-    channel_history, channel_system_prompts, get_system_prompt,
+    channel_system_prompts, get_system_prompt,
     set_system_prompt, remove_system_prompt
 )
-from config import DEFAULT_SYSTEM_PROMPT
 from utils.logging_utils import get_logger
 
 logger = get_logger('commands.prompt')
