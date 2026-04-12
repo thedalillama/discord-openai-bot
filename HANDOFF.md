@@ -194,9 +194,10 @@ discord-bot/
 ## Known Limitations / Next Priorities
 
 ### 1. Citation — Model-Dependent (v5.9.x)
-Citations work reliably with Anthropic (Claude) but DeepSeek Reasoner and
-gpt-4o-mini consistently ignore `[N]` citation instructions. A prefill/few-shot
-approach or post-hoc citation matching by string similarity may help.
+Citations work reliably with Anthropic (Claude). DeepSeek Reasoner and
+gpt-4o-mini consistently ignore `[N]` citation instructions — this is accepted
+as a model limitation. Users who want citation-backed responses should select
+Anthropic as their channel provider via `!ai anthropic`.
 
 ### 2. Hierarchical Semantic Memory
 Channel summaries are flat and per-channel. No cross-channel memory, no
