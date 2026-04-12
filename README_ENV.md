@@ -63,9 +63,10 @@ The `data/` directory is created automatically on first run.
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
 | `RETRIEVAL_TOP_K` | Max clusters retrieved per query | `5` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval (also used as topic-shift threshold for smart query embedding) | `0.25` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` |
+| `QUERY_TOPIC_SHIFT_THRESHOLD` | At query time, cosine similarity below this vs previous message = topic shift → raw embedding; above = re-embed with context | `0.5` |
+| `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for a previous message to be included in the `[Context: ...]` prefix for stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
-| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for v4.x topic-message linking (retained for rollback) | `0.3` |
 
 Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`.
 

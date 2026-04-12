@@ -1,8 +1,14 @@
 # utils/embedding_context.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Context construction for context-prepended message embeddings (SOW v5.6.0).
 
+CHANGES v1.5.0: Threshold rename and separation (SOW v5.12.0)
+- REMOVED: module-level CONTEXT_SIMILARITY_THRESHOLD constant (now EMBEDDING_CONTEXT_MIN_SCORE in config.py)
+- CHANGED: build_contextual_text() uses EMBEDDING_CONTEXT_MIN_SCORE from config
+- CHANGED: embed_query_with_smart_context() uses QUERY_TOPIC_SHIFT_THRESHOLD from config
+  instead of RETRIEVAL_MIN_SCORE — these control different decisions and can now be
+  tuned independently. No behavioral change — values unchanged (0.3 and 0.5).
 CHANGES v1.4.0: raw_vec + raw_vecs_cache params for bulk pre-batching (SOW v5.8.2)
 - MODIFIED: build_contextual_text() accepts optional raw_vec (pre-computed vec
   for current msg) and raw_vecs_cache ({msg_id: vec} for prev msg lookups).
@@ -20,14 +26,10 @@ All DB functions are synchronous; wrap in asyncio.to_thread() at call sites.
 Graceful degradation: on any error, build_contextual_text() returns raw content.
 """
 import sqlite3
-from config import DATABASE_PATH
+from config import DATABASE_PATH, EMBEDDING_CONTEXT_MIN_SCORE, QUERY_TOPIC_SHIFT_THRESHOLD
 from utils.logging_utils import get_logger
 
 logger = get_logger('embedding_context')
-
-# Minimum cosine similarity for a previous message to be included as context.
-# Lower than RETRIEVAL_MIN_SCORE (0.45) — more inclusive for context prepending.
-CONTEXT_SIMILARITY_THRESHOLD = 0.3
 
 _QUESTION_STARTERS = (
     'who ', 'what ', 'where ', 'when ', 'why ', 'how ',
@@ -66,7 +68,6 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
         (vector, path_name) tuple, or (None, "raw") on total failure.
     """
     from utils.embedding_store import embed_text, cosine_similarity, get_stored_embedding
-    from config import RETRIEVAL_MIN_SCORE
 
     try:
         if not conversation_msgs:
@@ -101,9 +102,9 @@ def embed_query_with_smart_context(query_text, channel_id, conversation_msgs):
 
         sim = cosine_similarity(raw_vec, prev_vec)
         logger.debug(
-            f"Query Path 2: sim={sim:.3f} vs threshold={RETRIEVAL_MIN_SCORE} "
+            f"Query Path 2: sim={sim:.3f} vs threshold={QUERY_TOPIC_SHIFT_THRESHOLD} "
             f"ch:{channel_id}")
-        if sim > RETRIEVAL_MIN_SCORE:
+        if sim > QUERY_TOPIC_SHIFT_THRESHOLD:
             ctx = f"[Context: {prev_label}: {prev_content[:200]}]"
             logger.debug(f"Same topic (sim={sim:.3f}), re-embedding with context")
             return embed_text(f"{ctx}\n{query_text}"), "similarity_context"
@@ -219,7 +220,7 @@ def build_contextual_text(channel_id, message_id, author, content,
                             else None) or get_stored_embedding(msg_id)
                 if prev_vec is None:
                     continue
-                if cosine_similarity(cur_vec, prev_vec) > CONTEXT_SIMILARITY_THRESHOLD:
+                if cosine_similarity(cur_vec, prev_vec) > EMBEDDING_CONTEXT_MIN_SCORE:
                     filtered.append((prev_author, prev_content))
             ctx_msgs = filtered
             logger.debug(f"Context filter: {len(filtered)}/{len(previous)} kept msg:{message_id}")

@@ -1,7 +1,15 @@
 # config.py
-# Version 1.14.0
+# Version 1.15.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.15.0: Similarity threshold rename and separation (SOW v5.12.0)
+- ADDED: EMBEDDING_CONTEXT_MIN_SCORE (default 0.3) — replaces hardcoded
+  CONTEXT_SIMILARITY_THRESHOLD in embedding_context.py; now env-configurable.
+- ADDED: QUERY_TOPIC_SHIFT_THRESHOLD (default 0.5) — split from RETRIEVAL_MIN_SCORE;
+  controls topic-shift detection in embed_query_with_smart_context().
+- UPDATED: TOPIC_LINK_MIN_SCORE comment — marked as legacy (topics table dropped
+  in schema/007.sql; variable retained for backward compatibility only).
 
 CHANGES v1.14.0: Fix stale model defaults (SOW v5.10.0)
 - FIXED: GEMINI_MODEL default 'gemini-2.5-flash-lite' → 'gemini-3.1-flash-lite-preview'
@@ -115,12 +123,21 @@ SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 # RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
-# RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
-# Filters out low-relevance topics that would otherwise pollute context.
+# RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a cluster (0.0–1.0).
+# Filters out low-relevance clusters that would otherwise pollute context.
 RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
-# TOPIC_LINK_MIN_SCORE: minimum cosine similarity to link a message to a topic.
-# All messages above this threshold are linked — no arbitrary count cap.
-# Token budget in context_manager limits how many are injected at response time.
+# EMBEDDING_CONTEXT_MIN_SCORE: minimum cosine similarity for a previous message
+# to be included as context in the [Context: ...] prefix when building stored
+# embeddings. Lower = more inclusive. Questions always pass. (SOW v5.12.0)
+EMBEDDING_CONTEXT_MIN_SCORE = float(
+    os.environ.get('EMBEDDING_CONTEXT_MIN_SCORE', 0.3))
+# QUERY_TOPIC_SHIFT_THRESHOLD: at query time, cosine similarity below this
+# value vs the previous message = topic shift → use raw embedding. Above =
+# same topic → re-embed with conversational context. (SOW v5.12.0)
+QUERY_TOPIC_SHIFT_THRESHOLD = float(
+    os.environ.get('QUERY_TOPIC_SHIFT_THRESHOLD', 0.5))
+# TOPIC_LINK_MIN_SCORE: legacy — topics table dropped in schema/007.sql.
+# Retained for backward compatibility only; has no active callers.
 TOPIC_LINK_MIN_SCORE = float(os.environ.get('TOPIC_LINK_MIN_SCORE', 0.3))
 # MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
 # Prevents recent history from overwhelming retrieved topic context.

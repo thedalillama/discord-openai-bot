@@ -68,7 +68,7 @@ Retrieval path (`context_manager.py` → `context_retrieval.py`):
 1. Build contextual query: prepend last 3 in-memory conversation messages
 2. `embed_text()` on contextual query
 3. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
-4. Filter by `RETRIEVAL_MIN_SCORE` (0.25 default; 0.45 in production .env)
+4. Filter by `RETRIEVAL_MIN_SCORE` (0.25 default; 0.5 in production .env)
 5. `get_cluster_messages()` — direct member messages, exclude recent_ids
 
 **Embedding strategy (v5.6.0):**
@@ -80,7 +80,7 @@ After deploy: run `!debug reembed` + `!summary create` to rebuild with contextua
 **Smart query embedding (v5.6.1):**
 Query uses `embed_query_with_smart_context()` to avoid topic bleed-through:
 - Path 1: previous message was a question → embed with question as context
-- Path 2: cosine-compare raw query to previous stored embedding; if `sim > RETRIEVAL_MIN_SCORE`
+- Path 2: cosine-compare raw query to previous stored embedding; if `sim > QUERY_TOPIC_SHIFT_THRESHOLD`
   re-embed with context (same topic), else use raw (topic shift)
 `build_contextual_text()` for stored embeddings is unchanged.
 

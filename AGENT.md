@@ -97,8 +97,9 @@
 - `embed_query_with_smart_context()` in `embedding_context.py` — two-path logic:
   Path 1 (question detection via `is_question()`), Path 2 (cosine similarity check
   vs previous stored embedding via `get_stored_embedding()`)
-- `RETRIEVAL_MIN_SCORE` reused as topic-shift threshold — no new config variable
-- `build_contextual_text()` for stored embeddings unchanged
+- `QUERY_TOPIC_SHIFT_THRESHOLD` (default 0.5) controls topic-shift detection (SOW v5.12.0)
+- `build_contextual_text()` uses `EMBEDDING_CONTEXT_MIN_SCORE` (default 0.3) for
+  context-window filtering of previous messages (SOW v5.12.0)
 
 ### Context-Prepended Embeddings (v5.6.0)
 - All messages embedded with conversational context via `build_contextual_text()`
