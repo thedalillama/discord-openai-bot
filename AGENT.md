@@ -110,12 +110,14 @@
 - `utils/context_retrieval.py` — retrieval extracted from context_manager.py
 - `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
 
-### Noise Guard (v5.5.1)
-- `raw_events.py` `_looks_like_diagnostic()` skips embedding bot-authored
-  messages whose content starts with known diagnostic prefixes (`Cluster `,
-  `Parameters:`, `Processed:`, `**Cluster Analysis`, etc.) — belt-and-suspenders
-  against prefix loss; `debug_commands.py` v1.6.0 routes all pagination through
-  `send_paginated()` to guarantee ℹ️ on every chunk
+### Noise Guard (v5.13.0)
+- `utils/embedding_noise_filter.py` `should_skip_embedding()` — single gate
+  for what gets embedded; applied in `raw_events.py` (live) and
+  `embedding_store.py` `get_messages_without_embeddings()` (backfill)
+- Skip criteria: empty, `!`/`ℹ️`/`⚙️` prefix, bot diagnostic prefixes,
+  `[Original Message Deleted]` placeholder, fewer than 4 words (questions exempt)
+- `debug_commands.py` v1.6.0 routes all pagination through `send_paginated()`
+  to guarantee ℹ️ on every chunk
 
 ### Semantic Retrieval (v5.5.0 — cluster-based)
 - Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from

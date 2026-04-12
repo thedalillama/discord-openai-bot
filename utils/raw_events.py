@@ -1,11 +1,13 @@
 # utils/raw_events.py
-# Version 1.7.0
+# Version 1.8.0
 """
 Discord event handlers for SQLite message persistence.
 
+CHANGES v1.8.0: Embedding noise filter extraction (SOW v5.13.0)
+- REMOVED: _DIAGNOSTIC_PREFIXES, _DIAGNOSTIC_SUBSTRINGS, _looks_like_diagnostic()
+  — all subsumed into should_skip_embedding() in utils/embedding_noise_filter.py
+- CHANGED: embed gate replaced with should_skip_embedding(content, is_bot_author)
 CHANGES v1.7.0: Filter discord.py built-in help output from embedding
-- MODIFIED: _looks_like_diagnostic() also matches help command output via
-  "Type !help command for more info" substring (discord.py footer)
 CHANGES v1.6.0: Context-prepended embeddings on arrival (SOW v5.6.0)
 CHANGES v1.5.0: _looks_like_diagnostic() guard — skip unprefixed bot diagnostics
 CHANGES v1.0.x-v1.4.0: cluster assign, embeddings, reply/thread/attachment capture
@@ -18,6 +20,7 @@ from datetime import timezone
 
 from utils.logging_utils import get_logger
 from utils.models import StoredMessage
+from utils.embedding_noise_filter import should_skip_embedding
 from utils.message_store import (
     insert_message, update_message_content_and_edit_time, soft_delete_message,
     get_last_processed_id, update_last_processed_id,
@@ -28,24 +31,6 @@ logger = get_logger('raw_events')
 
 # Limit concurrent channel fetches during backfill to avoid rate limits
 _backfill_semaphore = asyncio.Semaphore(3)
-
-# Diagnostic output that must never be embedded even without ℹ️ prefix
-_DIAGNOSTIC_PREFIXES = (
-    'Cluster ', 'Parameters:', 'Processed:',
-    '**Cluster Analysis', '**Cluster Summariz', '**Overview**',
-)
-
-# Substrings that identify discord.py built-in command output (e.g. !help)
-_DIAGNOSTIC_SUBSTRINGS = (
-    'Type !help command for more info',
-)
-
-
-def _looks_like_diagnostic(content):
-    return (
-        any(content.startswith(p) for p in _DIAGNOSTIC_PREFIXES) or
-        any(s in content for s in _DIAGNOSTIC_SUBSTRINGS)
-    )
 
 # Maximum messages to fetch per channel during backfill
 MAX_BACKFILL_PER_CHANNEL = 10000
@@ -102,12 +87,9 @@ def setup_raw_events(bot):
             logger.error(f"Failed to store message {msg.id}: {e}")
             return
 
-        # Embed message for semantic retrieval — skip noise, commands, and bot diagnostics
+        # Embed message for semantic retrieval
         content = msg.content
-        if content and not content.startswith(('!', 'ℹ️', '⚙️')):
-            if msg.is_bot_author and _looks_like_diagnostic(content):
-                logger.debug(f"Skipping unprefixed bot diagnostic msg {msg.id}")
-                return
+        if not should_skip_embedding(content, msg.is_bot_author):
             try:
                 from utils.embedding_store import embed_and_store_message
                 from utils.embedding_context import build_contextual_text

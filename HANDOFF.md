@@ -1,6 +1,6 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 5.12.0
+# Version 5.13.0
 
 ## Current Version Features
 
@@ -204,9 +204,9 @@ Channel summaries are flat and per-channel. No cross-channel memory, no
 user-level memory, no long-term summarization surviving `!summary create` wipe.
 
 ### 3. Legacy Cluster Noise
-Command outputs that slipped through before v5.5.1/v1.7.0 may still be in
-existing clusters. A `!summary create` in affected channels will re-cluster
-from current embeddings, removing the noise.
+Thin messages and deleted placeholders embedded before v5.13.0 may remain
+in existing clusters. Run `!debug reembed` + `!summary create` in affected
+channels to rebuild clusters with the new noise filter applied.
 
 ---
 
