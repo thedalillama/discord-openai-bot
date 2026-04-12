@@ -1,8 +1,31 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.12.0
+# Version 5.13.0
 
 ## Current Version Features
+
+### Version 5.13.0 — Embedding Noise Filter Tightening
+
+Added `utils/embedding_noise_filter.py` — a single authoritative gate for
+what gets embedded. Replaces inline checks in `raw_events.py` and extends
+coverage to the `!debug backfill`/`!debug reembed` paths.
+
+New skip criteria (messages still stored in SQLite):
+- `[Original Message Deleted]` bot-forwarded placeholders
+- Messages with fewer than 4 words (unless ending with `?`)
+
+Existing criteria consolidated from `raw_events.py`:
+- Commands (`!` prefix), bot output (`ℹ️`/`⚙️`)
+- Bot diagnostic prefixes + discord.py help output
+
+After deploy, run `!debug reembed` + `!summary create` to rebuild clusters
+without weak/noise content.
+
+**Files changed:** `utils/embedding_noise_filter.py` v1.0.0 (new),
+`utils/raw_events.py` v1.8.0, `utils/embedding_store.py` v1.10.0,
+`AGENT.md`, `STATUS.md`, `HANDOFF.md`
+
+---
 
 ### Version 5.12.0 — Similarity Threshold Rename & Separation
 

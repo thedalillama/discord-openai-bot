@@ -1,7 +1,12 @@
 # utils/embedding_store.py
-# Version 1.9.1
+# Version 1.10.0
 """
 Embedding storage and semantic retrieval (SOW v4.0.0).
+
+CHANGES v1.10.0: Apply noise filter to backfill path (SOW v5.13.0)
+- MODIFIED: get_messages_without_embeddings() applies should_skip_embedding()
+  in Python after SQL fetch — thin messages and deleted placeholders are
+  excluded from backfill (same filter as live embedding path in raw_events.py)
 
 CHANGES v1.9.0: Add get_stored_embedding() for smart query context (SOW v5.6.1)
 - ADDED: get_stored_embedding(message_id) — fetch a single message's embedding blob
@@ -28,6 +33,7 @@ CREATED v1.0.0: Topic-based semantic retrieval
 import math, struct, sqlite3
 from config import DATABASE_PATH, EMBEDDING_MODEL
 from utils.logging_utils import get_logger
+from utils.embedding_noise_filter import should_skip_embedding
 
 logger = get_logger('embedding_store')
 
@@ -155,12 +161,15 @@ def get_messages_without_embeddings(channel_id, limit=500):
     """Return messages lacking embeddings as (id, content, author_name, reply_to_id).
 
     Ordered chronologically (ASC) so context is available for later messages
-    during backfill. Skips noise and command messages.
+    during backfill. Applies should_skip_embedding() for parity with the live
+    embedding path in raw_events.py — thin messages and deleted placeholders
+    are excluded here too.
     """
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         rows = conn.execute(
-            "SELECT m.id, m.content, m.author_name, m.reply_to_message_id "
+            "SELECT m.id, m.content, m.author_name, m.reply_to_message_id, "
+            "       m.is_bot_author "
             "FROM messages m "
             "LEFT JOIN message_embeddings me ON m.id=me.message_id "
             "WHERE m.channel_id=? AND me.message_id IS NULL "
@@ -170,7 +179,8 @@ def get_messages_without_embeddings(channel_id, limit=500):
             "  AND m.content NOT LIKE '\u2699\ufe0f%' "
             "ORDER BY m.created_at ASC LIMIT ?",
             (channel_id, limit)).fetchall()
-        return [(r[0], r[1], r[2], r[3]) for r in rows]
+        return [(r[0], r[1], r[2], r[3]) for r in rows
+                if not should_skip_embedding(r[1], bool(r[4]))]
     finally:
         conn.close()
 
