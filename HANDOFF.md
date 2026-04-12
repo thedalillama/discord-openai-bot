@@ -1,6 +1,6 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 5.11.0
+# Version 5.12.0
 
 ## Current Version Features
 
@@ -203,11 +203,7 @@ Anthropic as their channel provider via `!ai anthropic`.
 Channel summaries are flat and per-channel. No cross-channel memory, no
 user-level memory, no long-term summarization surviving `!summary create` wipe.
 
-### 3. Context-Prepending Evaluation (v5.8.0)
-Topic-boundary cosine similarity filtering `CONTEXT_SIMILARITY_THRESHOLD=0.3`
-was set heuristically and has not been systematically evaluated.
-
-### 4. Legacy Cluster Noise
+### 3. Legacy Cluster Noise
 Command outputs that slipped through before v5.5.1/v1.7.0 may still be in
 existing clusters. A `!summary create` in affected channels will re-cluster
 from current embeddings, removing the noise.

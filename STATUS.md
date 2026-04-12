@@ -1,8 +1,29 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 5.11.0
+# Version 5.12.0
 
 ## Current Version Features
+
+### Version 5.12.0 — Similarity Threshold Rename & Separation
+
+Renamed and split cosine similarity thresholds for clarity and independent
+tuning. No behavioral change — all values unchanged.
+
+- `CONTEXT_SIMILARITY_THRESHOLD` (hardcoded `0.3`) → `EMBEDDING_CONTEXT_MIN_SCORE`
+  in `config.py`; now env-configurable.
+- `RETRIEVAL_MIN_SCORE` (used for topic-shift detection) → `QUERY_TOPIC_SHIFT_THRESHOLD`
+  (default `0.5`); `RETRIEVAL_MIN_SCORE` now exclusively controls cluster retrieval.
+- `TOPIC_LINK_MIN_SCORE` comment updated to note it's legacy (topics table dropped
+  in schema/007.sql).
+- Fixed doc inconsistency: production `RETRIEVAL_MIN_SCORE=0.5` (was incorrectly
+  documented as `0.45` in README.md and CLAUDE.md).
+- Removed Known Limitation #3 (Context-Prepending Evaluation) — threshold is now
+  configurable and properly named.
+
+**Files changed:** `config.py` v1.15.0, `utils/embedding_context.py` v1.5.0,
+`README.md`, `README_ENV.md`, `CLAUDE.md`, `AGENT.md`, `STATUS.md`, `HANDOFF.md`
+
+---
 
 ### Version 5.11.0 — History Package Consolidation
 
@@ -203,11 +224,7 @@ Anthropic as their channel provider via `!ai anthropic`.
 Channel summaries are flat and per-channel. No cross-channel memory, no
 user-level memory, no long-term summarization surviving `!summary create` wipe.
 
-### 3. Context-Prepending Evaluation (v5.8.0)
-Topic-boundary cosine similarity filtering `CONTEXT_SIMILARITY_THRESHOLD=0.3`
-was set heuristically and has not been systematically evaluated.
-
-### 4. Legacy Cluster Noise
+### 3. Legacy Cluster Noise
 Command outputs that slipped through before v5.5.1/v1.7.0 may still be in
 existing clusters. A `!summary create` in affected channels will re-cluster
 from current embeddings, removing the noise.
