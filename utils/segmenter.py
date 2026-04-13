@@ -1,8 +1,9 @@
 # utils/segmenter.py
-# Version 1.0.0
+# Version 1.0.1
 """
 Conversation segmentation + synthesis via Gemini (SOW v6.0.0).
 
+CHANGES v1.0.1: Use GEMINI_MAX_TOKENS for segmentation call (was hardcoded 8192)
 CREATED v1.0.0: Segmentation pipeline (SOW v6.0.0)
 - SEGMENTATION_SYSTEM_PROMPT: Gemini prompt for combined segment+synthesize
 - SEGMENTATION_SCHEMA: JSON schema for structured output
@@ -153,7 +154,7 @@ async def segment_and_synthesize(messages, provider, batch_size=500, overlap=20)
     Returns list of segment dicts: {topic_label, synthesis, message_ids,
     first_message_at, last_message_at}.
     """
-    from config import SEGMENT_GAP_MINUTES
+    from config import SEGMENT_GAP_MINUTES, GEMINI_MAX_TOKENS
     segmentable = [m for m in messages if _is_segmentable(m)]
     if not segmentable:
         return []
@@ -174,7 +175,7 @@ async def segment_and_synthesize(messages, provider, batch_size=500, overlap=20)
                         {"role": "system", "content": SEGMENTATION_SYSTEM_PROMPT},
                         {"role": "user",   "content": prompt},
                     ],
-                    max_tokens=8192, temperature=0.2, channel_id=None,
+                    max_tokens=GEMINI_MAX_TOKENS, temperature=0.2, channel_id=None,
                     response_mime_type="application/json",
                     response_json_schema=SEGMENTATION_SCHEMA,
                     use_json_schema=True,
