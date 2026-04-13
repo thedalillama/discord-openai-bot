@@ -31,9 +31,9 @@ Synthesis-only fallback when token budget is tight. Pre-v6 clusters (no segments
 
 **New tables:** `segments`, `segment_messages`, `cluster_segments` (`schema/008.sql`).
 **New files:** `utils/segment_store.py` v1.0.0, `utils/segmenter.py` v1.0.0
-**Modified:** `cluster_engine.py` v1.1.0, `cluster_summarizer.py` v1.1.0,
-`cluster_retrieval.py` v1.1.0, `context_retrieval.py` v1.5.0,
-`cluster_overview.py` v2.3.0, `summarizer.py` v4.1.0,
+**Modified:** `cluster_engine.py` v1.2.0 (+_adaptive_params(), scales UMAP/HDBSCAN to
+input size), `cluster_summarizer.py` v1.1.0, `cluster_retrieval.py` v1.1.0,
+`context_retrieval.py` v1.5.0, `cluster_overview.py` v2.3.0, `summarizer.py` v4.1.0,
 `cluster_commands.py` v1.4.0 (`!debug segments`), `config.py` v1.16.0
 
 After deploy: run `!summary create` to rebuild with segment-based clusters.
