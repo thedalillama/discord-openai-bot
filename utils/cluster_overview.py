@@ -1,8 +1,10 @@
 # utils/cluster_overview.py
-# Version 2.2.0
+# Version 2.3.0
 """
 Cross-cluster overview generation and full pipeline orchestrator.
 
+CHANGES v2.3.0: Add pre_run_stats=None to run_cluster_pipeline(); skips
+run_clustering() and passes use_segments=True for segment path (SOW v6.0.0).
 CHANGES v2.2.0: Replace qa_pass with embedding dedup + answered-Q check
 - MODIFIED: run_cluster_pipeline() replaces single qa_pass() call with
   deduplicate_summary() then remove_answered_questions() from cluster_qa;
@@ -167,8 +169,10 @@ def translate_to_channel_summary(overview_result, cluster_count, noise_count):
     }
 
 
-async def run_cluster_pipeline(channel_id, provider, progress_fn=None):
-    """Full v5 pipeline: cluster → summarize → classify → overview → dedup → save."""
+async def run_cluster_pipeline(channel_id, provider, progress_fn=None, pre_run_stats=None):
+    """Full pipeline: cluster → summarize → classify → overview → dedup → save.
+    pre_run_stats: if provided, skips run_clustering() (segment path).
+    """
     from utils.cluster_store import run_clustering
     from utils.cluster_summarizer import summarize_all_clusters
     from utils.cluster_classifier import classify_overview_items
@@ -181,19 +185,22 @@ async def run_cluster_pipeline(channel_id, provider, progress_fn=None):
             await progress_fn(msg)
 
     logger.info(f"Cluster pipeline start ch:{channel_id}")
-
-    stats = await asyncio.to_thread(run_clustering, channel_id)
-    if stats is None:
-        return {"error": "Not enough embeddings — run !debug backfill first",
-                "messages_processed": 0, "cluster_count": 0,
-                "noise_count": 0, "overview_generated": False}
+    use_segments = pre_run_stats is not None
+    if not use_segments:
+        stats = await asyncio.to_thread(run_clustering, channel_id)
+        if stats is None:
+            return {"error": "Not enough embeddings — run !debug backfill first",
+                    "messages_processed": 0, "cluster_count": 0,
+                    "noise_count": 0, "overview_generated": False}
+    else:
+        stats = pre_run_stats
     cluster_count = stats["cluster_count"]
-    noise_count   = stats["noise_count"]
-    total         = stats["total_messages"]
+    noise_count, total = stats["noise_count"], stats["total_messages"]
     await _p(f"Clustering complete — {cluster_count} clusters, {noise_count} noise messages")
 
     await _p(f"Summarizing {cluster_count} clusters (this takes a few minutes)...")
-    sum_result = await summarize_all_clusters(channel_id, provider, progress_fn=progress_fn)
+    sum_result = await summarize_all_clusters(
+        channel_id, provider, progress_fn=progress_fn, use_segments=use_segments)
     logger.info(
         f"Per-cluster summarization: {sum_result['processed']} ok, "
         f"{sum_result['failed']} failed")

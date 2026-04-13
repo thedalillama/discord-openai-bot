@@ -1,7 +1,14 @@
 # config.py
-# Version 1.15.0
+# Version 1.16.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.16.0: Segment pipeline configuration (SOW v6.0.0)
+- ADDED: SEGMENT_BATCH_SIZE (default 500) — messages per Gemini segmentation call
+- ADDED: SEGMENT_OVERLAP (default 20) — overlap window between batches to reduce
+  boundary artifacts
+- ADDED: SEGMENT_GAP_MINUTES (default 30) — time gap threshold for fallback
+  time-gap segmentation when LLM segmentation fails
 
 CHANGES v1.15.0: Similarity threshold rename and separation (SOW v5.12.0)
 - ADDED: EMBEDDING_CONTEXT_MIN_SCORE (default 0.3) — replaces hardcoded
@@ -155,6 +162,14 @@ CLUSTER_MIN_SAMPLES = int(os.environ.get('CLUSTER_MIN_SAMPLES', '3'))
 UMAP_N_NEIGHBORS = int(os.environ.get('UMAP_N_NEIGHBORS', '15'))
 # UMAP_N_COMPONENTS: output dimensions for UMAP reduction.
 UMAP_N_COMPONENTS = int(os.environ.get('UMAP_N_COMPONENTS', '5'))
+
+# Segment pipeline configuration (v6.0.0)
+# SEGMENT_BATCH_SIZE: messages per Gemini segmentation call.
+SEGMENT_BATCH_SIZE = int(os.environ.get('SEGMENT_BATCH_SIZE', '500'))
+# SEGMENT_OVERLAP: overlap window between batches to reduce boundary artifacts.
+SEGMENT_OVERLAP = int(os.environ.get('SEGMENT_OVERLAP', '20'))
+# SEGMENT_GAP_MINUTES: time gap threshold for fallback time-gap segmentation.
+SEGMENT_GAP_MINUTES = int(os.environ.get('SEGMENT_GAP_MINUTES', '30'))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

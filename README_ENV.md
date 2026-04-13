@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 5.13.0
+# Version 6.0.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -150,9 +150,29 @@ Gemini is used for summarization only, not for conversation responses.
 | `UMAP_N_NEIGHBORS` | UMAP neighborhood size (lower = more local structure) | `15` |
 | `UMAP_N_COMPONENTS` | UMAP output dimensions | `5` |
 
-These control the UMAP + HDBSCAN pipeline used by `!debug clusters`.
-Tune via `.env` to adjust cluster granularity without code changes.
-`UMAP_N_NEIGHBORS` is automatically capped to `n_messages - 1` for small channels.
+These control the UMAP + HDBSCAN pipeline used by `!debug clusters` and the
+segment clustering step in `!summary create`. `UMAP_N_NEIGHBORS` is automatically
+capped to `n_items - 1` for small channels/segment sets.
+
+## Segment Pipeline Configuration (v6.0.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SEGMENT_BATCH_SIZE` | Messages per Gemini segmentation call | `500` |
+| `SEGMENT_OVERLAP` | Overlap window between batches (reduces boundary artifacts) | `20` |
+| `SEGMENT_GAP_MINUTES` | Time gap threshold for fallback time-gap segmentation | `30` |
+
+`SEGMENT_BATCH_SIZE` controls how many messages are sent to Gemini per call during
+`!summary create`. Larger batches give Gemini more context for segmentation but
+increase response size. Gemini's 1M context handles 500 messages easily.
+
+`SEGMENT_OVERLAP` causes adjacent batches to share the last N messages of the
+previous batch. Segments identified in the overlap zone of non-first batches are
+skipped (already captured). Reduces topic boundary artifacts at batch seams.
+
+`SEGMENT_GAP_MINUTES` controls the time-gap fallback segmenter that fires when
+Gemini segmentation fails for a batch. Messages separated by more than this many
+minutes are split into different segments.
 
 ## Logging Configuration
 
