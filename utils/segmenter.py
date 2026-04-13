@@ -1,8 +1,9 @@
 # utils/segmenter.py
-# Version 1.0.1
+# Version 1.0.2
 """
 Conversation segmentation + synthesis via Gemini (SOW v6.0.0).
 
+CHANGES v1.0.2: Relax coverage check (warn, not raise); truncate synthesis at 24000 chars before embed
 CHANGES v1.0.1: Use GEMINI_MAX_TOKENS for segmentation call (was hardcoded 8192)
 CREATED v1.0.0: Segmentation pipeline (SOW v6.0.0)
 - SEGMENTATION_SYSTEM_PROMPT: Gemini prompt for combined segment+synthesize
@@ -109,8 +110,8 @@ def _parse_segments(response_data, n_messages):
         covered.update(range(s, e + 1))
         prev_end = e
     if len(covered) != n_messages:
-        raise ValueError(
-            f"Incomplete coverage: {len(covered)}/{n_messages} indices")
+        logger.warning(
+            f"Partial coverage: {len(covered)}/{n_messages} — using partial result")
     return data
 
 
@@ -207,8 +208,7 @@ async def segment_and_synthesize(messages, provider, batch_size=500, overlap=20)
         all_segments.extend(batch_segs)
         batch_start += stride
 
-    logger.info(f"segment_and_synthesize: {len(all_segments)} segments "
-                f"from {len(segmentable)} messages")
+    logger.info(f"segment_and_synthesize: {len(all_segments)} segs/{len(segmentable)} msgs")
     return all_segments
 
 
@@ -239,7 +239,7 @@ async def run_segmentation_phase(channel_id, messages, provider, progress_fn=Non
     seg_ids = await asyncio.to_thread(store_segments, channel_id, segments)
 
     await _p("Embedding segment syntheses...")
-    syntheses = [s["synthesis"] for s in segments]
+    syntheses = [s["synthesis"][:24000] for s in segments]
     embed_results = await asyncio.to_thread(embed_texts_batch, syntheses)
     for idx, vec in embed_results:
         if idx < len(seg_ids):
