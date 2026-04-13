@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.13.0
+# Version 6.0.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -119,10 +119,15 @@
 - `debug_commands.py` v1.6.0 routes all pagination through `send_paginated()`
   to guarantee ℹ️ on every chunk
 
+### Segment Pipeline (v6.0.0)
+- `!summary create` now runs: segment → embed segments → cluster segments → summarize (use_segments=True) → classify → overview → dedup → QA → save
+- `utils/segmenter.py` `run_segmentation_phase()` — Gemini batch-processes messages (SEGMENT_BATCH_SIZE, SEGMENT_OVERLAP) into segments with topic labels and syntheses; syntheses resolve implicit references ("yes" → "Alice agreed to use PostgreSQL")
+- `utils/segment_store.py` — CRUD for `segments`, `segment_messages`, `cluster_segments` tables; `run_segment_clustering()` runs UMAP+HDBSCAN on segment embeddings, stores to `clusters` + `cluster_segments` without touching `cluster_messages`
+- Retrieval injects per-segment `[Topic: label]\nSummary: synthesis\n\nSource messages:\n[N] [date] author: content`; synthesis-only fallback when budget is tight; rollback path (no segments) falls back to direct message injection
+
 ### Semantic Retrieval (v5.5.0 — cluster-based)
-- Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
-  `cluster_retrieval.py`
-- `_retrieve_cluster_context()` in `context_manager.py` replaces `_retrieve_topic_context()`
+- Response path uses `find_relevant_clusters()` + `get_cluster_content()` from `cluster_retrieval.py`
+- `context_retrieval.py` retrieves segments per cluster via `get_cluster_content()`, injects synthesis + source messages with citation numbers
 - `[Topic: {label}]` section header preserved — model framing unchanged
 - Fallback (`find_similar_messages`) still fires when no clusters pass threshold
 
@@ -156,7 +161,7 @@
 - Token-budget context: always-on + retrieved + 5 recent messages
 
 ### Persistence
-- SQLite with WAL mode: messages, summaries, embeddings, clusters, cluster_messages
+- SQLite with WAL mode: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments
 - Settings recovered from Discord message history on startup
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 

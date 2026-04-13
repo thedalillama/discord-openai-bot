@@ -1,8 +1,44 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 5.13.0
+# Version 6.0.0
 
 ## Current Version Features
+
+### Version 6.0.0 — Conversation Segmentation Pipeline
+
+Replaced per-message embeddings with per-segment embeddings for summarization
+and retrieval. Gemini identifies topically coherent groups of consecutive messages
+(segments), writes a synthesis resolving implicit references, then UMAP+HDBSCAN
+clusters segments for retrieval. Existing `message_embeddings` and `cluster_messages`
+tables are retained for rollback.
+
+**New `!summary create` pipeline:**
+1. Segment — Gemini batch-processes messages (500/batch, 20 overlap) → topic boundaries + synthesis
+2. Embed segments — OpenAI embeds each synthesis
+3. Cluster segments — UMAP+HDBSCAN on segment embeddings → `cluster_segments` junction
+4. Summarize clusters — Gemini per cluster using segment syntheses as M-labeled inputs
+5. Classify → overview → dedup → QA → save (unchanged from v5.x)
+
+**Retrieval injection format per segment:**
+```
+[Topic: label]
+Summary: synthesis text
+
+Source messages:
+[N] [date] author: content
+```
+Synthesis-only fallback when token budget is tight. Pre-v6 clusters (no segments) fall back to direct message injection.
+
+**New tables:** `segments`, `segment_messages`, `cluster_segments` (`schema/008.sql`).
+**New files:** `utils/segment_store.py` v1.0.0, `utils/segmenter.py` v1.0.0
+**Modified:** `cluster_engine.py` v1.1.0, `cluster_summarizer.py` v1.1.0,
+`cluster_retrieval.py` v1.1.0, `context_retrieval.py` v1.5.0,
+`cluster_overview.py` v2.3.0, `summarizer.py` v4.1.0,
+`cluster_commands.py` v1.4.0 (`!debug segments`), `config.py` v1.16.0
+
+After deploy: run `!summary create` to rebuild with segment-based clusters.
+
+---
 
 ### Version 5.11.0 — History Package Consolidation
 
@@ -108,7 +144,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 ```
 discord-bot/
 ├── bot.py                         # v3.3.0
-├── config.py                      # v1.14.0
+├── config.py                      # v1.16.0
 ├── main.py
 ├── .env
 ├── data/
@@ -120,7 +156,8 @@ discord-bot/
 │   ├── 004.sql                    # v4.0.0 topics, topic_messages, message_embeddings
 │   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
 │   ├── 006.sql                    # v5.4.0 needs_resummarize column
-│   └── 007.sql                    # v5.11.0 drop topics, topic_messages
+│   ├── 007.sql                    # v5.11.0 drop topics, topic_messages
+│   └── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
 ├── ai_providers/
 │   ├── __init__.py                # v1.5.0
 │   ├── openai_provider.py         # v1.4.0
@@ -131,7 +168,7 @@ discord-bot/
 │   ├── __init__.py                # v2.7.0
 │   ├── summary_commands.py        # v2.4.0
 │   ├── debug_commands.py          # v1.8.0
-│   ├── cluster_commands.py        # v1.3.0
+│   ├── cluster_commands.py        # v1.4.0
 │   ├── dedup_commands.py          # v1.0.0
 │   ├── explain_commands.py        # v1.1.0
 │   ├── auto_respond_commands.py   # v2.2.0
@@ -143,26 +180,29 @@ discord-bot/
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
 │   ├── receipt_store.py           # v1.0.0
-│   ├── cluster_engine.py          # v1.0.1
+│   ├── segment_store.py           # v1.0.0  ← new v6.0.0
+│   ├── segmenter.py               # v1.0.0  ← new v6.0.0
+│   ├── cluster_engine.py          # v1.1.0
 │   ├── cluster_store.py           # v2.0.0
-│   ├── cluster_summarizer.py      # v1.0.0
-│   ├── cluster_overview.py        # v2.2.0
+│   ├── cluster_summarizer.py      # v1.1.0
+│   ├── cluster_overview.py        # v2.3.0
 │   ├── cluster_classifier.py      # v1.6.0
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.0.0
+│   ├── cluster_retrieval.py       # v1.1.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.3.0
 │   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.7.0
+│   ├── raw_events.py              # v1.8.0
 │   ├── db_migration.py            # v1.0.0
-│   ├── embedding_store.py         # v1.9.1
-│   ├── embedding_context.py       # v1.4.0
-│   ├── context_retrieval.py       # v1.4.0
+│   ├── embedding_store.py         # v1.10.0
+│   ├── embedding_noise_filter.py  # v1.0.0
+│   ├── embedding_context.py       # v1.5.0
+│   ├── context_retrieval.py       # v1.5.0
 │   ├── context_manager.py         # v2.5.1
 │   ├── response_handler.py        # v1.4.0
-│   ├── summarizer.py              # v4.0.0
+│   ├── summarizer.py              # v4.1.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.2
 │   └── history/

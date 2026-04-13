@@ -1,8 +1,10 @@
 # commands/cluster_commands.py
-# Version 1.3.0
+# Version 1.4.0
 """
-Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters.
+Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters, segments.
 
+CHANGES v1.4.0: Add !debug segments — segment count, avg size, sample synthesis
+previews (SOW v6.0.0).
 CHANGES v1.3.0: Dead code cleanup (SOW v5.10.1)
 - REMOVED: import json (unused)
 
@@ -19,15 +21,9 @@ CHANGES v1.1.0: Pre-batch raw embeddings in backfill to eliminate per-message
   to build_contextual_text() — reduces API calls from N+1 to 2 for N messages
 - ADDED: progress updates every 100 messages during context-building loop
 
-CREATED v1.0.0: Extracted from debug_commands.py v1.7.0 (SOW v5.6.0)
-- !debug backfill — contextual embedding backfill (v5.6.0: uses build_contextual_text)
-- !debug reembed  — delete all embeddings + full re-embed with contextual text
-- !debug clusters — run UMAP+HDBSCAN, show diagnostic report
-- !debug summarize_clusters — run per-cluster LLM summarization
-
+CREATED v1.0.0: Extracted from debug_commands.py v1.7.0 (SOW v5.6.0).
 All subcommands require administrator permissions.
-Registered via register_cluster_commands(debug_cmd) where debug_cmd is the
-!debug group created in debug_commands.py.
+Registered via register_cluster_commands(debug_cmd).
 """
 import asyncio
 from utils.logging_utils import get_logger
@@ -194,6 +190,48 @@ def register_cluster_commands(debug_cmd):
         except Exception as e:
             await ctx.send(f"{_I}Summarization failed: {e}")
             logger.error(f"Summarize clusters error ch:{channel_id}: {e}")
+
+
+    @debug_cmd.command(name='segments')
+    async def debug_segments(ctx):
+        """Show segment count, avg size, and sample segments."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        channel_id = ctx.channel.id
+        try:
+            import sqlite3
+            from config import DATABASE_PATH
+            from utils.segment_store import get_segment_count
+            count = await asyncio.to_thread(get_segment_count, channel_id)
+            if count == 0:
+                await ctx.send(f"{_I}No segments. Run `!summary create` first.")
+                return
+            def _fetch():
+                c = sqlite3.connect(DATABASE_PATH)
+                try:
+                    rows = c.execute(
+                        "SELECT topic_label, synthesis, message_count, "
+                        "first_message_at FROM segments WHERE channel_id=? "
+                        "ORDER BY first_message_at ASC LIMIT 5",
+                        (channel_id,)).fetchall()
+                    avg = c.execute(
+                        "SELECT AVG(message_count) FROM segments "
+                        "WHERE channel_id=?", (channel_id,)).fetchone()[0]
+                    return rows, avg
+                finally:
+                    c.close()
+            samples, avg = await asyncio.to_thread(_fetch)
+            lines = [f"**Segments #{ctx.channel.name}**: {count} total, "
+                     f"avg {avg:.1f} msgs/segment", ""]
+            for label, synth, n, first_at in samples:
+                date = (first_at or "")[:10]
+                preview = synth[:100] + "..." if len(synth) > 100 else synth
+                lines.append(f"[{date}] **{label}** ({n})\n> {preview}")
+            await _send_paginated(ctx, "\n".join(lines))
+        except Exception as e:
+            await ctx.send(f"{_I}Segments failed: {e}")
+            logger.error(f"Segments error ch:{channel_id}: {e}")
 
 
 async def _send_paginated(ctx, text, limit=1900):

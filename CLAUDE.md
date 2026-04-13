@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.13.0
+# Version 6.0.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -99,8 +99,9 @@ if combined length > 1950 chars. No citations when retrieval empty or for comman
 Key files: `utils/citation_utils.py` (strip/build/apply), `utils/context_retrieval.py`
 (citation numbering + 4-tuple return), `utils/context_manager.py` (citation pass-through)
 
-Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_messages),
-`utils/context_retrieval.py` (retrieval + fallback, extracted v5.6.0),
+Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_content),
+`utils/segment_store.py` (get_cluster_content — segment syntheses + source messages),
+`utils/context_retrieval.py` (segment injection + fallback, v1.5.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
 `utils/context_manager.py` (always-on + budget + timestamps + citation pass-through)
 
@@ -119,37 +120,37 @@ post-processing stack (classify → overview → dedup → answered-Q → save).
 Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_update.py`
 (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
-### Summarization Pipeline (v5.3.0 — cluster-based)
-`!summary create` runs the full cluster pipeline via `summarizer.py` v4.0.0:
+### Summarization Pipeline (v6.0.0 — segment-based)
+`!summary create` runs the segment pipeline via `summarizer.py` v4.1.0:
 ```
-run_cluster_pipeline(channel_id)               ← cluster_overview.py
-  → UMAP + HDBSCAN clustering                  ← cluster_engine.py
-  → summarize_all_clusters()                    ← cluster_summarizer.py
-      M-labeled messages → Gemini per cluster
-      store label + summary JSON blob + status
-  → _collect_structured_items()
-      aggregate decisions/facts/actions/questions from all cluster blobs
-  → classify_overview_items()                   ← cluster_classifier.py
-      GPT-4o-mini whitelist filter, default-to-DROP
-  → generate_overview()
-      Gemini: labels + summary texts only → overview + participants
-  → merge overview + participants + filtered items
-  → translate_to_channel_summary()
-      text → fact/task/question/decision (v4.x field names)
-  → deduplicate_summary()                       ← cluster_qa.py
-      embedding cosine dedup, 0.85 threshold
-  → remove_answered_questions()                 ← cluster_qa.py
-      GPT-4o-mini YES/NO per question vs decisions + facts
-  → save_channel_summary() → channel_summaries table
+summarize_channel(channel_id)                  ← summarizer.py
+  → run_segmentation_phase()                   ← segmenter.py
+      Gemini batch-processes messages (500/batch, 20 overlap)
+      → topic boundaries + synthesis (resolves implicit refs)
+      → store_segments() + embed syntheses     ← segment_store.py
+  → run_segment_clustering()                   ← segment_store.py
+      UMAP + HDBSCAN on segment embeddings
+      store to clusters + cluster_segments (NOT cluster_messages)
+  → run_cluster_pipeline(pre_run_stats=stats)  ← cluster_overview.py
+      → summarize_all_clusters(use_segments=True) ← cluster_summarizer.py
+          M-labeled segment syntheses → Gemini per cluster
+      → _collect_structured_items()
+      → classify_overview_items()              ← cluster_classifier.py
+      → generate_overview()
+      → deduplicate_summary()                  ← cluster_qa.py
+      → remove_answered_questions()            ← cluster_qa.py
+      → save_channel_summary()
 ```
+Fallback: if segmentation yields 0 segments OR segment clustering fails,
+falls back to direct message clustering (v5.x path) automatically.
 
-Key files: `summarizer.py` (router), `cluster_overview.py` (orchestrator + overview LLM),
+Key files: `summarizer.py` (router), `segmenter.py` (Gemini segmentation+synthesis),
+`segment_store.py` (CRUD + run_segment_clustering), `cluster_overview.py` (orchestrator),
 `cluster_summarizer.py` (per-cluster Gemini), `cluster_classifier.py` (whitelist filter),
-`cluster_qa.py` (dedup + answered-Q check), `cluster_engine.py` (UMAP + HDBSCAN),
-`cluster_store.py` (CRUD)
+`cluster_qa.py` (dedup + answered-Q check), `cluster_engine.py` (UMAP + HDBSCAN)
 
 **v4.x three-pass pipeline** was removed in v5.10.0 (10 files deleted, git
-history preserves). Only the cluster pipeline is active.
+history preserves). Only the cluster/segment pipeline is active.
 
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).
@@ -170,7 +171,7 @@ placeholders, and messages under 4 words (questions exempt).
 
 ### Persistence
 - SQLite with WAL mode (`data/messages.db`)
-- Tables: messages, summaries, message_embeddings, clusters, cluster_messages
+- Tables: messages, summaries, message_embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments
 - `raw_events.py` captures all messages including bot responses + embeds them
 - `db_migration.py` applies `schema/NNN.sql` files sequentially
 - Settings recovered from Discord history on startup
@@ -192,6 +193,7 @@ placeholders, and messages under 4 words (questions exempt).
 | `!summary create/clear` | Run summarization / delete (admin) |
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
 | `!debug backfill` | Embed missing messages + contextual text (admin) |
+| `!debug segments` | Show segment count, avg size, sample syntheses (admin) |
 | `!explain` | Context receipt for most recent bot response |
 | `!explain detail` | Receipt + injected messages per cluster |
 | `!explain <id>` | Context receipt for specific response message ID |

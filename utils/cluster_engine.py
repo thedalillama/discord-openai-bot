@@ -1,10 +1,13 @@
 # utils/cluster_engine.py
-# Version 1.0.1
+# Version 1.1.0
 """
 UMAP + HDBSCAN clustering pipeline for v5.1.0.
 
 Handles dimensionality reduction, clustering, noise reduction, and centroid
 computation. All math lives here; SQLite CRUD lives in cluster_store.py.
+
+CHANGES v1.1.0: Add cluster_segments() — same as cluster_messages() but reads
+segment embeddings from segments table; returns segment_ids (SOW v6.0.0).
 
 CREATED v1.0.0: UMAP + HDBSCAN clustering pipeline (SOW v5.1.0)
 - cluster_messages(): full pipeline — load embeddings, UMAP reduce,
@@ -160,3 +163,87 @@ def _compute_centroids(clusters, vectors):
             centroid = centroid / norm
         centroids[lbl] = centroid
     return centroids
+
+
+def cluster_segments(channel_id, min_cluster_size=None, min_samples=None):
+    """UMAP + HDBSCAN on segment embeddings; same pipeline as cluster_messages().
+
+    Returns {clusters (segment_ids), noise_ids, stats} or None if too few.
+    """
+    from utils.segment_store import get_segment_embeddings
+    mcs = min_cluster_size or CLUSTER_MIN_CLUSTER_SIZE
+    ms  = min_samples      or CLUSTER_MIN_SAMPLES
+
+    raw = get_segment_embeddings(channel_id)
+    if len(raw) < mcs:
+        logger.info(f"ch:{channel_id}: {len(raw)} segments < {mcs} — skip clustering")
+        return None
+
+    seg_ids = [r[0] for r in raw]
+    vectors  = np.array([r[1] for r in raw], dtype=np.float32)
+
+    try:
+        from umap import UMAP
+        n_neighbors = min(UMAP_N_NEIGHBORS, len(seg_ids) - 1)
+        reduced = UMAP(
+            n_neighbors=n_neighbors, n_components=UMAP_N_COMPONENTS,
+            min_dist=0.0, metric='cosine', random_state=42,
+        ).fit_transform(vectors)
+    except Exception as e:
+        logger.warning(f"UMAP failed (segments) ch:{channel_id}: {e}")
+        return None
+
+    try:
+        from sklearn.cluster import HDBSCAN
+        labels = HDBSCAN(
+            min_cluster_size=mcs, min_samples=ms,
+            metric='euclidean', cluster_selection_method='eom',
+            store_centers='centroid', copy=False,
+        ).fit_predict(reduced)
+    except Exception as e:
+        logger.warning(f"HDBSCAN failed (segments) ch:{channel_id}: {e}")
+        return None
+
+    unique_labels = set(labels) - {-1}
+    clusters = {}
+    for lbl in unique_labels:
+        idxs = np.where(labels == lbl)[0]
+        clusters[int(lbl)] = {
+            "indices":     idxs.tolist(),
+            "segment_ids": [seg_ids[i] for i in idxs],
+        }
+
+    centroids = _compute_centroids(clusters, vectors)
+    noise_idxs = np.where(labels == -1)[0]
+    remaining_noise = []
+    for idx in noise_idxs:
+        vec = vectors[idx].tolist()
+        best_lbl, best_score = None, -1.0
+        for lbl, centroid in centroids.items():
+            score = cosine_similarity(vec, centroid.tolist())
+            if score > best_score:
+                best_lbl, best_score = lbl, score
+        if best_score >= RETRIEVAL_MIN_SCORE and best_lbl is not None:
+            clusters[best_lbl]["indices"].append(idx)
+            clusters[best_lbl]["segment_ids"].append(seg_ids[idx])
+        else:
+            remaining_noise.append(seg_ids[idx])
+
+    centroids = _compute_centroids(clusters, vectors)
+    for lbl in clusters:
+        clusters[lbl]["centroid"] = centroids[lbl]
+        del clusters[lbl]["indices"]
+
+    total = len(seg_ids)
+    largest = max((len(c["segment_ids"]) for c in clusters.values()), default=0)
+    stats = {
+        "total_messages":           total,
+        "cluster_count":            len(clusters),
+        "noise_count":              len(remaining_noise),
+        "noise_ratio":              round(len(remaining_noise)/total, 4) if total else 0,
+        "largest_cluster_size":     largest,
+        "largest_cluster_fraction": round(largest/total, 4) if total else 0,
+    }
+    logger.info(f"Segment clustering ch:{channel_id}: {len(clusters)} clusters, "
+                f"{len(remaining_noise)} noise")
+    return {"clusters": clusters, "noise_ids": remaining_noise, "stats": stats}

@@ -1,5 +1,5 @@
 # utils/cluster_retrieval.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Query-time cluster retrieval for semantic context injection.
 
@@ -7,6 +7,11 @@ Called from context_manager.py to find relevant clusters for an incoming
 query and fetch their member messages for injection into the system prompt.
 Mirrors find_relevant_topics()/get_topic_messages() from embedding_store.py
 but reads from clusters/cluster_messages instead of topics/topic_messages.
+
+CHANGES v1.1.0: Segment-aware retrieval (SOW v6.0.0)
+- ADD: get_cluster_content() — thin wrapper over segment_store.get_cluster_content()
+  for segment-based retrieval. Returns syntheses + source messages per segment.
+- KEEP: get_cluster_messages() for rollback.
 
 CREATED v1.0.0: Cluster-based retrieval replacing topic retrieval (SOW v5.5.0)
 - find_relevant_clusters(): cosine similarity vs channel cluster centroids
@@ -83,3 +88,15 @@ def get_cluster_messages(cluster_id, exclude_ids=None):
         return [(r[0], r[1], r[2], r[3]) for r in rows if r[0] not in exclude]
     finally:
         conn.close()
+
+
+def get_cluster_content(cluster_id, exclude_ids=None):
+    """Return segment syntheses and source messages for a cluster.
+
+    Delegates to segment_store.get_cluster_content().
+    Returns [{"segment_id", "synthesis", "topic_label",
+    "messages": [(msg_id, author, content, created_at), ...]}].
+    Returns empty list if no segments exist (use get_cluster_messages fallback).
+    """
+    from utils.segment_store import get_cluster_content as _get
+    return _get(cluster_id, exclude_ids)

@@ -1,5 +1,5 @@
 # README.md
-# Version 5.13.0
+# Version 6.0.0
 
 # Synthergy Discord Bot
 
@@ -52,6 +52,7 @@ python main.py
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
 | `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
 | `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
+| `!debug segments` | admin | Show segment count, avg size, sample syntheses |
 | `!explain` | all | Show context receipt for the last bot response |
 | `!explain detail` | all | Receipt + injected messages per cluster |
 | `!explain <id>` | all | Show context receipt for a specific response by message ID |
@@ -88,6 +89,8 @@ discord-bot/
 │   ├── status_commands.py             # !status
 │   └── history_commands.py            # !history
 └── utils/
+    ├── segment_store.py               # Segment CRUD + run_segment_clustering (v6.0.0)
+    ├── segmenter.py                   # Gemini segmentation+synthesis, batch with overlap (v6.0.0)
     ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
     ├── cluster_store.py               # Cluster CRUD, orchestration, dirty-cluster helpers
     ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
@@ -128,23 +131,27 @@ Every response is built from two context layers:
 
 **Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
 
-## Summarization System (v5.3.0 — cluster-based)
+## Summarization System (v6.0.0 — segment-based)
 
-`!summary create` runs the full cluster pipeline via `summarizer.py` → `cluster_overview.py`:
+`!summary create` runs the segment pipeline via `summarizer.py` → `segmenter.py` → `cluster_overview.py`:
 
-1. **Cluster**: UMAP + HDBSCAN groups all message embeddings into topic clusters
-2. **Per-cluster summarize**: single Gemini call per cluster → label, summary, decisions, key_facts, action_items, open_questions
-3. **Classify**: GPT-4o-mini whitelist filter on aggregated items — keeps only project decisions, config, human-owned action items, user identity, channel purpose, genuine open questions; missing verdicts default to DROP
-4. **Overview**: Gemini call with cluster labels + summary texts only → channel overview paragraph + participants list (no structured fields — prevents token blowup)
-5. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items across all four arrays
-6. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + key facts in the same summary; removes answered questions
-7. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
+1. **Segment**: Gemini batch-processes messages (500/batch, 20 overlap) — identifies topic boundaries and writes a synthesis per segment resolving implicit references ("yes" → "Alice agreed to use PostgreSQL")
+2. **Embed segments**: OpenAI embeds each synthesis, stored in `segments.embedding`
+3. **Cluster segments**: UMAP + HDBSCAN on segment embeddings → cluster records + `cluster_segments` junction (no `cluster_messages` rows — rollback safe)
+4. **Per-cluster summarize**: Gemini per cluster using segment syntheses as M-labeled inputs
+5. **Classify**: GPT-4o-mini whitelist filter — keeps project decisions, config, human-owned actions, user identity, genuine open questions; missing verdicts default to DROP
+6. **Overview**: Gemini with cluster labels + summary texts → channel overview + participants
+7. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items
+8. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + facts
+9. **Translate + save**: field names mapped to v4.x format and stored in `channel_summaries`
+
+**Fallback**: if segmentation yields 0 segments or segment clustering fails, falls back automatically to direct message clustering (v5.x path).
 
 **Key design choices:**
+- Synthesis resolves implicit meaning — context is preserved across segment boundaries
+- Segment embeddings replace per-message embeddings for clustering and retrieval
 - Classifier runs before overview LLM — prevents 16K+ token response with 50+ clusters
-- Overview receives labels + texts only — output is a few hundred tokens max
-- Embedding dedup over LLM dedup — LLMs are reluctant to delete content they're given
-- Decision = agreement on a course of action (not fact lookups or casual preferences)
+- `cluster_messages` not written in segment path — `message_embeddings` retained for rollback
 - Field translation at storage time — display layer (`format_always_on_context`) unchanged
 
 ## Configuration
