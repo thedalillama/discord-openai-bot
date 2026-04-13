@@ -1,15 +1,13 @@
 # utils/segment_store.py
-# Version 1.0.0
+# Version 1.0.1
 """
 Segment CRUD, query, and segment-based clustering (SOW v6.0.0).
 
+CHANGES v1.0.1: Add updated_at to _store_segment_cluster_record INSERT (was NOT NULL error)
 CREATED v1.0.0: Segment pipeline storage (SOW v6.0.0)
-- CRUD: store_segments, clear_channel_segments, store_segment_embedding,
-  store_cluster_segments, get_segment_count
-- Query: get_segment_embeddings, get_segments_by_ids, get_cluster_segment_ids,
-  get_cluster_content
-- Clustering: run_segment_clustering — UMAP+HDBSCAN on segments, stores to
-  clusters + cluster_segments tables; does NOT touch cluster_messages
+- CRUD: store_segments, clear_channel_segments, store_segment_embedding, store_cluster_segments, get_segment_count
+- Query: get_segment_embeddings, get_segments_by_ids, get_cluster_segment_ids, get_cluster_content
+- Clustering: run_segment_clustering — UMAP+HDBSCAN on segments; writes to clusters + cluster_segments (not cluster_messages)
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -211,10 +209,10 @@ def _store_segment_cluster_record(channel_id, label, centroid_vec, seq):
     try:
         conn.execute(
             "INSERT OR REPLACE INTO clusters "
-            "(id, channel_id, label, summary, status, created_at, "
-            " needs_resummarize, embedding) VALUES (?,?,?,?,?,?,?,?)",
+            "(id, channel_id, label, summary, status, created_at, updated_at, "
+            " needs_resummarize, embedding) VALUES (?,?,?,?,?,?,?,?,?)",
             (cluster_id, channel_id, label, None, "active",
-             created_at, 0, pack_embedding(centroid_vec)))
+             created_at, created_at, 0, pack_embedding(centroid_vec)))
         conn.commit()
         return cluster_id
     finally:
