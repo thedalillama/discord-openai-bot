@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 5.11.0
+# Version 5.13.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -154,6 +154,12 @@ history preserves). Only the cluster pipeline is active.
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).
 Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()`.
+
+Embedding noise filter (v5.13.0): `utils/embedding_noise_filter.py`
+`should_skip_embedding(content, is_bot_author)` — single gate applied at
+embed time (`raw_events.py`) and backfill (`embedding_store.py`). Skips
+commands, bot output, diagnostic prefixes, `[Original Message Deleted]`
+placeholders, and messages under 4 words (questions exempt).
 
 ### Providers
 - OpenAI, Anthropic, DeepSeek (conversation) — per-channel configurable

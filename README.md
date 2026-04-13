@@ -1,5 +1,5 @@
 # README.md
-# Version 5.11.0
+# Version 5.13.0
 
 # Synthergy Discord Bot
 
@@ -97,6 +97,7 @@ discord-bot/
     ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
     ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
     ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
+    ├── embedding_noise_filter.py      # Embedding skip gate: thin msgs, deleted placeholders (v5.13.0)
     ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
     ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
     ├── summarizer.py                  # Summarization router (v4.0.0)
