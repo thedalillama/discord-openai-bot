@@ -26,11 +26,12 @@ tables are retained for rollback.
 **New files:** `utils/segment_store.py` v1.0.0 (CRUD + segment clustering),
 `utils/segmenter.py` v1.0.0 (Gemini segmentation+synthesis, batch with overlap)
 
-**Modified:** `cluster_engine.py` v1.1.0 (cluster_segments()), `cluster_summarizer.py`
-v1.1.0 (use_segments param), `cluster_retrieval.py` v1.1.0 (get_cluster_content()),
-`context_retrieval.py` v1.5.0 (segment injection), `cluster_overview.py` v2.3.0
-(pre_run_stats param), `summarizer.py` v4.1.0 (segment orchestration),
-`cluster_commands.py` v1.4.0 (!debug segments), `config.py` v1.16.0 (segment vars)
+**Modified:** `cluster_engine.py` v1.2.0 (cluster_segments() + _adaptive_params()),
+`cluster_summarizer.py` v1.1.0 (use_segments param), `cluster_retrieval.py` v1.1.0
+(get_cluster_content()), `context_retrieval.py` v1.5.0 (segment injection),
+`cluster_overview.py` v2.3.0 (pre_run_stats param), `summarizer.py` v4.1.0
+(segment orchestration), `cluster_commands.py` v1.4.0 (!debug segments),
+`config.py` v1.16.0 (segment vars)
 
 After deploy: run `!summary create` to rebuild with segment-based clusters.
 
