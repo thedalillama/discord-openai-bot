@@ -1,7 +1,13 @@
 # config.py
-# Version 1.16.0
+# Version 1.17.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.17.0: Direct segment retrieval configuration (SOW v6.1.0)
+- ADDED: RETRIEVAL_FLOOR (default 0.15) — absolute minimum score for segment
+  retrieval; replaces RETRIEVAL_MIN_SCORE on the primary segment path
+- ADDED: RETRIEVAL_SCORE_GAP (default 0.08) — triggers cutoff at the largest
+  inter-score gap after top-K selection; set to 0 to disable
 
 CHANGES v1.16.0: Segment pipeline configuration (SOW v6.0.0)
 - ADDED: SEGMENT_BATCH_SIZE (default 500) — messages per Gemini segmentation call
@@ -130,9 +136,16 @@ SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
 # RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
 RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
-# RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a cluster (0.0–1.0).
-# Filters out low-relevance clusters that would otherwise pollute context.
+# RETRIEVAL_MIN_SCORE: minimum cosine similarity for cluster rollback path and
+# incremental cluster assignment. Not used on the primary segment retrieval path.
 RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
+# RETRIEVAL_FLOOR: absolute minimum score for direct segment retrieval. Segments
+# below this are never returned regardless of top-K. Set low — top-K and
+# score-gap are the primary filters. (SOW v6.1.0)
+RETRIEVAL_FLOOR = float(os.environ.get('RETRIEVAL_FLOOR', 0.15))
+# RETRIEVAL_SCORE_GAP: minimum gap between adjacent scores to trigger cutoff
+# after top-K selection. Set to 0 to disable score-gap detection. (SOW v6.1.0)
+RETRIEVAL_SCORE_GAP = float(os.environ.get('RETRIEVAL_SCORE_GAP', 0.08))
 # EMBEDDING_CONTEXT_MIN_SCORE: minimum cosine similarity for a previous message
 # to be included as context in the [Context: ...] prefix when building stored
 # embeddings. Lower = more inclusive. Questions always pass. (SOW v5.12.0)

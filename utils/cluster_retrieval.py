@@ -1,16 +1,18 @@
 # utils/cluster_retrieval.py
-# Version 1.1.0
+# Version 1.2.0
 """
-Query-time cluster retrieval for semantic context injection.
+Query-time cluster/segment retrieval for semantic context injection.
 
-Called from context_manager.py to find relevant clusters for an incoming
-query and fetch their member messages for injection into the system prompt.
-Mirrors find_relevant_topics()/get_topic_messages() from embedding_store.py
-but reads from clusters/cluster_messages instead of topics/topic_messages.
+CHANGES v1.2.0: Direct segment retrieval (SOW v6.1.0)
+- ADD: find_relevant_segments() — score query vs all segment embeddings directly
+- ADD: _apply_score_gap() — adaptive cutoff at the largest inter-score gap
+- ADD: get_segment_with_messages() — per-segment content fetch for context injection
+  (placed here instead of segment_store.py due to 250-line limit on that file)
+- KEEP: find_relevant_clusters(), get_cluster_messages(), get_cluster_content()
+  for rollback path and !debug commands
 
 CHANGES v1.1.0: Segment-aware retrieval (SOW v6.0.0)
 - ADD: get_cluster_content() — thin wrapper over segment_store.get_cluster_content()
-  for segment-based retrieval. Returns syntheses + source messages per segment.
 - KEEP: get_cluster_messages() for rollback.
 
 CREATED v1.0.0: Cluster-based retrieval replacing topic retrieval (SOW v5.5.0)
@@ -26,19 +28,104 @@ from utils.logging_utils import get_logger
 logger = get_logger('cluster_retrieval')
 
 
+def _apply_score_gap(results, gap_threshold=0.08):
+    """Cut results at the largest score gap if it exceeds gap_threshold.
+
+    Args:
+        results: list of tuples where score is the last element.
+        gap_threshold: minimum gap to trigger a cut (0 disables).
+
+    Returns: pruned list (unchanged if no significant gap found).
+    """
+    if gap_threshold <= 0 or len(results) <= 1:
+        return results
+    gaps = [(results[i][-1] - results[i + 1][-1], i + 1)
+            for i in range(len(results) - 1)]
+    max_gap, cut_idx = max(gaps, key=lambda x: x[0])
+    return results[:cut_idx] if max_gap >= gap_threshold else results
+
+
+def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15):
+    """Score query against all segment embeddings. Return top-K above floor.
+
+    Queries segment embeddings directly instead of cluster centroids, giving
+    focused similarity scores against individual topic groups.
+
+    Args:
+        query_embedding: query vector (list or np.array)
+        channel_id: Discord channel ID
+        top_k: max segments to return
+        floor: absolute minimum score; segments below this are never returned
+
+    Returns:
+        list of (segment_id, topic_label, synthesis, score) tuples,
+        score descending. Only segments above floor included.
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT id, topic_label, synthesis, embedding FROM segments "
+            "WHERE channel_id=? AND embedding IS NOT NULL",
+            (channel_id,)).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    query = np.array(query_embedding, dtype=np.float32)
+    results = []
+    for seg_id, topic_label, synthesis, blob in rows:
+        seg_vec = np.array(unpack_embedding(blob), dtype=np.float32)
+        norm = float(np.linalg.norm(query) * np.linalg.norm(seg_vec))
+        score = float(np.dot(query, seg_vec)) / norm if norm > 0 else 0.0
+        if score >= floor:
+            results.append((seg_id, topic_label or "", synthesis or "", score))
+
+    results.sort(key=lambda x: x[3], reverse=True)
+    return results[:top_k]
+
+
+def get_segment_with_messages(segment_id, exclude_ids=None):
+    """Return synthesis and source messages for a single segment.
+
+    Placed here (not segment_store.py) due to the 250-line limit on that file.
+
+    Returns:
+        {"segment_id", "topic_label", "synthesis",
+         "messages": [(msg_id, author, content, created_at), ...]}
+        or None if segment not found.
+    """
+    exclude = set(exclude_ids or [])
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        row = conn.execute(
+            "SELECT id, topic_label, synthesis FROM segments WHERE id=?",
+            (segment_id,)).fetchone()
+        if not row:
+            return None
+        seg_id, topic_label, synthesis = row
+        msgs = conn.execute(
+            "SELECT m.id, m.author_name, m.content, m.created_at "
+            "FROM segment_messages sm JOIN messages m ON m.id=sm.message_id "
+            "WHERE sm.segment_id=? ORDER BY sm.position ASC",
+            (seg_id,)).fetchall()
+        return {
+            "segment_id":  seg_id,
+            "topic_label": topic_label or "",
+            "synthesis":   synthesis or "",
+            "messages":    [(r[0], r[1], r[2], r[3])
+                            for r in msgs if r[0] not in exclude],
+        }
+    finally:
+        conn.close()
+
+
 def find_relevant_clusters(query_embedding, channel_id, top_k=5):
     """Return top-K (cluster_id, label, score) sorted by cosine similarity.
 
-    Loads all cluster centroids for the channel, scores each against the
-    query vector. No noise filter needed — HDBSCAN noise points never form
-    clusters, so there are no noise clusters to filter.
-
-    Args:
-        query_embedding: list or array of floats (query message vector)
-        channel_id: Discord channel ID
-        top_k: max clusters to return (caller applies RETRIEVAL_MIN_SCORE)
-
-    Returns: list of (cluster_id, label, score) tuples, score descending.
+    Loads all cluster centroids for the channel. Retained for rollback
+    path and !debug commands.
     """
     conn = sqlite3.connect(DATABASE_PATH)
     try:
@@ -67,14 +154,7 @@ def find_relevant_clusters(query_embedding, channel_id, top_k=5):
 def get_cluster_messages(cluster_id, exclude_ids=None):
     """Return (message_id, author_name, content, created_at) for a cluster.
 
-    Messages ordered by created_at ascending. Messages in exclude_ids are
-    omitted to prevent duplication with recent conversation context.
-
-    Args:
-        cluster_id: cluster identifier string
-        exclude_ids: set/collection of message_ids already in conversation context
-
-    Returns: list of (message_id, author_name, content, created_at) tuples.
+    Retained for rollback path and !explain detail.
     """
     exclude = set(exclude_ids) if exclude_ids else set()
     conn = sqlite3.connect(DATABASE_PATH)
@@ -93,10 +173,8 @@ def get_cluster_messages(cluster_id, exclude_ids=None):
 def get_cluster_content(cluster_id, exclude_ids=None):
     """Return segment syntheses and source messages for a cluster.
 
-    Delegates to segment_store.get_cluster_content().
-    Returns [{"segment_id", "synthesis", "topic_label",
-    "messages": [(msg_id, author, content, created_at), ...]}].
-    Returns empty list if no segments exist (use get_cluster_messages fallback).
+    Delegates to segment_store.get_cluster_content(). Retained for rollback.
+    Returns empty list if no segments exist.
     """
     from utils.segment_store import get_cluster_content as _get
     return _get(cluster_id, exclude_ids)

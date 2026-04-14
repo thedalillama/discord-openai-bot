@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 6.0.0
+# Version 6.1.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -58,18 +58,19 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v5.6.0 — contextual cluster-based)
+### Semantic Retrieval (v6.1.0 — direct segment retrieval)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded WITH context → top cluster centroids →
-  cluster member messages injected as "PAST MESSAGES FROM THIS CHANNEL"
+- **Retrieved**: latest user message embedded WITH context → top-K segment embeddings →
+  segment syntheses + source messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
 Retrieval path (`context_manager.py` → `context_retrieval.py`):
 1. Build contextual query: prepend last 3 in-memory conversation messages
-2. `embed_text()` on contextual query
-3. `find_relevant_clusters()` — cosine similarity vs cluster centroids, top-K
-4. Filter by `RETRIEVAL_MIN_SCORE` (0.25 default; 0.5 in production .env)
-5. `get_cluster_messages()` — direct member messages, exclude recent_ids
+2. `embed_query_with_smart_context()` on contextual query
+3. `find_relevant_segments()` — cosine similarity vs ALL segment embeddings, top-K
+4. `_apply_score_gap()` — cuts at largest inter-score gap ≥ RETRIEVAL_SCORE_GAP (0.08)
+5. `get_segment_with_messages()` — synthesis + source messages per segment
+6. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
 
 **Embedding strategy (v5.6.0):**
 All embeddings include conversational context via `build_contextual_text()` in
