@@ -128,8 +128,9 @@ def rrf_fuse(dense_ranked, bm25_ranked, k=15, top_n=5):
         top_n: max results to return
 
     Returns:
-        list of segment_ids ranked by fused score (best first).
-        If bm25_ranked is empty, returns dense_ranked[:top_n] unchanged.
+        list of (segment_id, rrf_score) tuples ranked by fused score (best first).
+        rrf_score is the sum of 1/(k+rank) contributions — use this as the
+        display score for all fused segments, dense or BM25-only.
     """
     scores = {}
     for rank, seg_id in enumerate(dense_ranked, 1):
@@ -137,4 +138,4 @@ def rrf_fuse(dense_ranked, bm25_ranked, k=15, top_n=5):
     for rank, seg_id in enumerate(bm25_ranked, 1):
         scores[seg_id] = scores.get(seg_id, 0) + 1 / (k + rank)
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [seg_id for seg_id, _ in ranked[:top_n]]
+    return [(seg_id, round(rrf_score, 4)) for seg_id, rrf_score in ranked[:top_n]]
