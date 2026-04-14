@@ -167,10 +167,12 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
         # Hybrid: fuse dense + BM25 via Reciprocal Rank Fusion
         dense_ranked = [s[0] for s in segments]
         bm25_ranked = fts_search(query_text, channel_id, top_n=20)
-        fused_ids = rrf_fuse(dense_ranked, bm25_ranked, k=RRF_K, top_n=RETRIEVAL_TOP_K)
+        fused_pairs = rrf_fuse(dense_ranked, bm25_ranked, k=RRF_K, top_n=RETRIEVAL_TOP_K)
         dense_map = {s[0]: s for s in segments}
-        # BM25-only entries get (sid, None, None, None); resolved via seg_data below
-        segments = [dense_map.get(sid, (sid, None, None, None)) for sid in fused_ids]
+        # Use RRF score uniformly; BM25-only entries resolved via seg_data below
+        segments = [(sid, dense_map[sid][1], dense_map[sid][2], rs)
+                    if sid in dense_map else (sid, None, None, rs)
+                    for sid, rs in fused_pairs]
         logger.debug(
             f"Hybrid ch:{channel_id}: dense={len(dense_ranked)} "
             f"bm25={len(bm25_ranked)} fused={len(segments)} gap={gap_applied}")
