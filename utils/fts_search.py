@@ -82,21 +82,31 @@ def fts_search(query_text, channel_id, top_n=20):
     FTS5 rank is negative (more negative = more relevant), so ORDER BY rank
     returns best matches first. Returns [] on any failure or no match.
 
+    query_text is sanitized before passing to MATCH: FTS5 special characters
+    (?, *, ", :, ^, (, ), -) are stripped so raw user questions don't cause
+    syntax errors. Each remaining token becomes an implicit OR term.
+
     Args:
-        query_text: raw user query string passed to FTS5 MATCH
+        query_text: raw user query string
         channel_id: Discord channel ID
         top_n: max results to return
 
     Returns:
         list of segment_id integers, ranked by BM25 (best first)
     """
+    import re
+    # Strip FTS5 special chars; collapse whitespace into individual terms
+    sanitized = re.sub(r'[?*":()\-^]', ' ', query_text)
+    sanitized = ' '.join(sanitized.split())
+    if not sanitized:
+        return []
     conn = sqlite3.connect(DATABASE_PATH)
     try:
         rows = conn.execute(
             "SELECT segment_id FROM segments_fts "
             "WHERE channel_id=? AND segments_fts MATCH ? "
             "ORDER BY rank LIMIT ?",
-            (str(channel_id), query_text, top_n)).fetchall()
+            (str(channel_id), sanitized, top_n)).fetchall()
         return [r[0] for r in rows]
     except Exception as e:
         logger.warning(f"FTS5 search failed ch:{channel_id}: {e}")
