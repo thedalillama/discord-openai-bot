@@ -1,8 +1,31 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.0.0
+# Version 6.1.0
 
 ## Current Version Features
+
+### Version 6.1.0 — Direct Segment Retrieval + Top-K
+
+Replaced cluster centroid retrieval with direct segment embedding retrieval.
+Instead of scoring a query against 15 averaged cluster centroids, the query
+is scored against all ~150 individual segment embeddings, giving precise
+per-topic similarity scores. Score-gap detection provides an adaptive
+relevance cutoff after top-K selection.
+
+**What changed on the retrieval path:**
+- `find_relevant_segments()` — cosine vs all segment embeddings directly
+- `_apply_score_gap()` — cuts at largest inter-score gap if ≥ RETRIEVAL_SCORE_GAP
+- `get_segment_with_messages()` — per-segment content fetch
+- Rollback: if no segments in DB, falls back to cluster centroid retrieval
+
+**New config vars:** `RETRIEVAL_FLOOR` (default 0.15, floor for segment retrieval),
+`RETRIEVAL_SCORE_GAP` (default 0.08, gap cutoff threshold).
+
+**Modified:** `cluster_retrieval.py` v1.2.0, `context_retrieval.py` v1.6.0
+(renamed `_retrieve_segment_context`), `explain_commands.py` v1.2.0
+(segment-aware receipt display), `config.py` v1.17.0
+
+---
 
 ### Version 6.0.0 — Conversation Segmentation Pipeline
 

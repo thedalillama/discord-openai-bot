@@ -106,7 +106,7 @@ def build_context_for_provider(channel_id, provider):
     semantically retrieved cluster messages. Falls back to full summary
     injection if retrieval is unavailable.
     """
-    from utils.context_retrieval import _retrieve_cluster_context
+    from utils.context_retrieval import _retrieve_segment_context
 
     all_messages = prepare_messages_for_api(channel_id)
 
@@ -139,7 +139,7 @@ def build_context_for_provider(channel_id, provider):
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
         retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
-        retrieved, retrieved_tokens, cluster_receipt, citation_map = _retrieve_cluster_context(
+        retrieved, retrieved_tokens, cluster_receipt, citation_map = _retrieve_segment_context(
             channel_id, conversation_msgs, retrieval_budget)
 
         today = date.today().isoformat()

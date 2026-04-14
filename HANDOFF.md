@@ -1,8 +1,31 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.0.0
+# Version 6.1.0
 
 ## Current Version Features
+
+### Version 6.1.0 — Direct Segment Retrieval + Top-K
+
+Retrieval hot path changed from cluster centroid scoring to direct segment
+embedding scoring. Query is scored against all segment embeddings (not 15
+centroids), returning top-K with optional score-gap cutoff.
+
+**Retrieval flow (`_retrieve_segment_context` in `context_retrieval.py`):**
+1. Embed query via `embed_query_with_smart_context()` (unchanged)
+2. `find_relevant_segments()` — cosine vs all segment embeddings, floor 0.15
+3. `_apply_score_gap()` — cut at largest inter-score gap ≥ 0.08 (configurable)
+4. Per segment: `get_segment_with_messages()` → synthesis + source messages
+5. Inject `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
+6. Synthesis-only fallback when token budget is tight
+
+**Rollback path:** if no segments in DB (pre-v6 channel), `_cluster_rollback()`
+fires and uses `find_relevant_clusters()` + `get_cluster_messages()`.
+
+**New config:** `RETRIEVAL_FLOOR=0.15`, `RETRIEVAL_SCORE_GAP=0.08`
+**Modified:** `cluster_retrieval.py` v1.2.0, `context_retrieval.py` v1.6.0,
+`explain_commands.py` v1.2.0, `config.py` v1.17.0
+
+---
 
 ### Version 6.0.0 — Conversation Segmentation Pipeline
 

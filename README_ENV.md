@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 6.0.0
+# Version 6.1.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -57,13 +57,15 @@ the trimmer drops oldest recent messages to fit within the remaining budget.
 
 The `data/` directory is created automatically on first run.
 
-## Semantic Retrieval Configuration (v5.6.0+)
+## Semantic Retrieval Configuration (v6.1.0+)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_TOP_K` | Max clusters retrieved per query | `5` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` |
+| `RETRIEVAL_TOP_K` | Max segments returned per query | `5` |
+| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval; segments below this never returned | `0.15` |
+| `RETRIEVAL_SCORE_GAP` | Triggers cutoff at largest inter-score gap after top-K; set to `0` to disable | `0.08` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster rollback path and incremental assignment | `0.25` |
 | `QUERY_TOPIC_SHIFT_THRESHOLD` | At query time, cosine similarity below this vs previous message = topic shift → raw embedding; above = re-embed with context | `0.5` |
 | `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for a previous message to be included in the `[Context: ...]` prefix for stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
@@ -72,10 +74,11 @@ Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`
 
 **Budget note:** for providers with large `MAX_TOKENS` relative to context window (e.g. DeepSeek:
 64k context − 8k max_tokens at 15% = only 1,600 token budget), keep `CONTEXT_BUDGET_PERCENT`
-at 80 or cluster retrieval will be starved and fall back to message similarity.
+at 80 or retrieval will be starved and fall back to message similarity.
 
-At query time, only clusters scoring above `RETRIEVAL_MIN_SCORE` against the query
-embedding are injected. Fallback fires when no clusters pass the threshold.
+**Primary path (v6.1.0):** `RETRIEVAL_FLOOR` and `RETRIEVAL_SCORE_GAP` control segment
+retrieval. `RETRIEVAL_MIN_SCORE` is only used on the cluster rollback path (pre-v6 channels
+with no segments) and for incremental cluster assignment.
 
 After changing `EMBEDDING_MODEL` or migrating to a new server, run:
 1. `!debug reembed` in Discord — wipes and re-embeds all messages with contextual text
