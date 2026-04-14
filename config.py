@@ -134,15 +134,15 @@ SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 # EMBEDDING_MODEL: OpenAI embedding model. text-embedding-3-small is 1536
 # dimensions, fast, and inexpensive. Uses OPENAI_API_KEY.
 EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
-# RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
-RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
+# RETRIEVAL_TOP_K: number of segments to retrieve per query (v6.1.0 tuned to 7).
+RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 7))
 # RETRIEVAL_MIN_SCORE: minimum cosine similarity for cluster rollback path and
 # incremental cluster assignment. Not used on the primary segment retrieval path.
 RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
 # RETRIEVAL_FLOOR: absolute minimum score for direct segment retrieval. Segments
 # below this are never returned regardless of top-K. Set low — top-K and
 # score-gap are the primary filters. (SOW v6.1.0)
-RETRIEVAL_FLOOR = float(os.environ.get('RETRIEVAL_FLOOR', 0.15))
+RETRIEVAL_FLOOR = float(os.environ.get('RETRIEVAL_FLOOR', 0.20))
 # RETRIEVAL_SCORE_GAP: minimum gap between adjacent scores to trigger cutoff
 # after top-K selection. Set to 0 to disable score-gap detection. (SOW v6.1.0)
 RETRIEVAL_SCORE_GAP = float(os.environ.get('RETRIEVAL_SCORE_GAP', 0.08))

@@ -62,8 +62,8 @@ The `data/` directory is created automatically on first run.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_TOP_K` | Max segments returned per query | `5` |
-| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval; segments below this never returned | `0.15` |
+| `RETRIEVAL_TOP_K` | Max segments returned per query | `7` |
+| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval; segments below this never returned | `0.20` |
 | `RETRIEVAL_SCORE_GAP` | Triggers cutoff at largest inter-score gap after top-K; set to `0` to disable | `0.08` |
 | `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster rollback path and incremental assignment | `0.25` |
 | `QUERY_TOPIC_SHIFT_THRESHOLD` | At query time, cosine similarity below this vs previous message = topic shift → raw embedding; above = re-embed with context | `0.5` |
