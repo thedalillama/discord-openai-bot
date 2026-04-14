@@ -1,9 +1,14 @@
 # utils/summarizer.py
-# Version 4.1.0
+# Version 4.2.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
+
+CHANGES v4.2.0: Populate FTS5 index after segmentation (SOW v6.2.0)
+- MODIFIED: summarize_channel() — calls populate_fts(channel_id) via
+  asyncio.to_thread() after run_segmentation_phase() succeeds (seg_count > 0).
+  FTS5 failure does not abort the pipeline — it degrades BM25 to empty list.
 
 CHANGES v4.1.0: Segment pipeline integration (SOW v6.0.0)
 - MODIFIED: summarize_channel() — runs segmentation phase before clustering:
@@ -64,6 +69,8 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
                 f"message-based clustering")
             return await run_cluster_pipeline(channel_id, provider,
                                               progress_fn=progress_fn)
+        from utils.fts_search import populate_fts
+        await asyncio.to_thread(populate_fts, channel_id)
         seg_stats = await asyncio.to_thread(run_segment_clustering, channel_id)
         if seg_stats is None:
             logger.warning(

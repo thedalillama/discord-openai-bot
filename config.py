@@ -1,7 +1,11 @@
 # config.py
-# Version 1.17.0
+# Version 1.18.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.18.0: RRF_K for hybrid retrieval (SOW v6.2.0)
+- ADDED: RRF_K (default 15) — Reciprocal Rank Fusion constant; controls how
+  much weight the top-ranked segments get when fusing BM25 and dense results.
 
 CHANGES v1.17.0: Direct segment retrieval configuration (SOW v6.1.0)
 - ADDED: RETRIEVAL_FLOOR (default 0.15) — absolute minimum score for segment
@@ -146,6 +150,10 @@ RETRIEVAL_FLOOR = float(os.environ.get('RETRIEVAL_FLOOR', 0.20))
 # RETRIEVAL_SCORE_GAP: minimum gap between adjacent scores to trigger cutoff
 # after top-K selection. Set to 0 to disable score-gap detection. (SOW v6.1.0)
 RETRIEVAL_SCORE_GAP = float(os.environ.get('RETRIEVAL_SCORE_GAP', 0.08))
+# RRF_K: Reciprocal Rank Fusion constant for hybrid BM25+dense retrieval.
+# Lower value = more weight on top-ranked segments. k=15 tuned for small result
+# sets (top_k=7 candidates per ranker). (SOW v6.2.0)
+RRF_K = int(os.environ.get('RRF_K', 15))
 # EMBEDDING_CONTEXT_MIN_SCORE: minimum cosine similarity for a previous message
 # to be included as context in the [Context: ...] prefix when building stored
 # embeddings. Lower = more inclusive. Questions always pass. (SOW v5.12.0)

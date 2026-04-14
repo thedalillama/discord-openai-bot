@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 6.1.0
+# Version 6.2.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -58,19 +58,21 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v6.1.0 — direct segment retrieval)
+### Semantic Retrieval (v6.2.0 — hybrid BM25 + dense + RRF)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded WITH context → top-K segment embeddings →
+- **Retrieved**: latest user message embedded WITH context → hybrid BM25+dense →
   segment syntheses + source messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
 Retrieval path (`context_manager.py` → `context_retrieval.py`):
 1. Build contextual query: prepend last 3 in-memory conversation messages
 2. `embed_query_with_smart_context()` on contextual query
-3. `find_relevant_segments()` — cosine similarity vs ALL segment embeddings, top-K
-4. `_apply_score_gap()` — cuts at largest inter-score gap ≥ RETRIEVAL_SCORE_GAP (0.08)
-5. `get_segment_with_messages()` — synthesis + source messages per segment
-6. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
+3. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
+4. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
+5. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
+6. `rrf_fuse(dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
+7. `get_segment_with_messages()` — synthesis + source messages per segment
+8. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
 
 **Embedding strategy (v5.6.0):**
 All embeddings include conversational context via `build_contextual_text()` in
@@ -100,9 +102,9 @@ if combined length > 1950 chars. No citations when retrieval empty or for comman
 Key files: `utils/citation_utils.py` (strip/build/apply), `utils/context_retrieval.py`
 (citation numbering + 4-tuple return), `utils/context_manager.py` (citation pass-through)
 
-Key files: `utils/cluster_retrieval.py` (find_relevant_clusters, get_cluster_content),
-`utils/segment_store.py` (get_cluster_content — segment syntheses + source messages),
-`utils/context_retrieval.py` (segment injection + fallback, v1.5.0),
+Key files: `utils/cluster_retrieval.py` (find_relevant_segments, get_segment_with_messages),
+`utils/fts_search.py` (populate_fts, fts_search, rrf_fuse — BM25 + fusion),
+`utils/context_retrieval.py` (hybrid retrieval + fallback, v1.7.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
 `utils/context_manager.py` (always-on + budget + timestamps + citation pass-through)
 
