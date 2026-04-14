@@ -1,8 +1,38 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.1.0
+# Version 6.2.0
 
 ## Current Version Features
+
+### Version 6.2.0 — SQLite FTS5 Hybrid Search + RRF Fusion
+
+Adds BM25 keyword retrieval via SQLite FTS5, fused with dense retrieval via
+Reciprocal Rank Fusion. Addresses keyword recall gaps where segment syntheses
+paraphrase original terms.
+
+**Retrieval flow (`_retrieve_segment_context` in `context_retrieval.py`):**
+1. Embed query via `embed_query_with_smart_context()` (unchanged)
+2. `find_relevant_segments(top_k * 2)` — cosine vs all segment embeddings, floor 0.20
+3. `_apply_score_gap()` — cut dense candidates at largest inter-score gap ≥ 0.08
+4. `fts_search(query_text)` — BM25 via FTS5; matches synthesis + raw message text
+5. `rrf_fuse(dense, bm25, k=RRF_K)` — rank-based fusion; returns top-K fused IDs
+6. Per fused segment: `get_segment_with_messages()` → synthesis + source messages
+7. BM25-only segments (not in dense pool) resolved from seg_data dict
+8. Inject `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
+9. Synthesis-only fallback when token budget is tight
+
+**FTS5 index:** populated by `populate_fts()` in `utils/fts_search.py` during
+`!summary create`. Failure degrades gracefully to dense-only (empty BM25 list
+leaves RRF fusion unchanged).
+
+**Rollback path:** if no segments in DB (pre-v6 channel), `_cluster_rollback()`
+fires and uses `find_relevant_clusters()` + `get_cluster_messages()`.
+
+**New config:** `RRF_K=15`
+**New files:** `utils/fts_search.py` v1.0.0, `schema/009.sql`
+**Modified:** `context_retrieval.py` v1.7.0, `summarizer.py` v4.2.0, `config.py` v1.18.0
+
+---
 
 ### Version 6.1.0 — Direct Segment Retrieval + Top-K
 
@@ -12,7 +42,7 @@ centroids), returning top-K with optional score-gap cutoff.
 
 **Retrieval flow (`_retrieve_segment_context` in `context_retrieval.py`):**
 1. Embed query via `embed_query_with_smart_context()` (unchanged)
-2. `find_relevant_segments()` — cosine vs all segment embeddings, floor 0.15
+2. `find_relevant_segments()` — cosine vs all segment embeddings, floor 0.20
 3. `_apply_score_gap()` — cut at largest inter-score gap ≥ 0.08 (configurable)
 4. Per segment: `get_segment_with_messages()` → synthesis + source messages
 5. Inject `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
@@ -21,7 +51,7 @@ centroids), returning top-K with optional score-gap cutoff.
 **Rollback path:** if no segments in DB (pre-v6 channel), `_cluster_rollback()`
 fires and uses `find_relevant_clusters()` + `get_cluster_messages()`.
 
-**New config:** `RETRIEVAL_FLOOR=0.15`, `RETRIEVAL_SCORE_GAP=0.08`
+**New config:** `RETRIEVAL_FLOOR=0.20`, `RETRIEVAL_SCORE_GAP=0.08`, `RETRIEVAL_TOP_K=7`
 **Modified:** `cluster_retrieval.py` v1.2.0, `context_retrieval.py` v1.6.0,
 `explain_commands.py` v1.2.0, `config.py` v1.17.0
 
@@ -167,7 +197,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 ```
 discord-bot/
 ├── bot.py                         # v3.3.0
-├── config.py                      # v1.16.0
+├── config.py                      # v1.18.0
 ├── main.py
 ├── .env
 ├── data/
@@ -180,7 +210,8 @@ discord-bot/
 │   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
 │   ├── 006.sql                    # v5.4.0 needs_resummarize column
 │   ├── 007.sql                    # v5.11.0 drop topics, topic_messages
-│   └── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
+│   ├── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
+│   └── 009.sql                    # v6.2.0 segments_fts FTS5 virtual table
 ├── ai_providers/
 │   ├── __init__.py                # v1.5.0
 │   ├── openai_provider.py         # v1.4.0
@@ -203,6 +234,7 @@ discord-bot/
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
 │   ├── receipt_store.py           # v1.0.0
+│   ├── fts_search.py              # v1.0.0  ← new v6.2.0
 │   ├── segment_store.py           # v1.0.0  ← new v6.0.0
 │   ├── segmenter.py               # v1.0.0  ← new v6.0.0
 │   ├── cluster_engine.py          # v1.1.0
@@ -213,7 +245,7 @@ discord-bot/
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.1.0
+│   ├── cluster_retrieval.py       # v1.2.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.3.0
 │   ├── message_store.py           # v1.2.0
@@ -222,10 +254,10 @@ discord-bot/
 │   ├── embedding_store.py         # v1.10.0
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
-│   ├── context_retrieval.py       # v1.5.0
+│   ├── context_retrieval.py       # v1.7.0
 │   ├── context_manager.py         # v2.5.1
 │   ├── response_handler.py        # v1.4.0
-│   ├── summarizer.py              # v4.1.0
+│   ├── summarizer.py              # v4.2.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.2
 │   └── history/

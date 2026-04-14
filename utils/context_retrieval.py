@@ -1,14 +1,17 @@
 # utils/context_retrieval.py
-# Version 1.6.0
+# Version 1.7.0
 """
-Segment-based semantic retrieval for context injection (SOW v6.1.0).
+Segment-based semantic retrieval for context injection (SOW v6.1.0/v6.2.0).
+
+CHANGES v1.7.0: Hybrid BM25 + dense retrieval via RRF (SOW v6.2.0)
+- ADDED: fts_search() BM25 retrieval fused with dense via rrf_fuse()
+- MODIFIED: _retrieve_segment_context() — dense top_k*2 candidates; score-gap
+  applied before fusion; BM25-only segments resolved from seg_data dict
+- MODIFIED: _cluster_rollback() — unified fallback path; trimmed docstring
 
 CHANGES v1.6.0: Direct segment retrieval (SOW v6.1.0)
-- RENAMED: _retrieve_cluster_context → _retrieve_segment_context
-- PRIMARY PATH: find_relevant_segments() scores query vs all segment embeddings;
-  score-gap detection applied after top-K; receipt uses retrieved_segments key
-- ROLLBACK: _cluster_rollback() fires when no segments exist (pre-v6 channels);
-  uses cluster centroid retrieval + get_cluster_messages()
+- Renamed _retrieve_cluster_context → _retrieve_segment_context; score-gap
+  after top-K; cluster rollback for pre-v6 channels; receipt key change.
 
 CHANGES v1.5.0: Segment-aware context injection (SOW v6.0.0)
 CHANGES v1.4.0: Partial cluster injection when cluster exceeds token budget
@@ -20,7 +23,7 @@ CREATED v1.0.0: Extracted from context_manager.py v2.3.0 (SOW v5.6.0)
 estimate_tokens imported lazily from context_manager to avoid circular import.
 """
 from config import (RETRIEVAL_TOP_K, RETRIEVAL_MIN_SCORE, RETRIEVAL_MSG_FALLBACK,
-                    RETRIEVAL_FLOOR, RETRIEVAL_SCORE_GAP)
+                    RETRIEVAL_FLOOR, RETRIEVAL_SCORE_GAP, RRF_K)
 from utils.logging_utils import get_logger
 
 logger = get_logger('context_retrieval')
@@ -60,10 +63,8 @@ def _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids):
 
 def _cluster_rollback(query_vec, channel_id, query_text, embedding_path,
                       token_budget, recent_ids):
-    """Cluster centroid retrieval for pre-v6 channels with no segment data.
-
-    Uses cluster_messages junction table (v5.x path). Returns the same
-    4-tuple as _retrieve_segment_context.
+    """Cluster centroid retrieval for pre-v6 channels.
+    Uses cluster_messages junction table (v5.x path).
     """
     from utils.context_manager import estimate_tokens
     from utils.cluster_retrieval import find_relevant_clusters, get_cluster_messages
@@ -75,14 +76,6 @@ def _cluster_rollback(query_vec, channel_id, query_text, embedding_path,
                     if s >= RETRIEVAL_MIN_SCORE]
         below = [{"label": lbl, "score": round(s, 3)}
                  for _, lbl, s in all_clusters if s < RETRIEVAL_MIN_SCORE]
-
-        if not clusters:
-            text, tokens, count = _fallback_msg_search(
-                query_vec, channel_id, token_budget, recent_ids)
-            receipt = {"query": query_text, "embedding_path": embedding_path,
-                       "retrieved_clusters": [], "clusters_below_threshold": below,
-                       "fallback_used": bool(text), "fallback_messages": count}
-            return text, tokens, receipt, {}
 
         lines, tokens_used, injected = [], 0, []
         citation_map, citation_num = {}, 1
@@ -129,13 +122,9 @@ def _cluster_rollback(query_vec, channel_id, query_text, embedding_path,
 
 
 def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
-    """Embed the latest user message, find relevant segments, return formatted
-    context string of their syntheses + source messages plus a receipt dict.
-
-    Returns:
-        tuple: (context_text, tokens_used, receipt, citation_map)
-        citation_map: {int: {"author", "content", "date"}} for numbered messages.
-        Returns ("", 0, {}, {}) on any failure.
+    """Embed latest user message; fuse BM25+dense segments; return context.
+    Returns (context_text, tokens_used, receipt, citation_map).
+    ("", 0, {}, {}) on failure.
     """
     from utils.context_manager import estimate_tokens
     _empty = ("", 0, {}, {})
@@ -143,6 +132,7 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
         from utils.embedding_context import embed_query_with_smart_context
         from utils.cluster_retrieval import (
             find_relevant_segments, get_segment_with_messages, _apply_score_gap)
+        from utils.fts_search import fts_search, rrf_fuse
 
         query_text = None
         for msg in reversed(conversation_msgs):
@@ -160,10 +150,9 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
         recent_ids = {msg["_msg_id"] for msg in conversation_msgs if "_msg_id" in msg}
 
         segments = find_relevant_segments(
-            query_vec, channel_id, top_k=RETRIEVAL_TOP_K, floor=RETRIEVAL_FLOOR)
+            query_vec, channel_id, top_k=RETRIEVAL_TOP_K * 2, floor=RETRIEVAL_FLOOR)
 
         if not segments:
-            # No segments in DB — fall back to cluster centroid retrieval
             logger.debug(f"No segments ch:{channel_id} — cluster rollback")
             return _cluster_rollback(
                 query_vec, channel_id, query_text, embedding_path,
@@ -175,9 +164,16 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
             gap_applied = len(pruned) < len(segments)
             segments = pruned
 
+        # Hybrid: fuse dense + BM25 via Reciprocal Rank Fusion
+        dense_ranked = [s[0] for s in segments]
+        bm25_ranked = fts_search(query_text, channel_id, top_n=20)
+        fused_ids = rrf_fuse(dense_ranked, bm25_ranked, k=RRF_K, top_n=RETRIEVAL_TOP_K)
+        dense_map = {s[0]: s for s in segments}
+        # BM25-only entries get (sid, None, None, None); resolved via seg_data below
+        segments = [dense_map.get(sid, (sid, None, None, None)) for sid in fused_ids]
         logger.debug(
-            f"Segments ch:{channel_id}: {len(segments)}, gap={gap_applied}, "
-            f"scores: {[(s[1][:25], round(s[3], 3)) for s in segments]}")
+            f"Hybrid ch:{channel_id}: dense={len(dense_ranked)} "
+            f"bm25={len(bm25_ranked)} fused={len(segments)} gap={gap_applied}")
 
         lines, tokens_used, injected = [], 0, []
         citation_map, citation_num = {}, 1
@@ -185,8 +181,9 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
             seg_data = get_segment_with_messages(seg_id, exclude_ids=recent_ids)
             if not seg_data:
                 continue
-            s_lines = [f"[Topic: {topic_label or 'General'}]",
-                       f"Summary: {synthesis}", "\nSource messages:"]
+            tl = topic_label or seg_data.get("topic_label") or "General"
+            syn = synthesis or seg_data.get("synthesis") or ""
+            s_lines = [f"[Topic: {tl}]", f"Summary: {syn}", "\nSource messages:"]
             temp_cites, start_cite = {}, citation_num
             for mid, author, content, created_at in seg_data["messages"]:
                 temp_cites[citation_num] = {
@@ -203,21 +200,22 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
                 lines.append(section)
                 tokens_used += sec_tokens
                 injected.append({
-                    "segment_id": seg_id, "topic_label": topic_label,
-                    "score": round(score, 3),
+                    "segment_id": seg_id, "topic_label": tl,
+                    "score": round(score, 3) if score is not None else None,
                     "message_count": len(seg_data["messages"]),
                     "tokens": sec_tokens,
                 })
             else:
                 citation_num = start_cite
-                synth = f"[Topic: {topic_label or 'General'}]\n{synthesis}"
+                synth = f"[Topic: {tl}]\n{syn}"
                 synth_tokens = estimate_tokens(synth)
                 if tokens_used + synth_tokens <= token_budget:
                     lines.append(synth)
                     tokens_used += synth_tokens
                     injected.append({
-                        "segment_id": seg_id, "topic_label": topic_label,
-                        "score": round(score, 3), "message_count": 0,
+                        "segment_id": seg_id, "topic_label": tl,
+                        "score": round(score, 3) if score is not None else None,
+                        "message_count": 0,
                         "tokens": synth_tokens, "synthesis_only": True,
                     })
                 break

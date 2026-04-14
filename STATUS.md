@@ -1,8 +1,36 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.1.0
+# Version 6.2.0
 
 ## Current Version Features
+
+### Version 6.2.0 — SQLite FTS5 Hybrid Search + RRF Fusion
+
+Adds BM25 keyword matching via SQLite FTS5 to complement dense embedding
+retrieval. Dense retrieval excels at semantic similarity; BM25 excels at
+exact keyword matches ("gorillas", "PostgreSQL") that segment syntheses
+paraphrase away. Combining them via Reciprocal Rank Fusion improves recall
+without degrading precision on abstract queries.
+
+**New retrieval flow in `_retrieve_segment_context()`:**
+1. Dense: `find_relevant_segments(top_k * 2)` — expanded candidate pool
+2. `_apply_score_gap()` — prune dense candidates
+3. BM25: `fts_search(query_text)` — keyword matches against synthesis + raw messages
+4. `rrf_fuse(dense, bm25, k=RRF_K)` — rank-based fusion, score-agnostic
+5. Fetch content for fused segment IDs; inject as before
+6. BM25-only segments (not in dense results) resolved from seg_data dict
+
+**FTS5 index:** `segments_fts` table populated during `!summary create` via
+`populate_fts()` in `utils/fts_search.py`. Searchable text = synthesis + " --- "
++ raw message content. Failure degrades gracefully to dense-only.
+
+**New config:** `RRF_K` (default 15).
+**New files:** `utils/fts_search.py` v1.0.0, `schema/009.sql`
+**Modified:** `context_retrieval.py` v1.7.0, `summarizer.py` v4.2.0, `config.py` v1.18.0
+
+After deploy: run `!summary create` to populate FTS5 index.
+
+---
 
 ### Version 6.1.0 — Direct Segment Retrieval + Top-K
 
@@ -18,8 +46,8 @@ relevance cutoff after top-K selection.
 - `get_segment_with_messages()` — per-segment content fetch
 - Rollback: if no segments in DB, falls back to cluster centroid retrieval
 
-**New config vars:** `RETRIEVAL_FLOOR` (default 0.15, floor for segment retrieval),
-`RETRIEVAL_SCORE_GAP` (default 0.08, gap cutoff threshold).
+**New config vars:** `RETRIEVAL_FLOOR` (default 0.20, floor for segment retrieval),
+`RETRIEVAL_SCORE_GAP` (default 0.08, gap cutoff threshold), `RETRIEVAL_TOP_K` (default 7).
 
 **Modified:** `cluster_retrieval.py` v1.2.0, `context_retrieval.py` v1.6.0
 (renamed `_retrieve_segment_context`), `explain_commands.py` v1.2.0
@@ -208,7 +236,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 ```
 discord-bot/
 ├── bot.py                         # v3.3.0
-├── config.py                      # v1.16.0
+├── config.py                      # v1.18.0
 ├── main.py
 ├── .env
 ├── data/
@@ -221,7 +249,8 @@ discord-bot/
 │   ├── 005.sql                    # v5.1.0 clusters, cluster_messages
 │   ├── 006.sql                    # v5.4.0 needs_resummarize column
 │   ├── 007.sql                    # v5.11.0 drop topics, topic_messages
-│   └── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
+│   ├── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
+│   └── 009.sql                    # v6.2.0 segments_fts FTS5 virtual table
 ├── ai_providers/
 │   ├── __init__.py                # v1.5.0
 │   ├── openai_provider.py         # v1.4.0
@@ -244,6 +273,7 @@ discord-bot/
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
 │   ├── receipt_store.py           # v1.0.0
+│   ├── fts_search.py              # v1.0.0  ← new v6.2.0
 │   ├── segment_store.py           # v1.0.0  ← new v6.0.0
 │   ├── segmenter.py               # v1.0.0  ← new v6.0.0
 │   ├── cluster_engine.py          # v1.1.0
@@ -254,7 +284,7 @@ discord-bot/
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.1.0
+│   ├── cluster_retrieval.py       # v1.2.0
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.3.0
 │   ├── message_store.py           # v1.2.0
@@ -263,10 +293,10 @@ discord-bot/
 │   ├── embedding_store.py         # v1.10.0
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
-│   ├── context_retrieval.py       # v1.5.0
+│   ├── context_retrieval.py       # v1.7.0
 │   ├── context_manager.py         # v2.5.1
 │   ├── response_handler.py        # v1.4.0
-│   ├── summarizer.py              # v4.1.0
+│   ├── summarizer.py              # v4.2.0
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.2
 │   └── history/
