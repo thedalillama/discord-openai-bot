@@ -1,5 +1,5 @@
 # README.md
-# Version 6.0.0
+# Version 6.2.0
 
 # Synthergy Discord Bot
 
@@ -73,7 +73,7 @@ discord-bot/
 ├── main.py                        # Entry point
 ├── bot.py                         # Discord events, message routing
 ├── config.py                      # Environment configuration
-├── schema/                        # SQLite migration files (001–005)
+├── schema/                        # SQLite migration files (001–009)
 ├── ai_providers/                  # Provider implementations
 │   ├── openai_provider.py             # GPT + image generation
 │   ├── anthropic_provider.py          # Claude models
@@ -102,7 +102,8 @@ discord-bot/
     ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
     ├── embedding_noise_filter.py      # Embedding skip gate: thin msgs, deleted placeholders (v5.13.0)
     ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
-    ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
+    ├── fts_search.py                  # FTS5 BM25 search + RRF fusion (v6.2.0)
+    ├── context_retrieval.py           # Hybrid segment retrieval + fallback (v6.2.0)
     ├── summarizer.py                  # Summarization router (v4.0.0)
     ├── summary_display.py             # Paginated Discord output + always-on formatter
     ├── summary_store.py               # SQLite summary persistence
@@ -117,19 +118,27 @@ discord-bot/
         └── ...
 ```
 
-## Semantic Retrieval System (v4.1.x)
+## Semantic Retrieval (v6.2.0 — hybrid BM25+dense+RRF)
 
 Every response is built from two context layers:
 
 **Always-on** (injected for every message): overview, key facts, open action items, open questions.
 
-**Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.25) are included. Bot-noise topics (self-descriptions, capability tests, etc.) are filtered before scoring. The token budget trimmer drops oldest recent messages to make room.
+**Retrieved** (per-query): hybrid dense + BM25 retrieval fused via Reciprocal Rank Fusion:
+1. Query embedded via `embed_query_with_smart_context()` — adds conversational context to avoid topic bleed
+2. Dense: `find_relevant_segments()` scores query against all segment embeddings (top_k × 2 expanded pool, `RETRIEVAL_FLOOR` minimum)
+3. Score-gap: `_apply_score_gap()` cuts dense candidates at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
+4. BM25: `fts_search()` via SQLite FTS5 — matches synthesis + raw message content
+5. RRF: `rrf_fuse(dense, bm25, k=RRF_K)` — rank-based fusion, returns top-`RETRIEVAL_TOP_K` fused IDs
+6. Per segment: synthesis + source messages injected as `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
 
-**Message fallback**: fires when no topics score above threshold, OR when matched topics have no linked messages. The query embedding searches `message_embeddings` directly and the top-N most similar messages are injected.
+**Rollback**: if no segments in DB (pre-v6 channel), `_cluster_rollback()` uses cluster centroid scoring with `RETRIEVAL_MIN_SCORE` threshold.
 
-**Summary fallback**: if both topic and message search return empty (degraded state — no embeddings), the full summary is injected. Logs a WARNING.
+**Message fallback**: fires when segment retrieval returns empty — direct cosine search over `message_embeddings`.
 
-**Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
+**Summary fallback**: if both segment and message search return empty, full summary injected. Logs WARNING.
+
+**Timestamps**: every retrieved message prefixed with `[YYYY-MM-DD]`. Today's date injected at top of context block.
 
 ## Summarization System (v6.0.0 — segment-based)
 
@@ -171,10 +180,13 @@ Key variables:
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` (production: `0.5`) |
+| `RETRIEVAL_TOP_K` | Max segments returned per query (dense pool = top_k × 2) | `7` |
+| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval | `0.20` |
+| `RETRIEVAL_SCORE_GAP` | Cut dense candidates at largest inter-score gap ≥ this | `0.08` |
+| `RRF_K` | Reciprocal Rank Fusion constant (lower = more top-rank weight) | `15` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster rollback path | `0.25` (production: `0.5`) |
 | `QUERY_TOPIC_SHIFT_THRESHOLD` | Topic-shift detection threshold for smart query embedding | `0.5` |
 | `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for context prepending in stored embeddings | `0.3` |
-| `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
 ## Deployment

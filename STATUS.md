@@ -30,6 +30,16 @@ without degrading precision on abstract queries.
 
 After deploy: run `!summary create` to populate FTS5 index.
 
+### Post-6.2.0 Fixes
+
+- `bot.py` v3.4.0: Wrapped both `build_context_for_provider()` call sites in
+  `asyncio.to_thread()` — synchronous retrieval (SQLite + OpenAI HTTP) was blocking
+  the event loop, delaying heartbeat keepalives and causing WebSocket disconnects.
+- `utils/context_manager.py` v2.5.2: Fixed `receipt_data` missing `retrieved_segments`
+  and `score_gap_applied` keys — `!explain` was always showing "Retrieved Clusters (none)"
+  even when segment retrieval succeeded, because only the old v5.x `retrieved_clusters`
+  key was copied from the cluster receipt.
+
 ---
 
 ### Version 6.1.0 — Direct Segment Retrieval + Top-K
@@ -235,7 +245,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 
 ```
 discord-bot/
-├── bot.py                         # v3.3.0
+├── bot.py                         # v3.4.0
 ├── config.py                      # v1.18.0
 ├── main.py
 ├── .env
@@ -294,7 +304,7 @@ discord-bot/
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
 │   ├── context_retrieval.py       # v1.7.0
-│   ├── context_manager.py         # v2.5.1
+│   ├── context_manager.py         # v2.5.2
 │   ├── response_handler.py        # v1.4.0
 │   ├── summarizer.py              # v4.2.0
 │   ├── summary_store.py           # v1.1.0
