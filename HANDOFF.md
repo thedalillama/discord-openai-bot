@@ -196,7 +196,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 
 ```
 discord-bot/
-├── bot.py                         # v3.3.0
+├── bot.py                         # v3.4.0
 ├── config.py                      # v1.18.0
 ├── main.py
 ├── .env
@@ -255,7 +255,7 @@ discord-bot/
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
 │   ├── context_retrieval.py       # v1.7.0
-│   ├── context_manager.py         # v2.5.1
+│   ├── context_manager.py         # v2.5.2
 │   ├── response_handler.py        # v1.4.0
 │   ├── summarizer.py              # v4.2.0
 │   ├── summary_store.py           # v1.1.0

@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 6.0.0
+# Version 6.2.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -71,26 +71,26 @@
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v4.1.x)
-- Messages embedded on arrival via OpenAI `text-embedding-3-small`
-- Topics cleared and re-linked on every `!summary create` — no duplicates accumulate
-- Topics linked to all messages above `TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity
-- Bot-noise topics filtered at retrieval time (`_is_noise_topic()` in `embedding_store.py`)
-- At response time: always-on context (overview/facts/actions/questions) + retrieved topic messages
-- Only topics above `RETRIEVAL_MIN_SCORE` (0.25) are injected; recent messages capped at 5
-- Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
-- Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
-- `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+### Semantic Retrieval (v6.2.0 — hybrid BM25+dense+RRF)
+- Retrieval path: `context_manager.py` → `_retrieve_segment_context()` in `context_retrieval.py`
+- Query embedded via `embed_query_with_smart_context()` → (vec, path_name)
+- Dense: `find_relevant_segments(top_k*2, floor=RETRIEVAL_FLOOR)` — cosine vs all segment embeddings
+- Score-gap: `_apply_score_gap()` — cuts at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
+- BM25: `fts_search(query_text)` via SQLite FTS5 — synthesis + raw message content
+- RRF: `rrf_fuse(dense, bm25, k=RRF_K)` → top-K fused (segment_id, rrf_score) pairs
+- Per segment: `get_segment_with_messages()` → synthesis + source messages injected with [N] citations
+- Rollback: if no segments in DB, `_cluster_rollback()` scores query vs cluster centroids (RETRIEVAL_MIN_SCORE)
+- Message fallback: `find_similar_messages()` when segment retrieval empty
+- Receipt stored via `receipt_store.py`; `!explain` displays retrieved_segments + score_gap_applied
 
-### Context Receipts & !explain (v5.7.0)
-- Every bot response stores a context receipt in `response_context_receipts` (schema 002.sql)
-- Receipt contains: query, embedding path, always-on counts, retrieved clusters, below-threshold
-  clusters, fallback info, recent message count, token budget, provider/model
-- Signal chain: `embed_query_with_smart_context()` → `(vec, path_name)` →
-  `_retrieve_cluster_context()` → `(text, tokens, cluster_receipt)` →
-  `build_context_for_provider()` → `(messages, receipt_data)` →
+### Context Receipts & !explain (v5.7.0+)
+- Every bot response stores a context receipt via `receipt_store.py`
+- Receipt contains: query, embedding path, always-on counts, retrieved_segments (v6.1.0+) or
+  retrieved_clusters (rollback), score_gap_applied, fallback info, token budget, provider/model
+- Signal chain: `embed_query_with_smart_context()` → `_retrieve_segment_context()` →
+  `build_context_for_provider()` → `(messages, receipt_data, citation_map)` →
   `handle_ai_response_task()` → `save_receipt()` after send
-- `!explain` / `!explain <id>` — retrieve and display receipt via `format_receipt()`
+- `!explain` / `!explain detail` / `!explain <id>` — display via `format_receipt()` in `explain_commands.py`
 - Receipt storage is fail-safe: never blocks or prevents bot responses
 
 ### Smart Query Embedding (v5.6.1)
@@ -125,11 +125,11 @@
 - `utils/segment_store.py` — CRUD for `segments`, `segment_messages`, `cluster_segments` tables; `run_segment_clustering()` runs UMAP+HDBSCAN on segment embeddings, stores to `clusters` + `cluster_segments` without touching `cluster_messages`
 - Retrieval injects per-segment `[Topic: label]\nSummary: synthesis\n\nSource messages:\n[N] [date] author: content`; synthesis-only fallback when budget is tight; rollback path (no segments) falls back to direct message injection
 
-### Semantic Retrieval (v5.5.0 — cluster-based)
-- Response path uses `find_relevant_clusters()` + `get_cluster_content()` from `cluster_retrieval.py`
-- `context_retrieval.py` retrieves segments per cluster via `get_cluster_content()`, injects synthesis + source messages with citation numbers
+### Cluster Rollback Path (pre-v6 channels)
+- Fires when `find_relevant_segments()` returns empty (no segments in DB)
+- `_cluster_rollback()` in `context_retrieval.py` → `find_relevant_clusters()` + `get_cluster_messages()`
+- Filters by `RETRIEVAL_MIN_SCORE` (production: 0.5); receipt uses `retrieved_clusters` key
 - `[Topic: {label}]` section header preserved — model framing unchanged
-- Fallback (`find_similar_messages`) still fires when no clusters pass threshold
 
 ### Incremental Assignment (v5.4.0)
 - New messages assigned to nearest cluster centroid on arrival (`raw_events.py` →
