@@ -192,7 +192,7 @@ placeholders, and messages under 4 words (questions exempt).
 | Command | Description |
 |---------|-------------|
 | `!summary` | Show channel summary |
-| `!summary full/raw` | Full view / Secretary's raw minutes |
+| `!summary full` | All sections including key facts |
 | `!summary create/clear` | Run summarization / delete (admin) |
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
 | `!debug backfill` | Embed missing messages + contextual text (admin) |

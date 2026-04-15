@@ -1,5 +1,5 @@
 # README.md
-# Version 6.2.0
+# Version 6.3.0
 
 # Synthergy Discord Bot
 
@@ -8,10 +8,10 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 ## Features
 
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
-- **Semantic memory** — topic-based retrieval injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
-- **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
+- **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
+- **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
-- **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
+- **Message persistence** — all messages stored in SQLite; on restart, recent history is backfilled from Discord to catch messages sent while offline
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
@@ -38,8 +38,7 @@ python main.py
 | Command | Access | Description |
 |---------|--------|-------------|
 | `!summary` | all | Show channel summary (decisions, topics, actions) |
-| `!summary full` | all | All sections including facts and archived topics |
-| `!summary raw` | all | Secretary's natural language minutes |
+| `!summary full` | all | All sections including key facts |
 | `!summary create` | admin | Run full summarization (re-cluster + re-summarize) |
 | `!summary update` | admin | Re-summarize only clusters updated since last run |
 | `!summary clear` | admin | Delete stored summary and start fresh |
@@ -50,8 +49,6 @@ python main.py
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug dedup` | admin | Scan for duplicate test messages (3+ identical) |
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
-| `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
-| `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!debug segments` | admin | Show segment count, avg size, sample syntheses |
 | `!explain` | all | Show context receipt for the last bot response |
 | `!explain detail` | all | Receipt + injected messages per cluster |
@@ -172,7 +169,7 @@ Key variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DISCORD_TOKEN` | Bot token (required) | — |
-| `AI_PROVIDER` | Default conversation provider | `deepseek` |
+| `AI_PROVIDER` | Default conversation provider | `openai` |
 | `OPENAI_API_KEY` | Required for embeddings + classifier | — |
 | `SUMMARIZER_PROVIDER` | Summarization provider | `gemini` |
 | `GEMINI_API_KEY` | Required for summarization | — |

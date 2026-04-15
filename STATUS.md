@@ -1,8 +1,39 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.2.0
+# Version 6.3.0
 
 ## Current Version Features
+
+### Version 6.3.0 — Dead Command Removal + Doc Accuracy
+
+Removed obsolete commands and fixed stale descriptions exposed during a
+documentation audit.
+
+**Removed commands:**
+- `!summary raw` — `minutes_text` field never written by the v5.x+ pipeline
+  (Secretary was removed in v5.10.0); always returned "No raw minutes."
+- `!debug clusters` — ran `run_clustering()` from `cluster_store.py`, which
+  uses message embeddings (v5.x path). In v6.x channels this creates a parallel
+  cluster set that the retrieval path (`_retrieve_segment_context`) never reads.
+  Zero diagnostic value post-v6.0.
+- `!debug summarize_clusters` — depended on clusters created by `!debug clusters`;
+  removed alongside it.
+
+**Fixed stale descriptions:**
+- `!summary full`: "archived topics" → "key facts" (topics removed v5.10.0)
+- `!summary create` result: "Pipeline: cluster-v5" label + dead v4.x else branch
+  removed; result now displays cluster/noise/message counts without a stale label.
+
+**Fixed README inaccuracies:**
+- Features: "topic-based retrieval" → "segment-based hybrid retrieval (BM25+dense+RRF)"
+- Features: "three-pass Secretary/Structurer/Classifier pipeline" → current segment+cluster pipeline description
+- Features: "surviving restarts without API refetch" → accurate description of Discord history backfill on restart
+- Config table: `AI_PROVIDER` default `deepseek` → `openai` (matches `config.py`)
+
+**Modified:** `summary_commands.py` v2.5.0, `cluster_commands.py` v1.5.0,
+`debug_commands.py` v1.9.0
+
+---
 
 ### Version 6.2.0 — SQLite FTS5 Hybrid Search + RRF Fusion
 

@@ -1,8 +1,26 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.2.0
+# Version 6.3.0
 
 ## Current Version Features
+
+### Version 6.3.0 — Dead Command Removal + Doc Accuracy
+
+Removed three obsolete commands and fixed stale descriptions/labels throughout.
+
+**Removed:**
+- `!summary raw` — `minutes_text` never populated by v5.x+ pipeline (Secretary removed v5.10.0)
+- `!debug clusters` — ran v5.x message-embedding clustering path; creates clusters the v6.x retrieval path ignores
+- `!debug summarize_clusters` — depended on `!debug clusters` clusters
+
+**Fixed:**
+- `!summary full` docstring: "archived topics" → "key facts"
+- `!summary create` result: removed "Pipeline: cluster-v5" label + dead v4.x else branch
+- README: topic-based → segment-based retrieval description; pipeline description updated; "no API refetch on restart" fixed; `AI_PROVIDER` default `deepseek` → `openai`
+
+**Modified:** `summary_commands.py` v2.5.0, `cluster_commands.py` v1.5.0, `debug_commands.py` v1.9.0
+
+---
 
 ### Version 6.2.0 — SQLite FTS5 Hybrid Search + RRF Fusion
 
@@ -220,9 +238,9 @@ discord-bot/
 │   └── gemini_provider.py         # v1.2.1
 ├── commands/
 │   ├── __init__.py                # v2.7.0
-│   ├── summary_commands.py        # v2.4.0
-│   ├── debug_commands.py          # v1.8.0
-│   ├── cluster_commands.py        # v1.4.0
+│   ├── summary_commands.py        # v2.5.0
+│   ├── debug_commands.py          # v1.9.0
+│   ├── cluster_commands.py        # v1.5.0
 │   ├── dedup_commands.py          # v1.0.0
 │   ├── explain_commands.py        # v1.1.0
 │   ├── auto_respond_commands.py   # v2.2.0
