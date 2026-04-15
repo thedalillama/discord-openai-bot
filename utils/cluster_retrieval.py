@@ -1,23 +1,19 @@
 # utils/cluster_retrieval.py
-# Version 1.2.0
+# Version 1.3.0
 """
-Query-time cluster/segment retrieval for semantic context injection.
+Query-time cluster/segment/proposition retrieval for semantic context injection.
+
+CHANGES v1.3.0: Proposition-level retrieval (SOW v6.3.0)
+- ADD: find_relevant_propositions() — score query vs all proposition embeddings;
+  collapse to max-score-per-segment before returning segment IDs for RRF input.
+  Each segment appears at most once (no size bias from proposition count).
 
 CHANGES v1.2.0: Direct segment retrieval (SOW v6.1.0)
-- ADD: find_relevant_segments() — score query vs all segment embeddings directly
-- ADD: _apply_score_gap() — adaptive cutoff at the largest inter-score gap
-- ADD: get_segment_with_messages() — per-segment content fetch for context injection
-  (placed here instead of segment_store.py due to 250-line limit on that file)
+- ADD: find_relevant_segments(), _apply_score_gap(), get_segment_with_messages()
 - KEEP: find_relevant_clusters(), get_cluster_messages(), get_cluster_content()
-  for rollback path and !debug commands
 
 CHANGES v1.1.0: Segment-aware retrieval (SOW v6.0.0)
-- ADD: get_cluster_content() — thin wrapper over segment_store.get_cluster_content()
-- KEEP: get_cluster_messages() for rollback.
-
-CREATED v1.0.0: Cluster-based retrieval replacing topic retrieval (SOW v5.5.0)
-- find_relevant_clusters(): cosine similarity vs channel cluster centroids
-- get_cluster_messages(): member messages for a given cluster
+CREATED v1.0.0: Cluster-based retrieval (SOW v5.5.0)
 """
 import sqlite3
 import numpy as np
@@ -119,6 +115,39 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
         }
     finally:
         conn.close()
+
+
+def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20):
+    """Score query vs proposition embeddings; collapse to segment IDs.
+
+    Each segment gets at most one entry — the highest-scoring proposition
+    per segment. This prevents size bias: a segment with 5 propositions
+    does not outrank one with 2 simply by having more entries in RRF.
+
+    Args:
+        query_embedding: query vector (list or np.array)
+        channel_id: Discord channel ID
+        top_k: max segment IDs to return
+        floor: minimum proposition score; propositions below this are ignored
+
+    Returns:
+        list of (segment_id, best_score) tuples, score descending.
+        Returns [] if no propositions exist (degrades to dense+BM25).
+    """
+    from utils.proposition_store import get_proposition_embeddings
+    rows = get_proposition_embeddings(channel_id)
+    if not rows:
+        return []
+    query = np.array(query_embedding, dtype=np.float32)
+    seg_best = {}
+    for _, seg_id, _, vec in rows:
+        vec_arr = np.array(vec, dtype=np.float32)
+        norm = float(np.linalg.norm(query) * np.linalg.norm(vec_arr))
+        score = float(np.dot(query, vec_arr)) / norm if norm > 0 else 0.0
+        if score >= floor and score > seg_best.get(seg_id, -1):
+            seg_best[seg_id] = score
+    results = sorted(seg_best.items(), key=lambda x: x[1], reverse=True)
+    return results[:top_k]
 
 
 def find_relevant_clusters(query_embedding, channel_id, top_k=5):

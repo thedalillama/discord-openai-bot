@@ -48,6 +48,7 @@ def register_debug_commands(bot):
             f"`!debug backfill` — embed missing messages\n"
             f"`!debug reembed` — re-embed all with context\n"
             f"`!debug segments` — segment count + sample syntheses\n"
+            f"`!debug propositions` — proposition count + samples\n"
             f"`!debug dedup` — scan for duplicate test messages\n"
             f"`!debug dedup confirm` — remove duplicates")
 

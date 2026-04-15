@@ -1,7 +1,9 @@
 # commands/cluster_commands.py
-# Version 1.5.0
+# Version 1.6.0
 """
-Cluster/segment debug commands: backfill, reembed, segments.
+Cluster/segment/proposition debug commands: backfill, reembed, segments, propositions.
+
+CHANGES v1.6.0: Add !debug propositions — count + sample propositions (SOW v6.3.0)
 
 CHANGES v1.5.0: Remove !debug clusters and !debug summarize_clusters (v6.3.0)
 - REMOVED: debug_clusters — ran v5.x message-embedding clustering path
@@ -162,6 +164,36 @@ def register_cluster_commands(debug_cmd):
         except Exception as e:
             await ctx.send(f"{_I}Segments failed: {e}")
             logger.error(f"Segments error ch:{channel_id}: {e}")
+
+
+    @debug_cmd.command(name='propositions')
+    async def debug_propositions(ctx):
+        """Show proposition count and sample propositions for this channel."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        channel_id = ctx.channel.id
+        try:
+            from utils.proposition_store import (
+                get_proposition_count, get_proposition_embeddings)
+            total = await asyncio.to_thread(get_proposition_count, channel_id)
+            if total == 0:
+                await ctx.send(
+                    f"{_I}No propositions for #{ctx.channel.name}. "
+                    f"Run `!summary create` to generate them.")
+                return
+            rows = await asyncio.to_thread(get_proposition_embeddings, channel_id)
+            embedded = len(rows)
+            samples = rows[:5]
+            lines = [
+                f"**Propositions #{ctx.channel.name}**: "
+                f"{total} total, {embedded} embedded", ""]
+            for prop_id, seg_id, content, _ in samples:
+                lines.append(f"• `{seg_id}`\n  {content}")
+            await _send_paginated(ctx, "\n".join(lines))
+        except Exception as e:
+            await ctx.send(f"{_I}Propositions failed: {e}")
+            logger.error(f"Propositions error ch:{channel_id}: {e}")
 
 
 async def _send_paginated(ctx, text, limit=1900):
