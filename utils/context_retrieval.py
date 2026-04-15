@@ -1,18 +1,15 @@
 # utils/context_retrieval.py
-# Version 1.7.0
+# Version 1.8.0
 """
-Segment-based semantic retrieval for context injection (SOW v6.1.0/v6.2.0).
+Segment-based semantic retrieval for context injection (SOW v6.1.0–v6.3.0).
+
+CHANGES v1.8.0: Three-signal RRF — proposition + dense + BM25 (SOW v6.3.0)
+- ADDED: find_relevant_propositions() call; collapses to segment IDs pre-RRF
+- MODIFIED: rrf_fuse() now takes prop_ranked as first arg (variadic, backward-compat)
+- MODIFIED: debug log includes prop signal count
 
 CHANGES v1.7.0: Hybrid BM25 + dense retrieval via RRF (SOW v6.2.0)
-- ADDED: fts_search() BM25 retrieval fused with dense via rrf_fuse()
-- MODIFIED: _retrieve_segment_context() — dense top_k*2 candidates; score-gap
-  applied before fusion; BM25-only segments resolved from seg_data dict
-- MODIFIED: _cluster_rollback() — unified fallback path; trimmed docstring
-
 CHANGES v1.6.0: Direct segment retrieval (SOW v6.1.0)
-- Renamed _retrieve_cluster_context → _retrieve_segment_context; score-gap
-  after top-K; cluster rollback for pre-v6 channels; receipt key change.
-
 CHANGES v1.5.0: Segment-aware context injection (SOW v6.0.0)
 CHANGES v1.4.0: Partial cluster injection when cluster exceeds token budget
 CHANGES v1.3.0: Citation numbering + citation_map in return value (SOW v5.9.0)
@@ -131,7 +128,8 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
     try:
         from utils.embedding_context import embed_query_with_smart_context
         from utils.cluster_retrieval import (
-            find_relevant_segments, get_segment_with_messages, _apply_score_gap)
+            find_relevant_segments, get_segment_with_messages,
+            _apply_score_gap, find_relevant_propositions)
         from utils.fts_search import fts_search, rrf_fuse
 
         query_text = None
@@ -164,18 +162,21 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
             gap_applied = len(pruned) < len(segments)
             segments = pruned
 
-        # Hybrid: fuse dense + BM25 via Reciprocal Rank Fusion
+        # Three-signal RRF: propositions + dense + BM25
         dense_ranked = [s[0] for s in segments]
+        prop_ranked = [sid for sid, _ in find_relevant_propositions(
+            query_vec, channel_id)]
         bm25_ranked = fts_search(query_text, channel_id, top_n=20)
-        fused_pairs = rrf_fuse(dense_ranked, bm25_ranked, k=RRF_K, top_n=RETRIEVAL_TOP_K)
+        fused_pairs = rrf_fuse(
+            prop_ranked, dense_ranked, bm25_ranked, k=RRF_K, top_n=RETRIEVAL_TOP_K)
         dense_map = {s[0]: s for s in segments}
-        # Use RRF score uniformly; BM25-only entries resolved via seg_data below
         segments = [(sid, dense_map[sid][1], dense_map[sid][2], rs)
                     if sid in dense_map else (sid, None, None, rs)
                     for sid, rs in fused_pairs]
         logger.debug(
-            f"Hybrid ch:{channel_id}: dense={len(dense_ranked)} "
-            f"bm25={len(bm25_ranked)} fused={len(segments)} gap={gap_applied}")
+            f"Hybrid ch:{channel_id}: prop={len(prop_ranked)} "
+            f"dense={len(dense_ranked)} bm25={len(bm25_ranked)} "
+            f"fused={len(segments)} gap={gap_applied}")
 
         lines, tokens_used, injected = [], 0, []
         citation_map, citation_num = {}, 1

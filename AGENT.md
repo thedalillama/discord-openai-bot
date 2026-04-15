@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 6.3.0
+# Version 6.4.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -71,13 +71,14 @@
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v6.2.0 — hybrid BM25+dense+RRF)
+### Semantic Retrieval (v6.4.0 — proposition+dense+BM25+RRF)
 - Retrieval path: `context_manager.py` → `_retrieve_segment_context()` in `context_retrieval.py`
 - Query embedded via `embed_query_with_smart_context()` → (vec, path_name)
+- Propositions: `find_relevant_propositions()` — cosine vs all prop embeddings; collapse to max-score-per-segment → seg IDs
 - Dense: `find_relevant_segments(top_k*2, floor=RETRIEVAL_FLOOR)` — cosine vs all segment embeddings
 - Score-gap: `_apply_score_gap()` — cuts at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
 - BM25: `fts_search(query_text)` via SQLite FTS5 — synthesis + raw message content
-- RRF: `rrf_fuse(dense, bm25, k=RRF_K)` → top-K fused (segment_id, rrf_score) pairs
+- RRF: `rrf_fuse(prop, dense, bm25, k=RRF_K)` → top-K fused (segment_id, rrf_score) pairs
 - Per segment: `get_segment_with_messages()` → synthesis + source messages injected with [N] citations
 - Rollback: if no segments in DB, `_cluster_rollback()` scores query vs cluster centroids (RETRIEVAL_MIN_SCORE)
 - Message fallback: `find_similar_messages()` when segment retrieval empty

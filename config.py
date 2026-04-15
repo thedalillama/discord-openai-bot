@@ -1,7 +1,13 @@
 # config.py
-# Version 1.18.0
+# Version 1.19.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.19.0: Proposition decomposition configuration (SOW v6.3.0)
+- ADDED: PROPOSITION_BATCH_SIZE (default 10) — segment syntheses per GPT-4o-mini
+  decomposition call; 15 calls for 150 segments at this batch size.
+- ADDED: PROPOSITION_PROVIDER (default 'openai') — provider for decomposition;
+  reserved for future flexibility, decomposer currently hardcodes OpenAI client.
 
 CHANGES v1.18.0: RRF_K for hybrid retrieval (SOW v6.2.0)
 - ADDED: RRF_K (default 15) — Reciprocal Rank Fusion constant; controls how
@@ -183,6 +189,14 @@ CLUSTER_MIN_SAMPLES = int(os.environ.get('CLUSTER_MIN_SAMPLES', '3'))
 UMAP_N_NEIGHBORS = int(os.environ.get('UMAP_N_NEIGHBORS', '15'))
 # UMAP_N_COMPONENTS: output dimensions for UMAP reduction.
 UMAP_N_COMPONENTS = int(os.environ.get('UMAP_N_COMPONENTS', '5'))
+
+# Proposition decomposition configuration (v6.4.0 / SOW v6.3.0)
+# PROPOSITION_BATCH_SIZE: segment syntheses per GPT-4o-mini decomposition call.
+# 10 syntheses/call × 150 segments = 15 calls per rebuild.
+PROPOSITION_BATCH_SIZE = int(os.environ.get('PROPOSITION_BATCH_SIZE', '10'))
+# PROPOSITION_PROVIDER: reserved for future flexibility. Decomposer currently
+# uses the OpenAI client directly (same pattern as cluster_classifier.py).
+PROPOSITION_PROVIDER = os.environ.get('PROPOSITION_PROVIDER', 'openai')
 
 # Segment pipeline configuration (v6.0.0)
 # SEGMENT_BATCH_SIZE: messages per Gemini segmentation call.

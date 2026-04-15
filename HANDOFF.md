@@ -1,8 +1,48 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.3.0
+# Version 6.4.0
 
 ## Current Version Features
+
+### Version 6.4.0 — Proposition Decomposition (SOW v6.3.0)
+
+Three-signal hybrid retrieval: proposition embeddings added as a third RRF
+signal alongside dense segment embeddings and BM25.
+
+**Retrieval flow (`_retrieve_segment_context` in `context_retrieval.py`):**
+1. Embed query via `embed_query_with_smart_context()` (unchanged)
+2. `find_relevant_propositions()` — cosine vs all prop embeddings; collapse
+   to max-score-per-segment → segment IDs (no size bias)
+3. `find_relevant_segments(top_k * 2)` — cosine vs segment embeddings → IDs
+4. `_apply_score_gap()` — prune dense candidates
+5. `fts_search()` — BM25 via FTS5 → segment IDs
+6. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — rank fusion → top-K IDs
+7. `get_segment_with_messages()` → synthesis + source messages injected
+
+**Pipeline addition (`summarizer.py`):**
+After `populate_fts()`, before `run_segment_clustering()`:
+```python
+prop_count = await run_proposition_phase(channel_id, progress_fn)
+```
+`run_proposition_phase()` in `proposition_decomposer.py`:
+1. Load segment syntheses from DB
+2. Batch-decompose via GPT-4o-mini (PROPOSITION_BATCH_SIZE=10 per call)
+3. Store in `propositions` table
+4. Embed each proposition via OpenAI
+5. Store embeddings
+
+**Failure modes:** proposition phase logs warning and continues; retrieval
+degrades to dense+BM25 (v6.2.0 behavior). Rollback is single-line removal
+of `prop_ranked` from `rrf_fuse()` call in `context_retrieval.py`.
+
+**New config:** `PROPOSITION_BATCH_SIZE=10`, `PROPOSITION_PROVIDER=openai`
+**New files:** `utils/proposition_store.py` v1.0.0,
+`utils/proposition_decomposer.py` v1.0.0, `schema/010.sql`
+**Modified:** `cluster_retrieval.py` v1.3.0, `context_retrieval.py` v1.8.0,
+`fts_search.py` v1.1.0, `summarizer.py` v4.3.0, `config.py` v1.19.0,
+`cluster_commands.py` v1.6.0
+
+---
 
 ### Version 6.3.0 — Dead Command Removal + Doc Accuracy
 
@@ -240,7 +280,7 @@ discord-bot/
 │   ├── __init__.py                # v2.7.0
 │   ├── summary_commands.py        # v2.5.0
 │   ├── debug_commands.py          # v1.9.0
-│   ├── cluster_commands.py        # v1.5.0
+│   ├── cluster_commands.py        # v1.6.0
 │   ├── dedup_commands.py          # v1.0.0
 │   ├── explain_commands.py        # v1.1.0
 │   ├── auto_respond_commands.py   # v2.2.0
@@ -252,9 +292,11 @@ discord-bot/
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
 │   ├── receipt_store.py           # v1.0.0
-│   ├── fts_search.py              # v1.0.0  ← new v6.2.0
-│   ├── segment_store.py           # v1.0.0  ← new v6.0.0
-│   ├── segmenter.py               # v1.0.0  ← new v6.0.0
+│   ├── proposition_store.py       # v1.0.0  ← new v6.4.0
+│   ├── proposition_decomposer.py  # v1.0.0  ← new v6.4.0
+│   ├── fts_search.py              # v1.1.0
+│   ├── segment_store.py           # v1.0.1
+│   ├── segmenter.py               # v1.0.0
 │   ├── cluster_engine.py          # v1.1.0
 │   ├── cluster_store.py           # v2.0.0
 │   ├── cluster_summarizer.py      # v1.1.0
@@ -272,7 +314,7 @@ discord-bot/
 │   ├── embedding_store.py         # v1.10.0
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
-│   ├── context_retrieval.py       # v1.7.0
+│   ├── context_retrieval.py       # v1.8.0
 │   ├── context_manager.py         # v2.5.2
 │   ├── response_handler.py        # v1.4.0
 │   ├── summarizer.py              # v4.2.0
