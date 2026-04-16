@@ -1,13 +1,13 @@
 # utils/fts_search.py
-# Version 1.0.0
+# Version 1.1.0
 """
-FTS5 full-text search helpers for hybrid BM25 + dense retrieval (SOW v6.2.0).
+FTS5 full-text search helpers for hybrid retrieval (SOW v6.2.0/v6.3.0).
 
 Functions:
 - populate_fts(channel_id): clear and rebuild FTS5 index for a channel's segments
 - clear_fts(channel_id): delete all FTS5 entries for a channel
 - fts_search(query_text, channel_id, top_n=20): BM25 keyword search via FTS5
-- rrf_fuse(dense_ranked, bm25_ranked, k=15, top_n=5): Reciprocal Rank Fusion
+- rrf_fuse(*ranked_lists, k=15, top_n=5): Reciprocal Rank Fusion (N lists)
 
 The searchable_text column contains segment synthesis + " --- " + raw source
 message content. BM25 therefore matches both the resolved meaning (synthesis)
@@ -17,6 +17,11 @@ from crossing the synthesis/message boundary.
 FTS5 is populated during !summary create only (not incremental). A BM25 failure
 degrades gracefully to dense-only — rrf_fuse returns the dense ranking unchanged
 when bm25_ranked is empty.
+
+CHANGES v1.1.0: rrf_fuse accepts variable number of ranked lists (SOW v6.3.0)
+- MODIFIED: rrf_fuse(dense, bm25, ...) → rrf_fuse(*ranked_lists, ...) so the
+  proposition signal can be passed as a third list. Backward-compatible:
+  existing two-list callers work unchanged.
 
 CREATED v1.0.0: SQLite FTS5 hybrid search (SOW v6.2.0)
 """
@@ -115,27 +120,26 @@ def fts_search(query_text, channel_id, top_n=20):
         conn.close()
 
 
-def rrf_fuse(dense_ranked, bm25_ranked, k=15, top_n=5):
-    """Reciprocal Rank Fusion. Score-agnostic — operates on rank positions only.
+def rrf_fuse(*ranked_lists, k=15, top_n=5):
+    """Reciprocal Rank Fusion over N ranked lists. Score-agnostic.
 
-    RRF formula: score[id] += 1 / (k + rank) for each list.
+    RRF formula: score[id] += 1 / (k + rank) for each list the ID appears in.
+    A segment appearing in multiple signals accumulates higher scores.
     No normalization needed — BM25 and cosine scores are never compared directly.
 
     Args:
-        dense_ranked: segment_ids from dense retrieval, best first
-        bm25_ranked: segment_ids from BM25 retrieval, best first
+        *ranked_lists: any number of segment_id lists, each best-first.
+                       Accepts 2 lists (dense + BM25) or 3 (prop + dense + BM25).
         k: RRF constant (k=15 tuned for small result sets; lower = more top-rank weight)
         top_n: max results to return
 
     Returns:
         list of (segment_id, rrf_score) tuples ranked by fused score (best first).
-        rrf_score is the sum of 1/(k+rank) contributions — use this as the
-        display score for all fused segments, dense or BM25-only.
+        rrf_score is the sum of 1/(k+rank) contributions across all lists.
     """
     scores = {}
-    for rank, seg_id in enumerate(dense_ranked, 1):
-        scores[seg_id] = scores.get(seg_id, 0) + 1 / (k + rank)
-    for rank, seg_id in enumerate(bm25_ranked, 1):
-        scores[seg_id] = scores.get(seg_id, 0) + 1 / (k + rank)
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [(seg_id, round(rrf_score, 4)) for seg_id, rrf_score in ranked[:top_n]]
+    for ranked in ranked_lists:
+        for rank, seg_id in enumerate(ranked, 1):
+            scores[seg_id] = scores.get(seg_id, 0) + 1 / (k + rank)
+    result = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [(seg_id, round(rrf_score, 4)) for seg_id, rrf_score in result[:top_n]]

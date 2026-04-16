@@ -58,21 +58,22 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v6.2.0 — hybrid BM25 + dense + RRF)
+### Semantic Retrieval (v6.4.0 — proposition+dense+BM25+RRF)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded WITH context → hybrid BM25+dense →
+- **Retrieved**: latest user message embedded WITH context → three-signal hybrid →
   segment syntheses + source messages injected as "PAST MESSAGES FROM THIS CHANNEL"
 
 Retrieval path (`context_manager.py` → `context_retrieval.py`):
 1. Build contextual query: prepend last 3 in-memory conversation messages
 2. `embed_query_with_smart_context()` on contextual query
-3. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
-4. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
-5. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
-6. `rrf_fuse(dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
-7. `get_segment_with_messages()` — synthesis + source messages per segment
-8. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
+3. `find_relevant_propositions()` — cosine vs ALL proposition embeddings; collapse max-score-per-segment → seg IDs
+4. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
+5. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
+6. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
+7. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
+8. `get_segment_with_messages()` — synthesis + source messages per segment
+9. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
 
 **Embedding strategy (v5.6.0):**
 All embeddings include conversational context via `build_contextual_text()` in
@@ -192,7 +193,7 @@ placeholders, and messages under 4 words (questions exempt).
 | Command | Description |
 |---------|-------------|
 | `!summary` | Show channel summary |
-| `!summary full/raw` | Full view / Secretary's raw minutes |
+| `!summary full` | All sections including key facts |
 | `!summary create/clear` | Run summarization / delete (admin) |
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
 | `!debug backfill` | Embed missing messages + contextual text (admin) |

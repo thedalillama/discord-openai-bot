@@ -1,8 +1,80 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.2.0
+# Version 6.4.0
 
 ## Current Version Features
+
+### Version 6.4.0 — Proposition Decomposition (SOW v6.3.0)
+
+Adds proposition-level embeddings as a third retrieval signal alongside
+dense segment embeddings and BM25 keyword search. Each segment synthesis
+is decomposed into 3-5 atomic, self-contained claims by GPT-4o-mini. Each
+claim gets its own embedding. At query time, propositions are scored against
+the query and collapsed to max-score-per-segment before entering RRF fusion.
+
+**Why:** Segment syntheses cover multiple subtopics in one vector. A compound
+query like "what did OpenClaw say about databases?" fails because no segment
+scores well on both dimensions simultaneously. Propositions are narrow —
+"OpenClaw confirmed the PostgreSQL choice" and "the team chose PostgreSQL"
+are separate vectors with focused semantics.
+
+**Collapse-before-RRF:** `find_relevant_propositions()` keeps only the best
+proposition per segment. Each segment appears at most once in the proposition
+signal regardless of proposition count — no size bias.
+
+**Three-signal retrieval flow:**
+1. `find_relevant_propositions()` — prop cosine → collapse to seg IDs
+2. `find_relevant_segments(top_k*2)` — segment cosine → seg IDs
+3. `fts_search()` — BM25 keyword → seg IDs
+4. `rrf_fuse(prop, dense, bm25)` — rank fusion → top-K fused IDs
+5. Fetch + inject segment content as before
+
+**Pipeline addition in `summarizer.py`:**
+After FTS5 population and before segment clustering:
+`run_proposition_phase(channel_id, progress_fn)` — decompose → store → embed.
+Failure degrades to two-signal (dense + BM25); pipeline continues regardless.
+
+**New config:** `PROPOSITION_BATCH_SIZE=10`, `PROPOSITION_PROVIDER=openai`
+**New files:** `utils/proposition_store.py` v1.0.0,
+`utils/proposition_decomposer.py` v1.0.0, `schema/010.sql`
+**Modified:** `cluster_retrieval.py` v1.3.0, `context_retrieval.py` v1.8.0,
+`fts_search.py` v1.1.0, `summarizer.py` v4.3.0, `config.py` v1.19.0,
+`cluster_commands.py` v1.6.0 (`!debug propositions`)
+
+After deploy: run `!summary create` to rebuild with propositions.
+
+---
+
+### Version 6.3.0 — Dead Command Removal + Doc Accuracy
+
+Removed obsolete commands and fixed stale descriptions exposed during a
+documentation audit.
+
+**Removed commands:**
+- `!summary raw` — `minutes_text` field never written by the v5.x+ pipeline
+  (Secretary was removed in v5.10.0); always returned "No raw minutes."
+- `!debug clusters` — ran `run_clustering()` from `cluster_store.py`, which
+  uses message embeddings (v5.x path). In v6.x channels this creates a parallel
+  cluster set that the retrieval path (`_retrieve_segment_context`) never reads.
+  Zero diagnostic value post-v6.0.
+- `!debug summarize_clusters` — depended on clusters created by `!debug clusters`;
+  removed alongside it.
+
+**Fixed stale descriptions:**
+- `!summary full`: "archived topics" → "key facts" (topics removed v5.10.0)
+- `!summary create` result: "Pipeline: cluster-v5" label + dead v4.x else branch
+  removed; result now displays cluster/noise/message counts without a stale label.
+
+**Fixed README inaccuracies:**
+- Features: "topic-based retrieval" → "segment-based hybrid retrieval (BM25+dense+RRF)"
+- Features: "three-pass Secretary/Structurer/Classifier pipeline" → current segment+cluster pipeline description
+- Features: "surviving restarts without API refetch" → accurate description of Discord history backfill on restart
+- Config table: `AI_PROVIDER` default `deepseek` → `openai` (matches `config.py`)
+
+**Modified:** `summary_commands.py` v2.5.0, `cluster_commands.py` v1.5.0,
+`debug_commands.py` v1.9.0
+
+---
 
 ### Version 6.2.0 — SQLite FTS5 Hybrid Search + RRF Fusion
 

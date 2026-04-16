@@ -1,9 +1,14 @@
 # utils/summarizer.py
-# Version 4.2.0
+# Version 4.3.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
+
+CHANGES v4.3.0: Run proposition decomposition phase after FTS5 (SOW v6.3.0)
+- MODIFIED: summarize_channel() — calls run_proposition_phase(channel_id)
+  after populate_fts(), before run_segment_clustering(). Proposition phase
+  failure does not abort the pipeline — degrades to dense+BM25 retrieval.
 
 CHANGES v4.2.0: Populate FTS5 index after segmentation (SOW v6.2.0)
 - MODIFIED: summarize_channel() — calls populate_fts(channel_id) via
@@ -70,7 +75,13 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
             return await run_cluster_pipeline(channel_id, provider,
                                               progress_fn=progress_fn)
         from utils.fts_search import populate_fts
+        from utils.proposition_decomposer import run_proposition_phase
         await asyncio.to_thread(populate_fts, channel_id)
+        prop_count = await run_proposition_phase(channel_id, progress_fn)
+        if prop_count == 0:
+            logger.warning(
+                f"Proposition phase produced 0 props ch:{channel_id} "
+                f"— retrieval degrades to dense+BM25")
         seg_stats = await asyncio.to_thread(run_segment_clustering, channel_id)
         if seg_stats is None:
             logger.warning(
