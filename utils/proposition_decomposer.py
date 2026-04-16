@@ -1,5 +1,5 @@
 # utils/proposition_decomposer.py
-# Version 1.0.0
+# Version 1.1.0
 """
 GPT-4o-mini proposition decomposer for segment syntheses (SOW v6.3.0).
 
@@ -15,6 +15,7 @@ Functions:
 - decompose_syntheses(segments, batch_size, progress_fn) — GPT-4o-mini batch
 - run_proposition_phase(channel_id, progress_fn) — orchestrate full phase
 
+CHANGES v1.1.0: Retry proposition embedding once after 5s on transient error
 CREATED v1.0.0: Proposition decomposition pipeline (SOW v6.3.0)
 """
 import os
@@ -131,8 +132,24 @@ async def run_proposition_phase(channel_id, progress_fn=None):
             return 0
         if progress_fn:
             await progress_fn(f"Embedding {len(prop_texts)} propositions...")
-        emb_results = await asyncio.to_thread(embed_texts_batch, prop_texts, 1000)
-        for idx, vec in emb_results:
+        emb_results = None
+        for attempt in range(2):
+            try:
+                emb_results = await asyncio.to_thread(
+                    embed_texts_batch, prop_texts, 1000)
+                break
+            except Exception as emb_err:
+                if attempt == 0:
+                    logger.warning(
+                        f"Proposition embedding attempt 1 failed, "
+                        f"retrying in 5s: {emb_err}")
+                    await asyncio.sleep(5)
+                else:
+                    logger.error(
+                        f"Proposition embedding failed after 2 attempts "
+                        f"ch:{channel_id}: {emb_err}")
+                    return 0
+        for idx, vec in (emb_results or []):
             if idx < len(prop_ids_flat):
                 await asyncio.to_thread(
                     store_proposition_embedding, prop_ids_flat[idx], vec)
