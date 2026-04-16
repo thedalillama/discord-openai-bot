@@ -1,8 +1,9 @@
 # utils/raw_events.py
-# Version 1.8.0
+# Version 1.9.0
 """
 Discord event handlers for SQLite message persistence.
 
+CHANGES v1.9.0: Move get_last_processed_id inside try block so backfill errors are logged
 CHANGES v1.8.0: Embedding noise filter extraction (SOW v5.13.0)
 - REMOVED: _DIAGNOSTIC_PREFIXES, _DIAGNOSTIC_SUBSTRINGS, _looks_like_diagnostic()
   — all subsumed into should_skip_embedding() in utils/embedding_noise_filter.py
@@ -176,9 +177,8 @@ async def _backfill_channel(channel):
     """
     async with _backfill_semaphore:
         channel_id = channel.id
-        last_id = await asyncio.to_thread(get_last_processed_id, channel_id)
-
         try:
+            last_id = await asyncio.to_thread(get_last_processed_id, channel_id)
             messages = []
             fetch_kwargs = {"limit": MAX_BACKFILL_PER_CHANNEL}
             if last_id:
