@@ -1,5 +1,5 @@
 # utils/cluster_summarizer.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Per-cluster LLM summarization pipeline for v5.2.0.
 
@@ -7,6 +7,7 @@ Calls Gemini once per cluster to extract label, summary, decisions,
 key_facts, action_items, and open_questions. Results stored in the
 clusters table summary column as a JSON blob.
 
+CHANGES v1.2.0: Log segment count instead of stale message_count in v6 path
 CHANGES v1.1.0: Segment-aware summarization (SOW v6.0.0)
 - MODIFIED: summarize_cluster() — add use_segments=False parameter.
   When True, loads segment syntheses via get_cluster_segment_ids() +
@@ -175,6 +176,8 @@ async def summarize_cluster(cluster_id, channel_id, provider, use_segments=False
                 result.get("label", ""),
                 summary_json,
                 result.get("status", "active"))
+            if use_segments:
+                result["segment_count"] = len(seg_ids)
             return result
         except Exception as e:
             logger.warning(
@@ -198,13 +201,14 @@ async def summarize_all_clusters(channel_id, provider, progress_fn=None,
             cluster["id"], channel_id, provider, use_segments=use_segments)
         if result:
             processed += 1
+            count_str = (f"{result.get('segment_count')} segs"
+                         if result.get('segment_count') is not None
+                         else f"{cluster['message_count']} msgs")
             logger.info(
-                f"Cluster {i+1}/{total}: "
-                f"'{result.get('label', '?')}' ({cluster['message_count']} msgs)")
+                f"Cluster {i+1}/{total}: '{result.get('label', '?')}' ({count_str})")
         else:
             failed += 1
-            logger.warning(
-                f"Cluster {i+1}/{total}: failed ({cluster['message_count']} msgs)")
+            logger.warning(f"Cluster {i+1}/{total}: failed")
         if progress_fn and (i + 1) % 10 == 0:
             await progress_fn(f"Summarized {i+1}/{total} clusters...")
     logger.info(
