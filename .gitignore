@@ -2,3 +2,9 @@
 __pycache__/
 *.pyc
 data/
+benchmarks/
+benchmark*.json
+benchmark_core.py
+benchmark_queries.py
+retrieval_benchmark.py
+docs/

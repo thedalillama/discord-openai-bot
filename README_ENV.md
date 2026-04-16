@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 5.9.1
+# Version 6.4.1
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -57,24 +57,32 @@ the trimmer drops oldest recent messages to fit within the remaining budget.
 
 The `data/` directory is created automatically on first run.
 
-## Semantic Retrieval Configuration (v5.6.0+)
+## Semantic Retrieval Configuration (v6.4.0+)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_TOP_K` | Max clusters retrieved per query | `5` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval (also used as topic-shift threshold for smart query embedding) | `0.25` |
+| `RETRIEVAL_TOP_K` | Max segments returned per query (dense pool = top_k × 2) | `7` |
+| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval; segments below this never returned | `0.20` |
+| `RETRIEVAL_SCORE_GAP` | Triggers cutoff at largest inter-score gap after top-K; set to `0` to disable | `0.08` |
+| `RRF_K` | Reciprocal Rank Fusion constant; lower = more weight on top-ranked segments | `15` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster rollback path and incremental assignment | `0.25` |
+| `QUERY_TOPIC_SHIFT_THRESHOLD` | At query time, cosine similarity below this vs previous message = topic shift → raw embedding; above = re-embed with context | `0.5` |
+| `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for a previous message to be included in the `[Context: ...]` prefix for stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
-| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for v4.x topic-message linking (retained for rollback) | `0.3` |
+| `PROPOSITION_BATCH_SIZE` | Segment syntheses per GPT-4o-mini decomposition call | `10` |
 
 Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`.
 
 **Budget note:** for providers with large `MAX_TOKENS` relative to context window (e.g. DeepSeek:
 64k context − 8k max_tokens at 15% = only 1,600 token budget), keep `CONTEXT_BUDGET_PERCENT`
-at 80 or cluster retrieval will be starved and fall back to message similarity.
+at 80 or retrieval will be starved and fall back to message similarity.
 
-At query time, only clusters scoring above `RETRIEVAL_MIN_SCORE` against the query
-embedding are injected. Fallback fires when no clusters pass the threshold.
+**Primary path (v6.4.0):** three-signal retrieval — proposition embeddings + dense segment
+embeddings + BM25, fused via `RRF_K`. `PROPOSITION_BATCH_SIZE` controls GPT-4o-mini
+decomposition call size. `RETRIEVAL_FLOOR` and `RETRIEVAL_SCORE_GAP` apply to dense
+candidates only. `RETRIEVAL_MIN_SCORE` is only used on the cluster rollback path (pre-v6
+channels with no segments) and for incremental cluster assignment.
 
 After changing `EMBEDDING_MODEL` or migrating to a new server, run:
 1. `!debug reembed` in Discord — wipes and re-embeds all messages with contextual text
@@ -149,9 +157,29 @@ Gemini is used for summarization only, not for conversation responses.
 | `UMAP_N_NEIGHBORS` | UMAP neighborhood size (lower = more local structure) | `15` |
 | `UMAP_N_COMPONENTS` | UMAP output dimensions | `5` |
 
-These control the UMAP + HDBSCAN pipeline used by `!debug clusters`.
-Tune via `.env` to adjust cluster granularity without code changes.
-`UMAP_N_NEIGHBORS` is automatically capped to `n_messages - 1` for small channels.
+These control the UMAP + HDBSCAN pipeline used by the segment clustering step in
+`!summary create`. `UMAP_N_NEIGHBORS` is automatically capped to `n_items - 1`
+for small channels/segment sets.
+
+## Segment Pipeline Configuration (v6.0.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SEGMENT_BATCH_SIZE` | Messages per Gemini segmentation call | `500` |
+| `SEGMENT_OVERLAP` | Overlap window between batches (reduces boundary artifacts) | `20` |
+| `SEGMENT_GAP_MINUTES` | Time gap threshold for fallback time-gap segmentation | `30` |
+
+`SEGMENT_BATCH_SIZE` controls how many messages are sent to Gemini per call during
+`!summary create`. Larger batches give Gemini more context for segmentation but
+increase response size. Gemini's 1M context handles 500 messages easily.
+
+`SEGMENT_OVERLAP` causes adjacent batches to share the last N messages of the
+previous batch. Segments identified in the overlap zone of non-first batches are
+skipped (already captured). Reduces topic boundary artifacts at batch seams.
+
+`SEGMENT_GAP_MINUTES` controls the time-gap fallback segmenter that fires when
+Gemini segmentation fails for a batch. Messages separated by more than this many
+minutes are split into different segments.
 
 ## Logging Configuration
 

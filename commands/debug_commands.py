@@ -1,20 +1,15 @@
 # commands/debug_commands.py
-# Version 1.8.0
+# Version 1.9.0
 """
 Debug and maintenance commands: noise scan, cleanup, summary status.
 
+CHANGES v1.9.0: Remove !debug clusters and !debug summarize_clusters from
+help text — both commands removed in cluster_commands.py v1.5.0 (v6.3.0).
+
 CHANGES v1.8.0: Add !debug dedup to help text (SOW v5.8.1)
-- MODIFIED: debug_cmd group help lists !debug dedup
-
 CHANGES v1.7.0: Extract cluster commands to cluster_commands.py (SOW v5.6.0)
-- REMOVED: debug_backfill, debug_clusters, debug_summarize_clusters — moved to
-  commands/cluster_commands.py
-- CHANGED: register_debug_commands() returns debug_cmd group so
-  cluster_commands.py can add subcommands to it
-
 CHANGES v1.6.0: Fix !debug clusters pagination missing ℹ️ prefix
 CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
-CHANGES v1.4.1: Paginate !debug clusters output
 CHANGES v1.4.0: Add !debug clusters command (SOW v5.1.0)
 CHANGES v1.3.0: Batch embedding + archived topic re-link fix
 CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
@@ -22,13 +17,13 @@ CHANGES v1.1.0: Show classifier drops in !debug status
 CREATED v1.0.0: Consolidates cleanup + summary diagnostics
 
 Usage:
-  !debug noise               - Preview deletable bot messages
-  !debug cleanup             - Delete bot noise from Discord history
-  !debug status              - Show summary internals (IDs, hashes, chains)
-  !debug backfill            - Embed all messages + re-link topics (contextual)
-  !debug reembed             - Delete all embeddings + re-embed with context
-  !debug clusters            - Run UMAP+HDBSCAN clustering, show report
-  !debug summarize_clusters  - Run per-cluster LLM summarization
+  !debug noise      - Preview deletable bot messages
+  !debug cleanup    - Delete bot noise from Discord history
+  !debug status     - Show summary internals (IDs, hashes, chains)
+  !debug backfill   - Embed missing messages with contextual text
+  !debug reembed    - Delete all embeddings + re-embed with context
+  !debug segments   - Show segment count, avg size, sample syntheses
+  !debug dedup      - Scan for duplicate test messages
 """
 import asyncio
 import json
@@ -52,8 +47,8 @@ def register_debug_commands(bot):
             f"`!debug status` — summary internals\n"
             f"`!debug backfill` — embed missing messages\n"
             f"`!debug reembed` — re-embed all with context\n"
-            f"`!debug clusters` — run clustering\n"
-            f"`!debug summarize_clusters` — summarize clusters\n"
+            f"`!debug segments` — segment count + sample syntheses\n"
+            f"`!debug propositions` — proposition count + samples\n"
             f"`!debug dedup` — scan for duplicate test messages\n"
             f"`!debug dedup confirm` — remove duplicates")
 

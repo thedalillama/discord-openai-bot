@@ -1,8 +1,9 @@
 # utils/summary_display.py
-# Version 1.3.2
+# Version 1.3.3
 """
 Summary display formatting and pagination for Discord output.
 
+CHANGES v1.3.3: Read pipeline label from summary meta instead of hardcoding cluster-v5
 CHANGES v1.3.2: Fix footer for cluster-v5 summaries (cluster_count key)
 CHANGES v1.3.1: "Key facts:" → "Key facts established in this conversation:"
 CHANGES v1.3.0: format_always_on_context() for semantic retrieval (SOW v4.0.0)
@@ -229,7 +230,8 @@ def format_summary(summary, full=False):
     if "cluster_count" in summary:
         cc = summary["cluster_count"]
         nc = summary.get("noise_message_count", 0)
-        lines.append(f"*{cc} clusters ({nc} noise) | cluster-v5*")
+        pipeline_label = summary.get("meta", {}).get("pipeline", "cluster-v5")
+        lines.append(f"*{cc} clusters ({nc} noise) | {pipeline_label}*")
     else:
         tc = summary.get("summary_token_count", 0)
         meta = summary.get("meta", {})

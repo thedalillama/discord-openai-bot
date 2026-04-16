@@ -1,11 +1,18 @@
 # utils/cluster_summarizer.py
-# Version 1.0.0
+# Version 1.2.0
 """
 Per-cluster LLM summarization pipeline for v5.2.0.
 
 Calls Gemini once per cluster to extract label, summary, decisions,
 key_facts, action_items, and open_questions. Results stored in the
 clusters table summary column as a JSON blob.
+
+CHANGES v1.2.0: Log segment count instead of stale message_count in v6 path
+CHANGES v1.1.0: Segment-aware summarization (SOW v6.0.0)
+- MODIFIED: summarize_cluster() — add use_segments=False parameter.
+  When True, loads segment syntheses via get_cluster_segment_ids() +
+  get_segments_by_ids(). M-label format: "M1 [Topic]: synthesis text..."
+- MODIFIED: summarize_all_clusters() — pass use_segments through.
 
 CREATED v1.0.0: Per-cluster Gemini summarization (SOW v5.2.0)
 - summarize_cluster(): single Gemini call for one cluster
@@ -93,37 +100,52 @@ CLUSTER_SUMMARY_SCHEMA = {
 }
 
 
-async def summarize_cluster(cluster_id, channel_id, provider):
+async def summarize_cluster(cluster_id, channel_id, provider, use_segments=False):
     """Summarize a single cluster with one Gemini call.
 
     Returns dict with label, summary, decisions, key_facts, action_items,
     open_questions, status — or None on failure.
+    When use_segments=True, loads segment syntheses instead of raw messages.
     """
-    message_ids = await asyncio.to_thread(get_cluster_message_ids, cluster_id)
-    if not message_ids:
-        logger.warning(f"No messages for cluster {cluster_id}")
-        return None
-
-    messages = await asyncio.to_thread(get_messages_by_ids, message_ids)
-    if not messages:
-        logger.warning(f"Could not fetch messages for cluster {cluster_id}")
-        return None
-
-    # Truncate to most recent MAX_MESSAGES_PER_CLUSTER
-    truncated = len(messages) > MAX_MESSAGES_PER_CLUSTER
-    if truncated:
-        messages = messages[-MAX_MESSAGES_PER_CLUSTER:]
-
-    # Format with M-labels
-    lines = []
-    if truncated:
-        lines.append(
-            f"NOTE: This cluster contains {len(message_ids)} messages. "
-            f"The {MAX_MESSAGES_PER_CLUSTER} most recent are shown. "
-            f"Earlier messages covered similar topics.\n")
-    for i, (_, author, content, created_at) in enumerate(messages, 1):
-        date = (created_at or "")[:10]
-        lines.append(f"M{i} [{date}] {author}: {content}")
+    if use_segments:
+        from utils.segment_store import get_cluster_segment_ids, get_segments_by_ids
+        seg_ids = await asyncio.to_thread(get_cluster_segment_ids, cluster_id)
+        if not seg_ids:
+            logger.warning(f"No segments for cluster {cluster_id}")
+            return None
+        segs = await asyncio.to_thread(get_segments_by_ids, seg_ids)
+        if not segs:
+            return None
+        truncated = len(segs) > MAX_MESSAGES_PER_CLUSTER
+        if truncated:
+            segs = segs[-MAX_MESSAGES_PER_CLUSTER:]
+        lines = []
+        if truncated:
+            lines.append(f"NOTE: Showing last {MAX_MESSAGES_PER_CLUSTER} segments.\n")
+        for i, seg in enumerate(segs, 1):
+            lbl = seg.get("topic_label") or f"Segment {i}"
+            lines.append(f"M{i} [{lbl}]: {seg['synthesis']}")
+    else:
+        message_ids = await asyncio.to_thread(get_cluster_message_ids, cluster_id)
+        if not message_ids:
+            logger.warning(f"No messages for cluster {cluster_id}")
+            return None
+        messages = await asyncio.to_thread(get_messages_by_ids, message_ids)
+        if not messages:
+            logger.warning(f"Could not fetch messages for cluster {cluster_id}")
+            return None
+        truncated = len(messages) > MAX_MESSAGES_PER_CLUSTER
+        if truncated:
+            messages = messages[-MAX_MESSAGES_PER_CLUSTER:]
+        lines = []
+        if truncated:
+            lines.append(
+                f"NOTE: This cluster contains {len(message_ids)} messages. "
+                f"The {MAX_MESSAGES_PER_CLUSTER} most recent are shown. "
+                f"Earlier messages covered similar topics.\n")
+        for i, (_, author, content, created_at) in enumerate(messages, 1):
+            date = (created_at or "")[:10]
+            lines.append(f"M{i} [{date}] {author}: {content}")
     formatted = "\n".join(lines)
 
     for attempt in range(2):
@@ -154,6 +176,8 @@ async def summarize_cluster(cluster_id, channel_id, provider):
                 result.get("label", ""),
                 summary_json,
                 result.get("status", "active"))
+            if use_segments:
+                result["segment_count"] = len(seg_ids)
             return result
         except Exception as e:
             logger.warning(
@@ -161,7 +185,8 @@ async def summarize_cluster(cluster_id, channel_id, provider):
     return None
 
 
-async def summarize_all_clusters(channel_id, provider, progress_fn=None):
+async def summarize_all_clusters(channel_id, provider, progress_fn=None,
+                                use_segments=False):
     """Summarize all clusters for a channel sequentially.
 
     Returns dict: processed, failed counts.
@@ -172,16 +197,18 @@ async def summarize_all_clusters(channel_id, provider, progress_fn=None):
     total = len(clusters)
     processed = failed = 0
     for i, cluster in enumerate(clusters):
-        result = await summarize_cluster(cluster["id"], channel_id, provider)
+        result = await summarize_cluster(
+            cluster["id"], channel_id, provider, use_segments=use_segments)
         if result:
             processed += 1
+            count_str = (f"{result.get('segment_count')} segs"
+                         if result.get('segment_count') is not None
+                         else f"{cluster['message_count']} msgs")
             logger.info(
-                f"Cluster {i+1}/{total}: "
-                f"'{result.get('label', '?')}' ({cluster['message_count']} msgs)")
+                f"Cluster {i+1}/{total}: '{result.get('label', '?')}' ({count_str})")
         else:
             failed += 1
-            logger.warning(
-                f"Cluster {i+1}/{total}: failed ({cluster['message_count']} msgs)")
+            logger.warning(f"Cluster {i+1}/{total}: failed")
         if progress_fn and (i + 1) % 10 == 0:
             await progress_fn(f"Summarized {i+1}/{total} clusters...")
     logger.info(

@@ -1,15 +1,17 @@
 # utils/message_store.py
-# Version 1.2.0
+# Version 1.3.0
 """
 SQLite message persistence layer for the Discord bot.
 
+CHANGES v1.3.0: Thread-local connections — replace shared _conn with threading.local()
+  to fix SQLITE_MISUSE when asyncio.to_thread runs concurrent DB calls
 CREATED v1.0.0: WAL-mode SQLite, insert/update/soft-delete, channel state tracking
-CHANGES v1.1.0: Schema extension — reply_to_message_id, thread_id, attachments_metadata;
-  init_database() runs migrations; update_message_content_and_edit_time()
+CHANGES v1.1.0: Schema extension — reply_to_message_id, thread_id, attachments_metadata
 CHANGES v1.2.0: is_bot_author column in insert and get_channel_messages()
 """
 import sqlite3
 import os
+import threading
 from datetime import datetime, timezone
 
 from config import DATABASE_PATH
@@ -18,42 +20,41 @@ from utils.models import StoredMessage
 
 logger = get_logger('message_store')
 
-# Module-level connection — initialized once via init_database()
-_conn = None
+_thread_local = threading.local()
+_initialized = False
 
 
 def init_database():
     """
-    Initialize the SQLite database connection and run migrations.
-
-    Creates the data directory if needed, opens the database, enables
-    WAL mode, and runs all pending schema migrations via db_migration.py.
+    Initialize the database: create directory, run migrations, enable WAL.
     Must be called once at startup before any other operations.
     """
-    global _conn
-
+    global _initialized
     db_dir = os.path.dirname(DATABASE_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir)
         logger.info(f"Created database directory: {db_dir}")
-
-    _conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-    _conn.execute("PRAGMA journal_mode = WAL")
-    _conn.execute("PRAGMA synchronous = NORMAL")
-
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     from utils.db_migration import run_migrations
-    run_migrations(_conn)
-
+    run_migrations(conn)
+    conn.close()
+    _initialized = True
     logger.info(f"Database initialized at {DATABASE_PATH}")
-    journal = _conn.execute("PRAGMA journal_mode").fetchone()[0]
+    journal = _get_conn().execute("PRAGMA journal_mode").fetchone()[0]
     logger.info(f"Journal mode: {journal}")
 
 
 def _get_conn():
-    """Get the database connection, raising if not initialized."""
-    if _conn is None:
+    """Get or create a thread-local connection. Each thread has its own."""
+    if not _initialized:
         raise RuntimeError("Database not initialized. Call init_database() first.")
-    return _conn
+    if not hasattr(_thread_local, 'conn'):
+        _thread_local.conn = sqlite3.connect(DATABASE_PATH)
+        _thread_local.conn.execute("PRAGMA journal_mode = WAL")
+        _thread_local.conn.execute("PRAGMA synchronous = NORMAL")
+    return _thread_local.conn
 
 
 def insert_message(msg):

@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 5.11.0
+# Version 6.4.2
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -46,59 +46,71 @@
 - Increment version on every change
 - Update changelog in docstring
 
-### 7. ASYNC SAFETY
+### 7. DATA PRIVACY — NEVER COMMIT TEST DATA
+- **Never commit benchmark files, query results, or any file containing retrieved
+  Discord messages or usernames** — these contain real private channel content
+- Applies to: `retrieval_benchmark.py`, `benchmark_core.py`, `benchmark_queries.py`,
+  `benchmark*.json`, `benchmarks/`, and any similar test/eval artifacts
+- All such files must be covered by `.gitignore` before any work begins
+- If a file containing Discord data is accidentally staged, abort, `git rm --cached`,
+  and verify `.gitignore` before re-committing
+- If it has been pushed, scrub with `git-filter-repo --invert-paths` and force-push
+
+### 8. ASYNC SAFETY
 - All provider API calls wrapped in `run_in_executor()`
 - Never block the Discord event loop with synchronous calls
 - All SQLite operations via `asyncio.to_thread()`
 
-### 8. PREFIX TAGGING
+### 9. PREFIX TAGGING
 - All bot command output must be prefixed:
   - `ℹ️` — informational/noise (filter from API, summarizer, everything)
   - `⚙️` — settings changes (keep for replay, filter from API/summarizer)
 - New commands must use these prefixes on all `ctx.send()` calls
 - This replaces pattern-matching for noise filtering
 
-### 9. DOCUMENTATION
+### 10. DOCUMENTATION
 - **Update README.md, STATUS.md, HANDOFF.md, and README_ENV.md alongside every code change**
 - Keep CLAUDE.md current for Claude Code sessions
 - Full files only — never partial diffs or patches
 - Always provide complete file contents when delivering changes
 
-### 10. MAINTAIN CONSISTENCY
+### 11. MAINTAIN CONSISTENCY
 - Follow established patterns and conventions
 - Respect modular architecture and file organization
 - Maintain backward compatibility with existing APIs and imports
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v4.1.x)
-- Messages embedded on arrival via OpenAI `text-embedding-3-small`
-- Topics cleared and re-linked on every `!summary create` — no duplicates accumulate
-- Topics linked to all messages above `TOPIC_LINK_MIN_SCORE` (0.3) by cosine similarity
-- Bot-noise topics filtered at retrieval time (`_is_noise_topic()` in `embedding_store.py`)
-- At response time: always-on context (overview/facts/actions/questions) + retrieved topic messages
-- Only topics above `RETRIEVAL_MIN_SCORE` (0.25) are injected; recent messages capped at 5
-- Message fallback fires when no topics pass threshold OR all matched topics have 0 linked messages
-- Each retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected at top of context block
-- `!debug backfill` batch-embeds 1000 messages per API call; re-links active + archived topics
+### Semantic Retrieval (v6.4.1 — proposition+dense+BM25+RRF)
+- Retrieval path: `context_manager.py` → `_retrieve_segment_context()` in `context_retrieval.py`
+- Query embedded via `embed_query_with_smart_context()` → (vec, path_name)
+- Propositions: `find_relevant_propositions()` — cosine vs all prop embeddings; collapse to max-score-per-segment → seg IDs
+- Dense: `find_relevant_segments(top_k*2, floor=RETRIEVAL_FLOOR)` — cosine vs all segment embeddings
+- Score-gap: `_apply_score_gap()` — cuts at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
+- BM25: `fts_search(query_text)` via SQLite FTS5 — synthesis + raw message content
+- RRF: `rrf_fuse(prop, dense, bm25, k=RRF_K)` → top-K fused (segment_id, rrf_score) pairs
+- Per segment: `get_segment_with_messages()` → synthesis + source messages injected with [N] citations
+- Rollback: if no segments in DB, `_cluster_rollback()` scores query vs cluster centroids (RETRIEVAL_MIN_SCORE)
+- Message fallback: `find_similar_messages()` when segment retrieval empty
+- Receipt stored via `receipt_store.py`; `!explain` displays retrieved_segments + score_gap_applied
 
-### Context Receipts & !explain (v5.7.0)
-- Every bot response stores a context receipt in `response_context_receipts` (schema 002.sql)
-- Receipt contains: query, embedding path, always-on counts, retrieved clusters, below-threshold
-  clusters, fallback info, recent message count, token budget, provider/model
-- Signal chain: `embed_query_with_smart_context()` → `(vec, path_name)` →
-  `_retrieve_cluster_context()` → `(text, tokens, cluster_receipt)` →
-  `build_context_for_provider()` → `(messages, receipt_data)` →
+### Context Receipts & !explain (v5.7.0+)
+- Every bot response stores a context receipt via `receipt_store.py`
+- Receipt contains: query, embedding path, always-on counts, retrieved_segments (v6.1.0+) or
+  retrieved_clusters (rollback), score_gap_applied, fallback info, token budget, provider/model
+- Signal chain: `embed_query_with_smart_context()` → `_retrieve_segment_context()` →
+  `build_context_for_provider()` → `(messages, receipt_data, citation_map)` →
   `handle_ai_response_task()` → `save_receipt()` after send
-- `!explain` / `!explain <id>` — retrieve and display receipt via `format_receipt()`
+- `!explain` / `!explain detail` / `!explain <id>` — display via `format_receipt()` in `explain_commands.py`
 - Receipt storage is fail-safe: never blocks or prevents bot responses
 
 ### Smart Query Embedding (v5.6.1)
 - `embed_query_with_smart_context()` in `embedding_context.py` — two-path logic:
   Path 1 (question detection via `is_question()`), Path 2 (cosine similarity check
   vs previous stored embedding via `get_stored_embedding()`)
-- `RETRIEVAL_MIN_SCORE` reused as topic-shift threshold — no new config variable
-- `build_contextual_text()` for stored embeddings unchanged
+- `QUERY_TOPIC_SHIFT_THRESHOLD` (default 0.5) controls topic-shift detection (SOW v5.12.0)
+- `build_contextual_text()` uses `EMBEDDING_CONTEXT_MIN_SCORE` (default 0.3) for
+  context-window filtering of previous messages (SOW v5.12.0)
 
 ### Context-Prepended Embeddings (v5.6.0)
 - All messages embedded with conversational context via `build_contextual_text()`
@@ -109,19 +121,26 @@
 - `utils/context_retrieval.py` — retrieval extracted from context_manager.py
 - `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
 
-### Noise Guard (v5.5.1)
-- `raw_events.py` `_looks_like_diagnostic()` skips embedding bot-authored
-  messages whose content starts with known diagnostic prefixes (`Cluster `,
-  `Parameters:`, `Processed:`, `**Cluster Analysis`, etc.) — belt-and-suspenders
-  against prefix loss; `debug_commands.py` v1.6.0 routes all pagination through
-  `send_paginated()` to guarantee ℹ️ on every chunk
+### Noise Guard (v5.13.0)
+- `utils/embedding_noise_filter.py` `should_skip_embedding()` — single gate
+  for what gets embedded; applied in `raw_events.py` (live) and
+  `embedding_store.py` `get_messages_without_embeddings()` (backfill)
+- Skip criteria: empty, `!`/`ℹ️`/`⚙️` prefix, bot diagnostic prefixes,
+  `[Original Message Deleted]` placeholder, fewer than 4 words (questions exempt)
+- `debug_commands.py` v1.6.0 routes all pagination through `send_paginated()`
+  to guarantee ℹ️ on every chunk
 
-### Semantic Retrieval (v5.5.0 — cluster-based)
-- Response path uses `find_relevant_clusters()` + `get_cluster_messages()` from
-  `cluster_retrieval.py`
-- `_retrieve_cluster_context()` in `context_manager.py` replaces `_retrieve_topic_context()`
+### Segment Pipeline (v6.0.0)
+- `!summary create` now runs: segment → embed segments → cluster segments → summarize (use_segments=True) → classify → overview → dedup → QA → save
+- `utils/segmenter.py` `run_segmentation_phase()` — Gemini batch-processes messages (SEGMENT_BATCH_SIZE, SEGMENT_OVERLAP) into segments with topic labels and syntheses; syntheses resolve implicit references ("yes" → "Alice agreed to use PostgreSQL")
+- `utils/segment_store.py` — CRUD for `segments`, `segment_messages`, `cluster_segments` tables; `run_segment_clustering()` runs UMAP+HDBSCAN on segment embeddings, stores to `clusters` + `cluster_segments` without touching `cluster_messages`
+- Retrieval injects per-segment `[Topic: label]\nSummary: synthesis\n\nSource messages:\n[N] [date] author: content`; synthesis-only fallback when budget is tight; rollback path (no segments) falls back to direct message injection
+
+### Cluster Rollback Path (pre-v6 channels)
+- Fires when `find_relevant_segments()` returns empty (no segments in DB)
+- `_cluster_rollback()` in `context_retrieval.py` → `find_relevant_clusters()` + `get_cluster_messages()`
+- Filters by `RETRIEVAL_MIN_SCORE` (production: 0.5); receipt uses `retrieved_clusters` key
 - `[Topic: {label}]` section header preserved — model framing unchanged
-- Fallback (`find_similar_messages`) still fires when no clusters pass threshold
 
 ### Incremental Assignment (v5.4.0)
 - New messages assigned to nearest cluster centroid on arrival (`raw_events.py` →
@@ -152,9 +171,10 @@
 - Provider singleton caching, async executor wrapping
 - Token-budget context: always-on + retrieved + 5 recent messages
 
-### Persistence
-- SQLite with WAL mode: messages, summaries, embeddings, clusters, cluster_messages
-- Settings recovered from Discord message history on startup
+### Startup & Persistence (v6.4.1)
+- SQLite with WAL mode, thread-local connections (`message_store.py` v1.3.0)
+- Tables: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments, propositions
+- On startup: settings restored from SQLite (`restore_settings_from_db()` — queries ⚙️ bot messages); Discord fetched delta-only after `last_processed_id`; in-memory history seeded from DB (last MAX_HISTORY×10 messages, filtered)
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 
 ## REMEMBER:
@@ -165,6 +185,7 @@
 5. 250-LINE LIMIT AND MODULAR PATTERNS
 6. PREFIX ALL BOT OUTPUT WITH ℹ️ OR ⚙️
 7. **UPDATE ALL DOCUMENTATION BEFORE MERGING**
+8. **NEVER COMMIT TEST DATA, BENCHMARK FILES, OR DISCORD CHANNEL CONTENT**
 
 For Technical Details: See README.md and STATUS.md
 For Current State: See HANDOFF.md
