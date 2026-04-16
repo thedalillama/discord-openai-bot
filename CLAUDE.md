@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 6.2.0
+# Version 6.4.1
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -54,11 +54,14 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 ### Message Flow
 1. `main.py` → loads .env, creates bot, runs with DISCORD_TOKEN
 2. `bot.py` → on_message routes to response pipeline or commands
-3. First message in channel triggers `load_channel_history()` backfill
+3. First message in channel triggers `load_channel_history()`:
+   - `restore_settings_from_db()` — queries SQLite for ⚙️ bot messages → settings applied without Discord fetch
+   - `_seed_history_from_db()` — last MAX_HISTORY×10 messages from SQLite, filtered → in-memory buffer
+   - Delta Discord fetch (`after=last_processed_id`) — only messages newer than last DB record
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v6.4.0 — proposition+dense+BM25+RRF)
+### Semantic Retrieval (v6.4.1 — proposition+dense+BM25+RRF)
 Every response context has two layers:
 - **Always-on**: overview, key facts, open actions, open questions (from summary)
 - **Retrieved**: latest user message embedded WITH context → three-signal hybrid →
@@ -107,7 +110,9 @@ Key files: `utils/cluster_retrieval.py` (find_relevant_segments, get_segment_wit
 `utils/fts_search.py` (populate_fts, fts_search, rrf_fuse — BM25 + fusion),
 `utils/context_retrieval.py` (hybrid retrieval + fallback, v1.7.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
-`utils/context_manager.py` (always-on + budget + timestamps + citation pass-through)
+`utils/context_manager.py` (always-on + budget + timestamps + citation pass-through),
+`utils/history/discord_loader.py` (DB seed + delta fetch orchestration, v2.3.0),
+`utils/history/realtime_settings_parser.py` (restore_settings_from_db, v2.3.0)
 
 ### Incremental Assignment (v5.4.0)
 After embedding, `raw_events.py` calls `assign_to_nearest_cluster(channel_id, message_id)`
