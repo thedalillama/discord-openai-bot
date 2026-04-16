@@ -1,10 +1,10 @@
 # utils/cluster_overview.py
-# Version 2.3.0
+# Version 2.4.0
 """
 Cross-cluster overview generation and full pipeline orchestrator.
 
-CHANGES v2.3.0: Add pre_run_stats=None to run_cluster_pipeline(); skips
-run_clustering() and passes use_segments=True for segment path (SOW v6.0.0).
+CHANGES v2.4.0: Pass pipeline label ("segment-v6"/"cluster-v5") through translate_to_channel_summary
+CHANGES v2.3.0: pre_run_stats=None skips run_clustering(); use_segments=True for segment path
 CHANGES v2.2.0: Replace qa_pass with embedding dedup + answered-Q check
 - MODIFIED: run_cluster_pipeline() replaces single qa_pass() call with
   deduplicate_summary() then remove_answered_questions() from cluster_qa;
@@ -137,7 +137,7 @@ async def generate_overview(channel_id, provider, clusters):
     return None
 
 
-def translate_to_channel_summary(overview_result, cluster_count, noise_count):
+def translate_to_channel_summary(overview_result, cluster_count, noise_count, pipeline="cluster-v5"):
     """Map merged pipeline output to v4.x field names for the display layer."""
     return {
         "schema_version": "2.0",
@@ -163,7 +163,7 @@ def translate_to_channel_summary(overview_result, cluster_count, noise_count):
         "cluster_count":       cluster_count,
         "noise_message_count": noise_count,
         "meta": {
-            "pipeline":      "cluster-v5",
+            "pipeline":      pipeline,
             "summarized_at": datetime.now(timezone.utc).isoformat(),
         }
     }
@@ -230,7 +230,7 @@ async def run_cluster_pipeline(channel_id, provider, progress_fn=None, pre_run_s
         "open_questions": filtered.get("open_questions", []),
     }
 
-    channel_summary = translate_to_channel_summary(merged, cluster_count, noise_count)
+    channel_summary = translate_to_channel_summary(merged, cluster_count, noise_count, "segment-v6" if use_segments else "cluster-v5")
 
     await _p("Deduplicating and checking answered questions...")
     channel_summary = await deduplicate_summary(channel_summary)
