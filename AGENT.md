@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 6.4.0
+# Version 6.4.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -71,7 +71,7 @@
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v6.4.0 — proposition+dense+BM25+RRF)
+### Semantic Retrieval (v6.4.1 — proposition+dense+BM25+RRF)
 - Retrieval path: `context_manager.py` → `_retrieve_segment_context()` in `context_retrieval.py`
 - Query embedded via `embed_query_with_smart_context()` → (vec, path_name)
 - Propositions: `find_relevant_propositions()` — cosine vs all prop embeddings; collapse to max-score-per-segment → seg IDs
@@ -161,9 +161,10 @@
 - Provider singleton caching, async executor wrapping
 - Token-budget context: always-on + retrieved + 5 recent messages
 
-### Persistence
-- SQLite with WAL mode: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments
-- Settings recovered from Discord message history on startup
+### Startup & Persistence (v6.4.1)
+- SQLite with WAL mode, thread-local connections (`message_store.py` v1.3.0)
+- Tables: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments, propositions
+- On startup: settings restored from SQLite (`restore_settings_from_db()` — queries ⚙️ bot messages); Discord fetched delta-only after `last_processed_id`; in-memory history seeded from DB (last MAX_HISTORY×10 messages, filtered)
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 
 ## REMEMBER:

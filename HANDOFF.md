@@ -1,8 +1,84 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.4.0
+# Version 6.4.2
 
 ## Current Version Features
+
+### Version 6.4.2 — Benchmark Score Fix + History Seeding
+
+**Benchmark score-scale fix (`top_score` was RRF; now correctly cosine):**
+
+v6.4.0 introduced `rrf_fuse()` which returns `(seg_id, rrf_score)` pairs.
+`retrieval_benchmark.py` iterated those pairs and put `rrf_score` in the
+segment score slot — the slot that v6.2.0 used for cosine. Result: reported
+"top_score" of 0.04–0.19 vs v6.2.0's 0.4–0.7, making v6.4.0 look like a
+severe regression. In reality, retrieval quality improved.
+
+Fix: `run_query()` in `benchmark_core.py` builds explicit 5-tuples
+`(sid, topic_label, synthesis, cosine_score, rrf_score)` by looking up each
+fused `sid` in `dense_map` (which carries the cosine score from
+`find_relevant_segments()`). BM25-only segments (not in dense pool) get
+`cosine_score=None` and are excluded from cosine averages.
+`score_result()` returns both `top_cosine_score` (primary, 0–1) and
+`top_rrf_score` (secondary, ~0–0.19). JSON output includes `score_note`
+documenting the historical confusion.
+
+**v6.4.2 benchmark baseline (2026-04-16):**
+- Avg top cosine: 0.391, 16/16 queries have cosine
+- Avg keyword recall: 60%, 0 empty retrievals, 2328ms avg latency
+- File: `benchmarks/benchmark_v6.4.2_2026-04-16T05-53-47.json`
+
+**History seeding fix (`_seed_history_from_db`):**
+
+After restart with 0 delta messages, `channel_history` was empty → bot replied
+"No conversation history available." Root cause: `load_messages_from_discord`
+returned without seeding any in-memory history.
+
+Fix in `discord_loader.py` v2.3.0: `_seed_history_from_db(channel_id)` queries
+`get_channel_messages(channel_id)`, takes the last `MAX_HISTORY * 10` records
+(500), filters noise/commands/ℹ️ bot output, then seeds the last `MAX_HISTORY`
+(50) valid entries via `add_message_to_history()`. The `× 10` window is needed
+because most DB records in bot-heavy channels are `ℹ️`-prefixed and would
+exhaust the window before yielding 50 real conversation messages.
+
+**`!history` overflow fix:**
+`history_commands.py` v2.2.0: `content` truncated to 350 chars before building
+the entry string. Previous pagination checked chunk size but not individual
+entry size — a single long bot response could produce a >2000-char `ctx.send()`.
+
+**Files changed:**
+- `utils/history/discord_loader.py` v2.2.0 → v2.3.0 (`_seed_history_from_db`)
+- `commands/history_commands.py` v2.1.0 → v2.2.0 (350-char content truncation)
+- `retrieval_benchmark.py` v2.0.0 (main entry point only; split to 3 files)
+- `benchmark_queries.py` v1.0.0 (new — `BENCHMARK_QUERIES` extracted)
+- `benchmark_core.py` v1.0.0 (new — `get_all_channel_ids`, `get_cluster_count`,
+  `run_query`, `score_result`)
+- `cluster_diagnostic.py` deleted (pre-v6 cluster quality tool, `cluster_messages`
+  never populated in v6 pipeline)
+
+---
+
+### Version 6.4.1 — Startup Fetch Optimization
+
+Eliminates the full Discord channel history fetch on startup. Settings are now
+restored from SQLite; Discord is only queried for the delta since the last
+DB-recorded message.
+
+**Files changed:**
+- `utils/history/realtime_settings_parser.py` v2.3.0 — `restore_settings_from_db(channel_id)`:
+  queries `messages WHERE is_bot_author=1 AND content LIKE '⚙️%' ORDER BY DESC LIMIT 200`,
+  wraps rows as `_Msg` duck-typed objects, calls existing `parse_settings_during_load()`
+- `utils/history/discord_fetcher.py` v1.3.0 — `after_id=None` param: when set, uses
+  `channel.history(after=discord.Object(id=after_id), oldest_first=True)`, returning
+  `(messages, 0)` without skip logic
+- `utils/history/discord_loader.py` v2.2.0 — calls `restore_settings_from_db()` first,
+  then `get_last_processed_id()`, passes `after_id=last_id` to fetcher; still parses any
+  fresh delta messages for settings
+
+**Also in v6.4.x:** thread-local SQLite, backfill error logging, segment-count logging,
+dropped-message logging, proposition embedding retry, pipeline label in footer/meta.
+
+---
 
 ### Version 6.4.0 — Proposition Decomposition (SOW v6.3.0)
 

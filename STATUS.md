@@ -1,8 +1,84 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.4.0
+# Version 6.4.2
 
 ## Current Version Features
+
+### Version 6.4.2 — Benchmark Score Fix + History Seeding
+
+**Benchmark score-scale corrected (v6.4.0/v6.4.1 regression):**
+`retrieval_benchmark.py` v6.4.0 mistakenly put the RRF fused score (~0–0.19
+with `RRF_K=15`) in the "top_score" slot instead of the dense cosine score
+(0–1). v6.4.2 carries separate `cosine_score` and `rrf_score` in every segment
+5-tuple, reports cosine as the primary cross-version metric, and includes a
+`score_note` in the JSON output documenting the prior confusion.
+
+**Benchmark v6.4.2 baseline:**
+- Avg top cosine score: 0.391 (16/16 queries have cosine)
+- Avg keyword recall: 60%
+- Empty retrievals: 0/16
+- Avg latency: 2328ms
+
+**"No conversation history" bug fixed:**
+After a restart where the delta fetch returned 0 new messages, `channel_history`
+was empty — the bot replied "No conversation history available." Fixed by
+`_seed_history_from_db(channel_id)` which loads the last `MAX_HISTORY × 10`
+messages from SQLite, filters noise/commands, and seeds the last `MAX_HISTORY`
+valid entries into memory before the Discord fetch.
+
+**`!history` 2000-char overflow fixed:**
+Message content is now truncated to 350 chars before building history entries,
+preventing individual entries from exceeding Discord's 2000-char send limit.
+
+**`cluster_diagnostic.py` deleted:**
+Pre-v6 decision tool that classified cluster quality (NOISE/WEAK/MODERATE/STRONG)
+to determine if segmentation was needed. Decision shipped; reads `cluster_messages`
+which is never populated in the v6 segment pipeline.
+
+**Files changed:**
+- `utils/history/discord_loader.py` v2.2.0 → v2.3.0 (`_seed_history_from_db`)
+- `commands/history_commands.py` v2.1.0 → v2.2.0 (350-char content truncation)
+- `retrieval_benchmark.py` v2.0.0 (entry point only; split into 3 files)
+- `benchmark_queries.py` v1.0.0 (new — extracted `BENCHMARK_QUERIES`)
+- `benchmark_core.py` v1.0.0 (new — `run_query`, `score_result`, helpers)
+- `cluster_diagnostic.py` deleted
+
+---
+
+### Version 6.4.1 — Startup Fetch Optimization
+
+Eliminates the full Discord channel history fetch on restart. Previously, the
+bot fetched every message from every channel's history just to find ⚙️ settings
+confirmation messages. With 2000+ messages per channel this was slow and
+unnecessary.
+
+**New flow:**
+1. `restore_settings_from_db(channel_id)` — queries SQLite for `is_bot_author=1`
+   + `content LIKE '⚙️%'` messages (up to 200, newest-first). Wraps rows as
+   duck-typed objects and passes to `parse_settings_during_load()`. Settings
+   applied without touching Discord.
+2. `fetch_messages_from_discord(channel, is_automatic, after_id=last_id)` —
+   delta fetch via `channel.history(after=discord.Object(id=last_id), oldest_first=True)`.
+   Only pulls messages that arrived since the last DB-recorded message ID.
+3. Any ⚙️ messages in the delta (rare: would have to arrive between backfill and
+   history load) are still parsed and applied.
+
+**Modified:**
+- `utils/history/realtime_settings_parser.py` v2.2.0 → v2.3.0 (new `restore_settings_from_db`)
+- `utils/history/discord_fetcher.py` v1.2.0 → v1.3.0 (`after_id` param, `import discord`)
+- `utils/history/discord_loader.py` v2.1.0 → v2.2.0 (orchestration using new functions)
+
+**Also shipped in v6.4.x (bug fixes / observability):**
+- `message_store.py` v1.3.0: thread-local SQLite connections fix `SQLITE_MISUSE`
+- `raw_events.py` v1.9.0: `get_last_processed_id` inside try block so backfill errors are logged
+- `cluster_summarizer.py` v1.2.0: log segment count instead of stale `message_count`
+- `segmenter.py` v1.0.3: log each dropped message on partial segment coverage
+- `proposition_decomposer.py` v1.1.0: retry proposition embedding once after 5s on 503
+- `cluster_overview.py` v2.4.0: pipeline label from meta instead of hardcoded `cluster-v5`
+- `summary_display.py` v1.3.3: read pipeline label from summary meta
+- `retrieval_benchmark.py`: version-stamped benchmark results under `benchmarks/`
+
+---
 
 ### Version 6.4.0 — Proposition Decomposition (SOW v6.3.0)
 
