@@ -1,8 +1,10 @@
 # utils/history/realtime_settings_parser.py
-# Version 2.2.0
+# Version 2.3.0
 """
 Real-time settings parsing orchestrator during Discord message loading.
 
+CHANGES v2.3.0: restore_settings_from_db() — query ⚙️ bot messages from SQLite
+  so startup no longer requires a full Discord history fetch for settings recovery
 CHANGES v2.2.0: Split helper functions into settings_appliers.py
 - MOVED: _parse_and_apply_system_prompt() → settings_appliers.py
 - MOVED: _parse_and_apply_ai_provider() → settings_appliers.py
@@ -43,7 +45,59 @@ from .settings_appliers import (
 logger = get_logger('history.realtime_settings_parser')
 
 # Re-export so existing callers (discord_loader.py) still work
-__all__ = ['parse_settings_during_load', 'extract_prompt_from_update_message']
+__all__ = ['parse_settings_during_load', 'extract_prompt_from_update_message',
+           'restore_settings_from_db']
+
+
+async def restore_settings_from_db(channel_id):
+    """Restore channel settings from SQLite bot confirmation messages.
+
+    Queries ⚙️-prefixed bot messages directly from the DB, bypassing
+    the full Discord history fetch. Falls back silently if no bot messages
+    exist in the DB for this channel yet.
+
+    Returns the same dict as parse_settings_during_load.
+    """
+    import asyncio
+    import sqlite3
+    from config import DATABASE_PATH
+
+    class _Author:
+        bot = True
+
+    class _Msg:
+        def __init__(self, content):
+            self.content = content
+            self.author = _Author()
+
+    _empty = {
+        'system_prompt': False, 'ai_provider': False,
+        'auto_respond': False, 'thinking_enabled': False, 'total_found': 0,
+    }
+    try:
+        def _query():
+            conn = sqlite3.connect(DATABASE_PATH)
+            rows = conn.execute(
+                """SELECT content FROM messages
+                   WHERE channel_id=? AND is_bot_author=1
+                   AND content LIKE '⚙️%'
+                   ORDER BY created_at DESC LIMIT 200""",
+                (channel_id,)
+            ).fetchall()
+            conn.close()
+            return rows
+
+        rows = await asyncio.to_thread(_query)
+        if not rows:
+            logger.debug(f"No ⚙️ bot messages in DB for ch:{channel_id}")
+            return _empty
+        # DB returned newest-first; reverse to ASC so parse_settings_during_load
+        # (which internally reverses to newest-first) works correctly.
+        msgs = [_Msg(row[0]) for row in reversed(rows)]
+        return await parse_settings_during_load(msgs, channel_id)
+    except Exception as e:
+        logger.warning(f"restore_settings_from_db failed for ch:{channel_id}: {e}")
+        return _empty
 
 
 async def parse_settings_during_load(messages, channel_id):

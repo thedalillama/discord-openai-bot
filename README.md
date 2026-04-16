@@ -1,5 +1,5 @@
 # README.md
-# Version 6.4.0
+# Version 6.4.1
 
 # Synthergy Discord Bot
 
@@ -11,11 +11,11 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
 - **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
-- **Message persistence** — all messages stored in SQLite; on restart, recent history is backfilled from Discord to catch messages sent while offline
+- **Message persistence** — all messages stored in SQLite; on restart, backfill fetches only messages newer than the last stored ID; in-memory history seeded from DB without a full Discord history pull
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
-- **Settings recovery** — settings restored from Discord message history on startup
+- **Settings recovery** — settings restored from SQLite on startup (⚙️ bot messages); Discord fetched delta-only after last DB message ID
 
 ## Quick Start
 
@@ -102,17 +102,21 @@ discord-bot/
     ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
     ├── fts_search.py                  # FTS5 BM25 search + RRF fusion (v6.2.0)
     ├── context_retrieval.py           # Hybrid segment retrieval + fallback (v6.2.0)
+    ├── proposition_store.py           # Proposition CRUD + embedding storage (v6.4.0)
+    ├── proposition_decomposer.py      # GPT-4o-mini atomic claim decomposition (v6.4.0)
     ├── summarizer.py                  # Summarization router (v4.0.0)
     ├── summary_display.py             # Paginated Discord output + always-on formatter
     ├── summary_store.py               # SQLite summary persistence
     ├── models.py                      # StoredMessage dataclass
-    ├── message_store.py               # SQLite message persistence
+    ├── message_store.py               # SQLite message persistence (thread-local connections)
     ├── raw_events.py                  # Real-time capture + embedding on arrival
     ├── context_manager.py             # Token budget, semantic retrieval, usage tracking
     ├── response_handler.py            # AI response processing
     └── history/                       # In-memory history subsystem
+        ├── discord_loader.py              # Coordination: DB seed + delta Discord fetch
+        ├── discord_fetcher.py             # Discord API fetch (delta-only via after_id)
+        ├── realtime_settings_parser.py    # Settings recovery from SQLite + Discord
         ├── message_processing.py          # Noise filtering (prefix-based)
-        ├── realtime_settings_parser.py    # Settings recovery
         └── ...
 ```
 
