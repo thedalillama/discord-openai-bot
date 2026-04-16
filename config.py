@@ -1,7 +1,38 @@
 # config.py
-# Version 1.14.0
+# Version 1.19.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.19.0: Proposition decomposition configuration (SOW v6.3.0)
+- ADDED: PROPOSITION_BATCH_SIZE (default 10) — segment syntheses per GPT-4o-mini
+  decomposition call; 15 calls for 150 segments at this batch size.
+- ADDED: PROPOSITION_PROVIDER (default 'openai') — provider for decomposition;
+  reserved for future flexibility, decomposer currently hardcodes OpenAI client.
+
+CHANGES v1.18.0: RRF_K for hybrid retrieval (SOW v6.2.0)
+- ADDED: RRF_K (default 15) — Reciprocal Rank Fusion constant; controls how
+  much weight the top-ranked segments get when fusing BM25 and dense results.
+
+CHANGES v1.17.0: Direct segment retrieval configuration (SOW v6.1.0)
+- ADDED: RETRIEVAL_FLOOR (default 0.15) — absolute minimum score for segment
+  retrieval; replaces RETRIEVAL_MIN_SCORE on the primary segment path
+- ADDED: RETRIEVAL_SCORE_GAP (default 0.08) — triggers cutoff at the largest
+  inter-score gap after top-K selection; set to 0 to disable
+
+CHANGES v1.16.0: Segment pipeline configuration (SOW v6.0.0)
+- ADDED: SEGMENT_BATCH_SIZE (default 500) — messages per Gemini segmentation call
+- ADDED: SEGMENT_OVERLAP (default 20) — overlap window between batches to reduce
+  boundary artifacts
+- ADDED: SEGMENT_GAP_MINUTES (default 30) — time gap threshold for fallback
+  time-gap segmentation when LLM segmentation fails
+
+CHANGES v1.15.0: Similarity threshold rename and separation (SOW v5.12.0)
+- ADDED: EMBEDDING_CONTEXT_MIN_SCORE (default 0.3) — replaces hardcoded
+  CONTEXT_SIMILARITY_THRESHOLD in embedding_context.py; now env-configurable.
+- ADDED: QUERY_TOPIC_SHIFT_THRESHOLD (default 0.5) — split from RETRIEVAL_MIN_SCORE;
+  controls topic-shift detection in embed_query_with_smart_context().
+- UPDATED: TOPIC_LINK_MIN_SCORE comment — marked as legacy (topics table dropped
+  in schema/007.sql; variable retained for backward compatibility only).
 
 CHANGES v1.14.0: Fix stale model defaults (SOW v5.10.0)
 - FIXED: GEMINI_MODEL default 'gemini-2.5-flash-lite' → 'gemini-3.1-flash-lite-preview'
@@ -113,14 +144,34 @@ SUMMARIZER_BATCH_SIZE = int(os.environ.get('SUMMARIZER_BATCH_SIZE', 50))
 # EMBEDDING_MODEL: OpenAI embedding model. text-embedding-3-small is 1536
 # dimensions, fast, and inexpensive. Uses OPENAI_API_KEY.
 EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
-# RETRIEVAL_TOP_K: number of topics to retrieve per query in context_manager.
-RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 5))
-# RETRIEVAL_MIN_SCORE: minimum cosine similarity to include a topic (0.0–1.0).
-# Filters out low-relevance topics that would otherwise pollute context.
+# RETRIEVAL_TOP_K: number of segments to retrieve per query (v6.1.0 tuned to 7).
+RETRIEVAL_TOP_K = int(os.environ.get('RETRIEVAL_TOP_K', 7))
+# RETRIEVAL_MIN_SCORE: minimum cosine similarity for cluster rollback path and
+# incremental cluster assignment. Not used on the primary segment retrieval path.
 RETRIEVAL_MIN_SCORE = float(os.environ.get('RETRIEVAL_MIN_SCORE', 0.25))
-# TOPIC_LINK_MIN_SCORE: minimum cosine similarity to link a message to a topic.
-# All messages above this threshold are linked — no arbitrary count cap.
-# Token budget in context_manager limits how many are injected at response time.
+# RETRIEVAL_FLOOR: absolute minimum score for direct segment retrieval. Segments
+# below this are never returned regardless of top-K. Set low — top-K and
+# score-gap are the primary filters. (SOW v6.1.0)
+RETRIEVAL_FLOOR = float(os.environ.get('RETRIEVAL_FLOOR', 0.20))
+# RETRIEVAL_SCORE_GAP: minimum gap between adjacent scores to trigger cutoff
+# after top-K selection. Set to 0 to disable score-gap detection. (SOW v6.1.0)
+RETRIEVAL_SCORE_GAP = float(os.environ.get('RETRIEVAL_SCORE_GAP', 0.08))
+# RRF_K: Reciprocal Rank Fusion constant for hybrid BM25+dense retrieval.
+# Lower value = more weight on top-ranked segments. k=15 tuned for small result
+# sets (top_k=7 candidates per ranker). (SOW v6.2.0)
+RRF_K = int(os.environ.get('RRF_K', 15))
+# EMBEDDING_CONTEXT_MIN_SCORE: minimum cosine similarity for a previous message
+# to be included as context in the [Context: ...] prefix when building stored
+# embeddings. Lower = more inclusive. Questions always pass. (SOW v5.12.0)
+EMBEDDING_CONTEXT_MIN_SCORE = float(
+    os.environ.get('EMBEDDING_CONTEXT_MIN_SCORE', 0.3))
+# QUERY_TOPIC_SHIFT_THRESHOLD: at query time, cosine similarity below this
+# value vs the previous message = topic shift → use raw embedding. Above =
+# same topic → re-embed with conversational context. (SOW v5.12.0)
+QUERY_TOPIC_SHIFT_THRESHOLD = float(
+    os.environ.get('QUERY_TOPIC_SHIFT_THRESHOLD', 0.5))
+# TOPIC_LINK_MIN_SCORE: legacy — topics table dropped in schema/007.sql.
+# Retained for backward compatibility only; has no active callers.
 TOPIC_LINK_MIN_SCORE = float(os.environ.get('TOPIC_LINK_MIN_SCORE', 0.3))
 # MAX_RECENT_MESSAGES: hard cap on recent messages included in context window.
 # Prevents recent history from overwhelming retrieved topic context.
@@ -138,6 +189,22 @@ CLUSTER_MIN_SAMPLES = int(os.environ.get('CLUSTER_MIN_SAMPLES', '3'))
 UMAP_N_NEIGHBORS = int(os.environ.get('UMAP_N_NEIGHBORS', '15'))
 # UMAP_N_COMPONENTS: output dimensions for UMAP reduction.
 UMAP_N_COMPONENTS = int(os.environ.get('UMAP_N_COMPONENTS', '5'))
+
+# Proposition decomposition configuration (v6.4.0 / SOW v6.3.0)
+# PROPOSITION_BATCH_SIZE: segment syntheses per GPT-4o-mini decomposition call.
+# 10 syntheses/call × 150 segments = 15 calls per rebuild.
+PROPOSITION_BATCH_SIZE = int(os.environ.get('PROPOSITION_BATCH_SIZE', '10'))
+# PROPOSITION_PROVIDER: reserved for future flexibility. Decomposer currently
+# uses the OpenAI client directly (same pattern as cluster_classifier.py).
+PROPOSITION_PROVIDER = os.environ.get('PROPOSITION_PROVIDER', 'openai')
+
+# Segment pipeline configuration (v6.0.0)
+# SEGMENT_BATCH_SIZE: messages per Gemini segmentation call.
+SEGMENT_BATCH_SIZE = int(os.environ.get('SEGMENT_BATCH_SIZE', '500'))
+# SEGMENT_OVERLAP: overlap window between batches to reduce boundary artifacts.
+SEGMENT_OVERLAP = int(os.environ.get('SEGMENT_OVERLAP', '20'))
+# SEGMENT_GAP_MINUTES: time gap threshold for fallback time-gap segmentation.
+SEGMENT_GAP_MINUTES = int(os.environ.get('SEGMENT_GAP_MINUTES', '30'))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

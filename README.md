@@ -1,5 +1,5 @@
 # README.md
-# Version 5.11.0
+# Version 6.4.1
 
 # Synthergy Discord Bot
 
@@ -8,14 +8,14 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 ## Features
 
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
-- **Semantic memory** — topic-based retrieval injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
-- **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
+- **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
+- **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
-- **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
+- **Message persistence** — all messages stored in SQLite; on restart, backfill fetches only messages newer than the last stored ID; in-memory history seeded from DB without a full Discord history pull
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
-- **Settings recovery** — settings restored from Discord message history on startup
+- **Settings recovery** — settings restored from SQLite on startup (⚙️ bot messages); Discord fetched delta-only after last DB message ID
 
 ## Quick Start
 
@@ -38,8 +38,7 @@ python main.py
 | Command | Access | Description |
 |---------|--------|-------------|
 | `!summary` | all | Show channel summary (decisions, topics, actions) |
-| `!summary full` | all | All sections including facts and archived topics |
-| `!summary raw` | all | Secretary's natural language minutes |
+| `!summary full` | all | All sections including key facts |
 | `!summary create` | admin | Run full summarization (re-cluster + re-summarize) |
 | `!summary update` | admin | Re-summarize only clusters updated since last run |
 | `!summary clear` | admin | Delete stored summary and start fresh |
@@ -50,8 +49,8 @@ python main.py
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug dedup` | admin | Scan for duplicate test messages (3+ identical) |
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
-| `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
-| `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
+| `!debug segments` | admin | Show segment count, avg size, sample syntheses |
+| `!debug propositions` | admin | Show proposition count and samples |
 | `!explain` | all | Show context receipt for the last bot response |
 | `!explain detail` | all | Receipt + injected messages per cluster |
 | `!explain <id>` | all | Show context receipt for a specific response by message ID |
@@ -72,7 +71,7 @@ discord-bot/
 ├── main.py                        # Entry point
 ├── bot.py                         # Discord events, message routing
 ├── config.py                      # Environment configuration
-├── schema/                        # SQLite migration files (001–005)
+├── schema/                        # SQLite migration files (001–009)
 ├── ai_providers/                  # Provider implementations
 │   ├── openai_provider.py             # GPT + image generation
 │   ├── anthropic_provider.py          # Claude models
@@ -88,6 +87,8 @@ discord-bot/
 │   ├── status_commands.py             # !status
 │   └── history_commands.py            # !history
 └── utils/
+    ├── segment_store.py               # Segment CRUD + run_segment_clustering (v6.0.0)
+    ├── segmenter.py                   # Gemini segmentation+synthesis, batch with overlap (v6.0.0)
     ├── cluster_engine.py              # UMAP + HDBSCAN pipeline, noise reduction
     ├── cluster_store.py               # Cluster CRUD, orchestration, dirty-cluster helpers
     ├── cluster_summarizer.py          # Per-cluster Gemini summarization, M-label formatting
@@ -97,53 +98,72 @@ discord-bot/
     ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
     ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
     ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search
+    ├── embedding_noise_filter.py      # Embedding skip gate: thin msgs, deleted placeholders (v5.13.0)
     ├── embedding_context.py           # Context-prepended embedding construction (v5.6.0)
-    ├── context_retrieval.py           # Cluster retrieval + message fallback search (v5.6.0)
+    ├── fts_search.py                  # FTS5 BM25 search + RRF fusion (v6.2.0)
+    ├── context_retrieval.py           # Hybrid segment retrieval + fallback (v6.2.0)
+    ├── proposition_store.py           # Proposition CRUD + embedding storage (v6.4.0)
+    ├── proposition_decomposer.py      # GPT-4o-mini atomic claim decomposition (v6.4.0)
     ├── summarizer.py                  # Summarization router (v4.0.0)
     ├── summary_display.py             # Paginated Discord output + always-on formatter
     ├── summary_store.py               # SQLite summary persistence
     ├── models.py                      # StoredMessage dataclass
-    ├── message_store.py               # SQLite message persistence
+    ├── message_store.py               # SQLite message persistence (thread-local connections)
     ├── raw_events.py                  # Real-time capture + embedding on arrival
     ├── context_manager.py             # Token budget, semantic retrieval, usage tracking
     ├── response_handler.py            # AI response processing
     └── history/                       # In-memory history subsystem
+        ├── discord_loader.py              # Coordination: DB seed + delta Discord fetch
+        ├── discord_fetcher.py             # Discord API fetch (delta-only via after_id)
+        ├── realtime_settings_parser.py    # Settings recovery from SQLite + Discord
         ├── message_processing.py          # Noise filtering (prefix-based)
-        ├── realtime_settings_parser.py    # Settings recovery
         └── ...
 ```
 
-## Semantic Retrieval System (v4.1.x)
+## Semantic Retrieval (v6.4.0 — three-signal proposition+dense+BM25+RRF)
 
 Every response is built from two context layers:
 
 **Always-on** (injected for every message): overview, key facts, open action items, open questions.
 
-**Retrieved** (per-query): the latest user message is embedded, the top matching topics are found by cosine similarity, and their linked messages are injected. Only topics scoring above `RETRIEVAL_MIN_SCORE` (default 0.25) are included. Bot-noise topics (self-descriptions, capability tests, etc.) are filtered before scoring. The token budget trimmer drops oldest recent messages to make room.
+**Retrieved** (per-query): three-signal hybrid retrieval fused via Reciprocal Rank Fusion:
+1. Query embedded via `embed_query_with_smart_context()` — adds conversational context to avoid topic bleed
+2. Propositions: `find_relevant_propositions()` scores query against atomic claim embeddings; collapses to max-score-per-segment → segment IDs
+3. Dense: `find_relevant_segments()` scores query against all segment embeddings (top_k × 2 expanded pool, `RETRIEVAL_FLOOR` minimum)
+4. Score-gap: `_apply_score_gap()` cuts dense candidates at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
+5. BM25: `fts_search()` via SQLite FTS5 — matches synthesis + raw message content
+6. RRF: `rrf_fuse(prop, dense, bm25, k=RRF_K)` — rank-based fusion, returns top-`RETRIEVAL_TOP_K` fused IDs
+7. Per segment: synthesis + source messages injected as `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
 
-**Message fallback**: fires when no topics score above threshold, OR when matched topics have no linked messages. The query embedding searches `message_embeddings` directly and the top-N most similar messages are injected.
+**Rollback**: if no segments in DB (pre-v6 channel), `_cluster_rollback()` uses cluster centroid scoring with `RETRIEVAL_MIN_SCORE` threshold.
 
-**Summary fallback**: if both topic and message search return empty (degraded state — no embeddings), the full summary is injected. Logs a WARNING.
+**Message fallback**: fires when segment retrieval returns empty — direct cosine search over `message_embeddings`.
 
-**Timestamps**: every retrieved message is prefixed with `[YYYY-MM-DD]`. Today's date is injected at the top of the context block so the model can interpret message ages relative to now.
+**Summary fallback**: if both segment and message search return empty, full summary injected. Logs WARNING.
 
-## Summarization System (v5.3.0 — cluster-based)
+**Timestamps**: every retrieved message prefixed with `[YYYY-MM-DD]`. Today's date injected at top of context block.
 
-`!summary create` runs the full cluster pipeline via `summarizer.py` → `cluster_overview.py`:
+## Summarization System (v6.0.0 — segment-based)
 
-1. **Cluster**: UMAP + HDBSCAN groups all message embeddings into topic clusters
-2. **Per-cluster summarize**: single Gemini call per cluster → label, summary, decisions, key_facts, action_items, open_questions
-3. **Classify**: GPT-4o-mini whitelist filter on aggregated items — keeps only project decisions, config, human-owned action items, user identity, channel purpose, genuine open questions; missing verdicts default to DROP
-4. **Overview**: Gemini call with cluster labels + summary texts only → channel overview paragraph + participants list (no structured fields — prevents token blowup)
-5. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items across all four arrays
-6. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + key facts in the same summary; removes answered questions
-7. **Translate + save**: field names mapped to v4.x format (`text` → `fact`/`task`/`question`/`decision`) and stored in `channel_summaries`
+`!summary create` runs the segment pipeline via `summarizer.py` → `segmenter.py` → `cluster_overview.py`:
+
+1. **Segment**: Gemini batch-processes messages (500/batch, 20 overlap) — identifies topic boundaries and writes a synthesis per segment resolving implicit references ("yes" → "Alice agreed to use PostgreSQL")
+2. **Embed segments**: OpenAI embeds each synthesis, stored in `segments.embedding`
+3. **Cluster segments**: UMAP + HDBSCAN on segment embeddings → cluster records + `cluster_segments` junction (no `cluster_messages` rows — rollback safe)
+4. **Per-cluster summarize**: Gemini per cluster using segment syntheses as M-labeled inputs
+5. **Classify**: GPT-4o-mini whitelist filter — keeps project decisions, config, human-owned actions, user identity, genuine open questions; missing verdicts default to DROP
+6. **Overview**: Gemini with cluster labels + summary texts → channel overview + participants
+7. **Deduplicate**: embedding cosine similarity (0.85 threshold) drops near-duplicate items
+8. **Answered-question check**: GPT-4o-mini YES/NO per open question vs decisions + facts
+9. **Translate + save**: field names mapped to v4.x format and stored in `channel_summaries`
+
+**Fallback**: if segmentation yields 0 segments or segment clustering fails, falls back automatically to direct message clustering (v5.x path).
 
 **Key design choices:**
+- Synthesis resolves implicit meaning — context is preserved across segment boundaries
+- Segment embeddings replace per-message embeddings for clustering and retrieval
 - Classifier runs before overview LLM — prevents 16K+ token response with 50+ clusters
-- Overview receives labels + texts only — output is a few hundred tokens max
-- Embedding dedup over LLM dedup — LLMs are reluctant to delete content they're given
-- Decision = agreement on a course of action (not fact lookups or casual preferences)
+- `cluster_messages` not written in segment path — `message_embeddings` retained for rollback
 - Field translation at storage time — display layer (`format_always_on_context`) unchanged
 
 ## Configuration
@@ -155,7 +175,7 @@ Key variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DISCORD_TOKEN` | Bot token (required) | — |
-| `AI_PROVIDER` | Default conversation provider | `deepseek` |
+| `AI_PROVIDER` | Default conversation provider | `openai` |
 | `OPENAI_API_KEY` | Required for embeddings + classifier | — |
 | `SUMMARIZER_PROVIDER` | Summarization provider | `gemini` |
 | `GEMINI_API_KEY` | Required for summarization | — |
@@ -163,9 +183,14 @@ Key variables:
 | `CONTEXT_BUDGET_PERCENT` | % of context window for input | `80` |
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
-| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster retrieval | `0.25` (production: `0.45`) |
-| `TOPIC_LINK_MIN_SCORE` | Min cosine similarity for topic-message linking | `0.3` |
-| `RETRIEVAL_TOP_K` | Max topics retrieved per query | `5` |
+| `RETRIEVAL_TOP_K` | Max segments returned per query (dense pool = top_k × 2) | `7` |
+| `PROPOSITION_BATCH_SIZE` | Segment syntheses per GPT-4o-mini decomposition call | `10` |
+| `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval | `0.20` |
+| `RETRIEVAL_SCORE_GAP` | Cut dense candidates at largest inter-score gap ≥ this | `0.08` |
+| `RRF_K` | Reciprocal Rank Fusion constant (lower = more top-rank weight) | `15` |
+| `RETRIEVAL_MIN_SCORE` | Min cosine similarity for cluster rollback path | `0.25` (production: `0.5`) |
+| `QUERY_TOPIC_SHIFT_THRESHOLD` | Topic-shift detection threshold for smart query embedding | `0.5` |
+| `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for context prepending in stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 
 ## Deployment

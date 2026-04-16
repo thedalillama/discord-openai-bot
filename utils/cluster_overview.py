@@ -1,8 +1,10 @@
 # utils/cluster_overview.py
-# Version 2.2.0
+# Version 2.4.0
 """
 Cross-cluster overview generation and full pipeline orchestrator.
 
+CHANGES v2.4.0: Pass pipeline label ("segment-v6"/"cluster-v5") through translate_to_channel_summary
+CHANGES v2.3.0: pre_run_stats=None skips run_clustering(); use_segments=True for segment path
 CHANGES v2.2.0: Replace qa_pass with embedding dedup + answered-Q check
 - MODIFIED: run_cluster_pipeline() replaces single qa_pass() call with
   deduplicate_summary() then remove_answered_questions() from cluster_qa;
@@ -135,7 +137,7 @@ async def generate_overview(channel_id, provider, clusters):
     return None
 
 
-def translate_to_channel_summary(overview_result, cluster_count, noise_count):
+def translate_to_channel_summary(overview_result, cluster_count, noise_count, pipeline="cluster-v5"):
     """Map merged pipeline output to v4.x field names for the display layer."""
     return {
         "schema_version": "2.0",
@@ -161,14 +163,16 @@ def translate_to_channel_summary(overview_result, cluster_count, noise_count):
         "cluster_count":       cluster_count,
         "noise_message_count": noise_count,
         "meta": {
-            "pipeline":      "cluster-v5",
+            "pipeline":      pipeline,
             "summarized_at": datetime.now(timezone.utc).isoformat(),
         }
     }
 
 
-async def run_cluster_pipeline(channel_id, provider, progress_fn=None):
-    """Full v5 pipeline: cluster → summarize → classify → overview → dedup → save."""
+async def run_cluster_pipeline(channel_id, provider, progress_fn=None, pre_run_stats=None):
+    """Full pipeline: cluster → summarize → classify → overview → dedup → save.
+    pre_run_stats: if provided, skips run_clustering() (segment path).
+    """
     from utils.cluster_store import run_clustering
     from utils.cluster_summarizer import summarize_all_clusters
     from utils.cluster_classifier import classify_overview_items
@@ -181,19 +185,22 @@ async def run_cluster_pipeline(channel_id, provider, progress_fn=None):
             await progress_fn(msg)
 
     logger.info(f"Cluster pipeline start ch:{channel_id}")
-
-    stats = await asyncio.to_thread(run_clustering, channel_id)
-    if stats is None:
-        return {"error": "Not enough embeddings — run !debug backfill first",
-                "messages_processed": 0, "cluster_count": 0,
-                "noise_count": 0, "overview_generated": False}
+    use_segments = pre_run_stats is not None
+    if not use_segments:
+        stats = await asyncio.to_thread(run_clustering, channel_id)
+        if stats is None:
+            return {"error": "Not enough embeddings — run !debug backfill first",
+                    "messages_processed": 0, "cluster_count": 0,
+                    "noise_count": 0, "overview_generated": False}
+    else:
+        stats = pre_run_stats
     cluster_count = stats["cluster_count"]
-    noise_count   = stats["noise_count"]
-    total         = stats["total_messages"]
+    noise_count, total = stats["noise_count"], stats["total_messages"]
     await _p(f"Clustering complete — {cluster_count} clusters, {noise_count} noise messages")
 
     await _p(f"Summarizing {cluster_count} clusters (this takes a few minutes)...")
-    sum_result = await summarize_all_clusters(channel_id, provider, progress_fn=progress_fn)
+    sum_result = await summarize_all_clusters(
+        channel_id, provider, progress_fn=progress_fn, use_segments=use_segments)
     logger.info(
         f"Per-cluster summarization: {sum_result['processed']} ok, "
         f"{sum_result['failed']} failed")
@@ -223,7 +230,7 @@ async def run_cluster_pipeline(channel_id, provider, progress_fn=None):
         "open_questions": filtered.get("open_questions", []),
     }
 
-    channel_summary = translate_to_channel_summary(merged, cluster_count, noise_count)
+    channel_summary = translate_to_channel_summary(merged, cluster_count, noise_count, "segment-v6" if use_segments else "cluster-v5")
 
     await _p("Deduplicating and checking answered questions...")
     channel_summary = await deduplicate_summary(channel_summary)

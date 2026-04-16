@@ -1,7 +1,13 @@
 # bot.py
-# Version 3.3.0
+# Version 3.4.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
+
+CHANGES v3.4.0: Wrap build_context_for_provider() in asyncio.to_thread() (SOW v6.2.0)
+- FIXED: Both direct-address and auto-respond call sites now await asyncio.to_thread()
+  to prevent synchronous retrieval (SQLite + HTTP) from blocking the event loop.
+  Without this, heartbeat keepalives were delayed during retrieval, causing
+  WebSocket disconnects and auto-reconnects visible in the logs.
 
 CHANGES v3.3.0: Dead code cleanup (SOW v5.10.1)
 - REMOVED: defaultdict import (unused)
@@ -46,6 +52,7 @@ CHANGES v2.6.0: Fixed missing import for parse_provider_override function
 CHANGES v2.5.0: Refactored provider utilities into separate module
 CHANGES v2.4.0: Refactored message utilities into separate module
 """
+import asyncio
 import discord
 from discord.ext import commands
 import datetime
@@ -171,7 +178,8 @@ def create_bot():
 
             # Resolve provider and build token-budget-aware context
             provider = get_provider(provider_name=provider_override, channel_id=channel_id)
-            messages, receipt_data, citation_map = build_context_for_provider(channel_id, provider)
+            messages, receipt_data, citation_map = await asyncio.to_thread(
+                build_context_for_provider, channel_id, provider)
             await handle_ai_response(
                 message, channel_id, messages, provider_override,
                 receipt_data=receipt_data, citation_map=citation_map)
@@ -204,7 +212,8 @@ def create_bot():
             logger.debug(f"Auto-responding to message in #{message.channel.name}")
             # Resolve provider and build token-budget-aware context
             provider = get_provider(channel_id=channel_id)
-            messages, receipt_data, citation_map = build_context_for_provider(channel_id, provider)
+            messages, receipt_data, citation_map = await asyncio.to_thread(
+                build_context_for_provider, channel_id, provider)
             await handle_ai_response(message, channel_id, messages,
                                      receipt_data=receipt_data,
                                      citation_map=citation_map)

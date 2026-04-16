@@ -1,20 +1,20 @@
 # commands/explain_commands.py
-# Version 1.1.0
+# Version 1.2.0
 """
 !explain command — show context receipt for the most recent bot response.
 
+CHANGES v1.2.0: Segment-based receipt display (SOW v6.1.0)
+- MODIFIED: format_receipt() handles retrieved_segments (v6.1.0+) and
+  retrieved_clusters (rollback/pre-v6.1 receipts) — checks which key is present
+- MODIFIED: format_injected_messages() uses get_segment_with_messages() for
+  segment receipts; falls back to get_cluster_messages() for cluster receipts
+
 CHANGES v1.1.0: Add !explain detail mode (SOW v5.7.1)
 - ADDED: format_injected_messages() — fetch and format cluster messages on demand
-- MODIFIED: explain_cmd() accepts variadic args instead of typed int:
-    !explain              — summary receipt (unchanged)
-    !explain detail       — receipt + injected messages per cluster
-    !explain <id>         — receipt for specific response message ID
-    !explain detail <id>  — detail for specific response message ID
-- Messages truncated to 150 chars; clusters > 10 msgs show first 5 + last 5
+- MODIFIED: explain_cmd() accepts variadic args: !explain | !explain detail |
+  !explain <id> | !explain detail <id>
 
 CREATED v1.0.0: Context receipt display (SOW v5.7.0)
-- !explain         — receipt for the most recent bot response in this channel
-- !explain <id>    — receipt for a specific response message ID
 
 All output prefixed with ℹ️. Uses send_paginated() for long receipts.
 """
@@ -25,17 +25,16 @@ logger = get_logger('commands.explain')
 
 _I = "ℹ️ "
 _MSG_TRUNCATE = 150
-_CLUSTER_SHOW = 5  # show first N + last N when cluster exceeds 2*N messages
+_CLUSTER_SHOW = 5  # show first N + last N when list exceeds 2*N messages
 
 
 def format_receipt(receipt):
     """Format a receipt dict into Discord display lines."""
     lines = []
     query = receipt.get("query", "")
-    if query:
-        lines.append(f'**Context Receipt** (response to: "{query[:80]}")')
-    else:
-        lines.append("**Context Receipt**")
+    lines.append(
+        f'**Context Receipt** (response to: "{query[:80]}")' if query
+        else "**Context Receipt**")
 
     path = receipt.get("query_embedding_path", "unknown")
     lines.append(f"\n**Query Embedding**: {path}")
@@ -47,24 +46,43 @@ def format_receipt(receipt):
     lines.append(f"  Decisions: {ao.get('decisions_count', 0)} items")
     lines.append(f"  Action items: {ao.get('action_items_count', 0)} items")
 
-    clusters = receipt.get("retrieved_clusters", [])
-    total_ret = sum(c.get("tokens", 0) for c in clusters)
-    lines.append(f"\n**Retrieved Clusters** ({total_ret:,} tokens):")
-    for i, c in enumerate(clusters, 1):
+    segs = receipt.get("retrieved_segments")
+    if segs is not None:
+        # Segment-based path (v6.1.0+)
+        total_ret = sum(s.get("tokens", 0) for s in segs)
+        gap = receipt.get("score_gap_applied", False)
         lines.append(
-            f"  {i}. {c.get('label','?')} — score {c.get('score',0):.3f}, "
-            f"{c.get('messages_injected',0)} msgs ({c.get('tokens',0):,} tok)")
-    if not clusters:
-        if receipt.get("fallback_used"):
-            lines.append("  (none — fallback used)")
-        else:
-            lines.append("  (none)")
-
-    below = receipt.get("clusters_below_threshold", [])
-    if below:
-        lines.append("\n**Below Threshold** (filtered out):")
-        for c in below[:5]:
-            lines.append(f"  {c.get('label','?')} — score {c.get('score',0):.3f}")
+            f"\n**Retrieved Segments** ({total_ret:,} tokens"
+            f"{', gap-cut' if gap else ''}):")
+        for i, s in enumerate(segs, 1):
+            synth_only = " [synthesis-only]" if s.get("synthesis_only") else ""
+            lines.append(
+                f"  {i}. {s.get('topic_label', '?')[:50]} — "
+                f"score {s.get('score', 0):.3f}, "
+                f"{s.get('message_count', 0)} msgs "
+                f"({s.get('tokens', 0):,} tok){synth_only}")
+        if not segs:
+            lines.append(
+                "  (none — fallback used)" if receipt.get("fallback_used")
+                else "  (none)")
+    else:
+        # Cluster-based path (rollback or pre-v6.1 receipts)
+        clusters = receipt.get("retrieved_clusters", [])
+        total_ret = sum(c.get("tokens", 0) for c in clusters)
+        lines.append(f"\n**Retrieved Clusters** ({total_ret:,} tokens):")
+        for i, c in enumerate(clusters, 1):
+            lines.append(
+                f"  {i}. {c.get('label', '?')} — score {c.get('score', 0):.3f}, "
+                f"{c.get('messages_injected', 0)} msgs ({c.get('tokens', 0):,} tok)")
+        if not clusters:
+            lines.append(
+                "  (none — fallback used)" if receipt.get("fallback_used")
+                else "  (none)")
+        below = receipt.get("clusters_below_threshold", [])
+        if below:
+            lines.append("\n**Below Threshold** (filtered out):")
+            for c in below[:5]:
+                lines.append(f"  {c.get('label', '?')} — score {c.get('score', 0):.3f}")
 
     if receipt.get("fallback_used"):
         lines.append(
@@ -77,25 +95,55 @@ def format_receipt(receipt):
     pct = receipt.get("budget_used_pct", 0)
     lines.append(f"**Budget**: {total:,} / {budget:,} tokens ({pct:.1f}%)")
     lines.append(
-        f"**Provider**: {receipt.get('provider','?')} / {receipt.get('model','?')}")
-
+        f"**Provider**: {receipt.get('provider', '?')} / {receipt.get('model', '?')}")
     return lines
 
 
 def format_injected_messages(receipt):
-    """Fetch and format injected cluster messages for detail view.
+    """Fetch and format injected segment/cluster messages for detail view."""
+    from utils.cluster_retrieval import get_cluster_messages, get_segment_with_messages
 
-    Fetches messages live from the DB using cluster_ids stored in the receipt.
-    Truncates content to _MSG_TRUNCATE chars. Clusters with > 2*_CLUSTER_SHOW
-    messages show first + last N with a gap line.
-    Returns list of lines; fails gracefully per cluster.
-    """
-    from utils.cluster_retrieval import get_cluster_messages
+    segs = receipt.get("retrieved_segments")
+    if segs is not None:
+        if not segs:
+            return []
+        lines = ["\n--- Injected Segments ---"]
+        for s in segs:
+            seg_id = s.get("segment_id")
+            label = s.get("topic_label", "?")
+            lines.append(f"\n**[Topic: {label}]**")
+            if s.get("synthesis_only"):
+                lines.append("  [synthesis-only — token budget exhausted]")
+                continue
+            try:
+                seg_data = get_segment_with_messages(seg_id)
+                msgs = seg_data["messages"] if seg_data else []
+                if not msgs:
+                    lines.append("  (no messages found)")
+                    continue
+                threshold = _CLUSTER_SHOW * 2
+                display = (msgs[:_CLUSTER_SHOW] + [None] + msgs[-_CLUSTER_SHOW:]
+                           if len(msgs) > threshold else msgs)
+                omitted = max(0, len(msgs) - threshold)
+                for item in display:
+                    if item is None:
+                        lines.append(f"  ... and {omitted} more messages ...")
+                        continue
+                    _, author, content, created_at = item
+                    text = (content or "")[:_MSG_TRUNCATE]
+                    if len(content or "") > _MSG_TRUNCATE:
+                        text += "…"
+                    lines.append(
+                        f"  [{(created_at or '')[:10]}] **{author}**: {text}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch segment {seg_id}: {e}")
+                lines.append("  (error fetching messages)")
+        return lines
 
+    # Cluster-based path (rollback / pre-v6.1 receipts)
     clusters = receipt.get("retrieved_clusters", [])
     if not clusters:
         return []
-
     lines = ["\n--- Injected Messages ---"]
     for c in clusters:
         cluster_id = c.get("cluster_id")
@@ -106,29 +154,22 @@ def format_injected_messages(receipt):
             if not msgs:
                 lines.append("  (no messages found)")
                 continue
-
             threshold = _CLUSTER_SHOW * 2
-            if len(msgs) > threshold:
-                omitted = len(msgs) - threshold
-                display = msgs[:_CLUSTER_SHOW] + [None] + msgs[-_CLUSTER_SHOW:]
-            else:
-                omitted = 0
-                display = msgs
-
+            display = (msgs[:_CLUSTER_SHOW] + [None] + msgs[-_CLUSTER_SHOW:]
+                       if len(msgs) > threshold else msgs)
+            omitted = max(0, len(msgs) - threshold)
             for item in display:
                 if item is None:
                     lines.append(f"  ... and {omitted} more messages ...")
                     continue
                 _, author, content, created_at = item
-                date = (created_at or "")[:10]
-                text = (content or "")
-                if len(text) > _MSG_TRUNCATE:
-                    text = text[:_MSG_TRUNCATE] + "…"
-                lines.append(f"  [{date}] **{author}**: {text}")
+                text = (content or "")[:_MSG_TRUNCATE]
+                if len(content or "") > _MSG_TRUNCATE:
+                    text += "…"
+                lines.append(f"  [{(created_at or '')[:10]}] **{author}**: {text}")
         except Exception as e:
-            logger.warning(f"Failed to fetch messages for cluster {cluster_id}: {e}")
-            lines.append(f"  (error fetching messages)")
-
+            logger.warning(f"Failed to fetch cluster {cluster_id}: {e}")
+            lines.append("  (error fetching messages)")
     return lines
 
 
@@ -140,11 +181,6 @@ def register_explain_commands(bot):
         !explain <id> | !explain detail <id>"""
         channel_id = ctx.channel.id
 
-        # Parse args — valid forms:
-        # ()                  → summary, latest
-        # ('detail',)         → detail, latest
-        # ('<id>',)           → summary, specific id
-        # ('detail', '<id>')  → detail, specific id
         mode = None
         message_id = None
         try:

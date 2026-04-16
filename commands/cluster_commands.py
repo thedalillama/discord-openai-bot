@@ -1,33 +1,26 @@
 # commands/cluster_commands.py
-# Version 1.3.0
+# Version 1.6.0
 """
-Cluster-related debug commands: backfill, reembed, clusters, summarize_clusters.
+Cluster/segment/proposition debug commands: backfill, reembed, segments, propositions.
 
+CHANGES v1.6.0: Add !debug propositions — count + sample propositions (SOW v6.3.0)
+
+CHANGES v1.5.0: Remove !debug clusters and !debug summarize_clusters (v6.3.0)
+- REMOVED: debug_clusters — ran v5.x message-embedding clustering path
+  (run_clustering() from cluster_store.py); has no effect on the v6.x segment
+  retrieval path and creates a parallel cluster structure that retrieval ignores.
+- REMOVED: debug_summarize_clusters — operated on clusters created by the now-
+  removed debug_clusters command.
+  Use !debug segments and !explain detail for v6.x diagnostics.
+
+CHANGES v1.4.0: Add !debug segments — segment count, avg size, sample synthesis
+previews (SOW v6.0.0).
 CHANGES v1.3.0: Dead code cleanup (SOW v5.10.1)
-- REMOVED: import json (unused)
-
 CHANGES v1.2.0: Remove dead topic re-link from backfill (SOW v5.10.0)
-- REMOVED: Topic re-linking tail section from debug_backfill — topics/topic_messages
-  tables are no longer read by any active code path since v5.5.0 replaced topic-based
-  retrieval with cluster-based retrieval. Git history preserves the removed code.
-- REMOVED: imports of summary_store.get_channel_summary and topic_store.link_topic_to_messages
-
-CHANGES v1.1.0: Pre-batch raw embeddings in backfill to eliminate per-message
-  embed_text() calls (SOW v5.8.2)
-- MODIFIED: debug_backfill() batch-embeds all raw texts in one API call before
-  the context loop, builds raw_id_to_vec cache, passes raw_vec + raw_vecs_cache
-  to build_contextual_text() — reduces API calls from N+1 to 2 for N messages
-- ADDED: progress updates every 100 messages during context-building loop
-
-CREATED v1.0.0: Extracted from debug_commands.py v1.7.0 (SOW v5.6.0)
-- !debug backfill — contextual embedding backfill (v5.6.0: uses build_contextual_text)
-- !debug reembed  — delete all embeddings + full re-embed with contextual text
-- !debug clusters — run UMAP+HDBSCAN, show diagnostic report
-- !debug summarize_clusters — run per-cluster LLM summarization
-
+CHANGES v1.1.0: Pre-batch raw embeddings in backfill (SOW v5.8.2)
+CREATED v1.0.0: Extracted from debug_commands.py v1.7.0 (SOW v5.6.0).
 All subcommands require administrator permissions.
-Registered via register_cluster_commands(debug_cmd) where debug_cmd is the
-!debug group created in debug_commands.py.
+Registered via register_cluster_commands(debug_cmd).
 """
 import asyncio
 from utils.logging_utils import get_logger
@@ -131,69 +124,76 @@ def register_cluster_commands(debug_cmd):
             await ctx.send(f"{_I}Re-embed failed: {e}")
             logger.error(f"Reembed error ch:{channel_id}: {e}")
 
-    @debug_cmd.command(name='clusters')
-    async def debug_clusters(ctx):
-        """Run UMAP + HDBSCAN clustering and show diagnostic report."""
+    @debug_cmd.command(name='segments')
+    async def debug_segments(ctx):
+        """Show segment count, avg size, and sample segments."""
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}Admin only.")
             return
         channel_id = ctx.channel.id
-        await ctx.send(f"{_I}Running cluster analysis for #{ctx.channel.name}...")
         try:
-            from utils.cluster_store import (
-                run_clustering, get_cluster_stats, format_cluster_report)
-            from config import (
-                CLUSTER_MIN_CLUSTER_SIZE, CLUSTER_MIN_SAMPLES,
-                UMAP_N_NEIGHBORS, UMAP_N_COMPONENTS)
-            stats = await asyncio.to_thread(run_clustering, channel_id)
-            if stats is None:
-                await ctx.send(
-                    f"{_I}Not enough embeddings to cluster. "
-                    f"Run `!debug backfill` first.")
+            import sqlite3
+            from config import DATABASE_PATH
+            from utils.segment_store import get_segment_count
+            count = await asyncio.to_thread(get_segment_count, channel_id)
+            if count == 0:
+                await ctx.send(f"{_I}No segments. Run `!summary create` first.")
                 return
-            report = format_cluster_report(stats)
-            await ctx.send(
-                f"{_I}**Cluster Analysis for #{ctx.channel.name}**")
-            params = (
-                f"Parameters: min_cluster={CLUSTER_MIN_CLUSTER_SIZE}, "
-                f"min_samples={CLUSTER_MIN_SAMPLES}, "
-                f"n_neighbors={UMAP_N_NEIGHBORS}, "
-                f"n_components={UMAP_N_COMPONENTS}")
-            await _send_paginated(ctx, f"{params}\n\n{report}")
+            def _fetch():
+                c = sqlite3.connect(DATABASE_PATH)
+                try:
+                    rows = c.execute(
+                        "SELECT topic_label, synthesis, message_count, "
+                        "first_message_at FROM segments WHERE channel_id=? "
+                        "ORDER BY first_message_at ASC LIMIT 5",
+                        (channel_id,)).fetchall()
+                    avg = c.execute(
+                        "SELECT AVG(message_count) FROM segments "
+                        "WHERE channel_id=?", (channel_id,)).fetchone()[0]
+                    return rows, avg
+                finally:
+                    c.close()
+            samples, avg = await asyncio.to_thread(_fetch)
+            lines = [f"**Segments #{ctx.channel.name}**: {count} total, "
+                     f"avg {avg:.1f} msgs/segment", ""]
+            for label, synth, n, first_at in samples:
+                date = (first_at or "")[:10]
+                preview = synth[:100] + "..." if len(synth) > 100 else synth
+                lines.append(f"[{date}] **{label}** ({n})\n> {preview}")
+            await _send_paginated(ctx, "\n".join(lines))
         except Exception as e:
-            await ctx.send(f"{_I}Cluster analysis failed: {e}")
-            logger.error(f"Cluster error ch:{channel_id}: {e}")
+            await ctx.send(f"{_I}Segments failed: {e}")
+            logger.error(f"Segments error ch:{channel_id}: {e}")
 
-    @debug_cmd.command(name='summarize_clusters')
-    async def debug_summarize_clusters(ctx):
-        """Run per-cluster LLM summarization."""
+
+    @debug_cmd.command(name='propositions')
+    async def debug_propositions(ctx):
+        """Show proposition count and sample propositions for this channel."""
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}Admin only.")
             return
         channel_id = ctx.channel.id
-        from utils.cluster_store import get_cluster_stats
-        stats = await asyncio.to_thread(get_cluster_stats, channel_id)
-        if stats is None or stats.get("total_clusters", 0) == 0:
-            await ctx.send(
-                f"{_I}No clusters found. Run `!debug clusters` first.")
-            return
-        await ctx.send(
-            f"{_I}**Cluster Summarization for #{ctx.channel.name}**\n"
-            f"Summarizing {stats['total_clusters']} clusters...")
         try:
-            from utils.cluster_summarizer import summarize_all_clusters
-            from ai_providers import get_provider
-            from config import SUMMARIZER_PROVIDER
-            provider = get_provider(SUMMARIZER_PROVIDER)
-            result = await summarize_all_clusters(channel_id, provider)
-            processed = result.get("processed", 0)
-            failed = result.get("failed", 0)
-            await ctx.send(
-                f"{_I}**Summarization complete.**\n"
-                f"Processed: {processed}, Failed: {failed}")
+            from utils.proposition_store import (
+                get_proposition_count, get_proposition_embeddings)
+            total = await asyncio.to_thread(get_proposition_count, channel_id)
+            if total == 0:
+                await ctx.send(
+                    f"{_I}No propositions for #{ctx.channel.name}. "
+                    f"Run `!summary create` to generate them.")
+                return
+            rows = await asyncio.to_thread(get_proposition_embeddings, channel_id)
+            embedded = len(rows)
+            samples = rows[:5]
+            lines = [
+                f"**Propositions #{ctx.channel.name}**: "
+                f"{total} total, {embedded} embedded", ""]
+            for prop_id, seg_id, content, _ in samples:
+                lines.append(f"• `{seg_id}`\n  {content}")
+            await _send_paginated(ctx, "\n".join(lines))
         except Exception as e:
-            await ctx.send(f"{_I}Summarization failed: {e}")
-            logger.error(f"Summarize clusters error ch:{channel_id}: {e}")
+            await ctx.send(f"{_I}Propositions failed: {e}")
+            logger.error(f"Propositions error ch:{channel_id}: {e}")
 
 
 async def _send_paginated(ctx, text, limit=1900):

@@ -1,7 +1,11 @@
 # utils/context_manager.py
-# Version 2.5.1
+# Version 2.5.2
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v2.5.2: Fix receipt_data missing retrieved_segments/score_gap_applied (SOW v6.1.0)
+- FIXED: !explain was showing "Retrieved Clusters (none)" even when segments were
+  injected; receipt_data now includes retrieved_segments + score_gap_applied.
 
 CHANGES v2.5.1: Persist full system prompt to /tmp/last_system_prompt.txt when
   LOG_LEVEL=DEBUG — overwritten on each request for inspection
@@ -106,7 +110,7 @@ def build_context_for_provider(channel_id, provider):
     semantically retrieved cluster messages. Falls back to full summary
     injection if retrieval is unavailable.
     """
-    from utils.context_retrieval import _retrieve_cluster_context
+    from utils.context_retrieval import _retrieve_segment_context
 
     all_messages = prepare_messages_for_api(channel_id)
 
@@ -139,7 +143,7 @@ def build_context_for_provider(channel_id, provider):
         system_base_tokens = estimate_tokens(system_msg["content"]) + MSG_OVERHEAD
         retrieval_budget = max(0, budget - system_base_tokens - always_on_tokens)
 
-        retrieved, retrieved_tokens, cluster_receipt, citation_map = _retrieve_cluster_context(
+        retrieved, retrieved_tokens, cluster_receipt, citation_map = _retrieve_segment_context(
             channel_id, conversation_msgs, retrieval_budget)
 
         today = date.today().isoformat()
@@ -209,13 +213,9 @@ def build_context_for_provider(channel_id, provider):
     dropped = len(conversation_msgs) - len(selected)
 
     if dropped > 0:
-        logger.info(
-            f"Token budget trim: dropped {dropped} oldest messages "
-            f"for ch:{channel_id} ({provider.name})")
+        logger.info(f"Token budget trim: dropped {dropped} msgs ch:{channel_id}")
     else:
-        logger.debug(
-            f"Context for {provider.name}: {total_tokens} tokens, "
-            f"{len(selected)} msgs")
+        logger.debug(f"Context {provider.name}: {total_tokens} tok, {len(selected)} msgs")
 
     if summary and cluster_receipt:
         receipt_data = {
@@ -233,6 +233,8 @@ def build_context_for_provider(channel_id, provider):
                                              if q.get("status") == "open"]),
                 "total_tokens": always_on_tokens,
             },
+            "retrieved_segments": cluster_receipt.get("retrieved_segments"),
+            "score_gap_applied": cluster_receipt.get("score_gap_applied", False),
             "retrieved_clusters": cluster_receipt.get("retrieved_clusters", []),
             "clusters_below_threshold": cluster_receipt.get("clusters_below_threshold", []),
             "fallback_used": cluster_receipt.get("fallback_used", False),
