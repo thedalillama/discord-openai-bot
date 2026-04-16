@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 6.4.1
+# Version 6.4.2
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -46,25 +46,35 @@
 - Increment version on every change
 - Update changelog in docstring
 
-### 7. ASYNC SAFETY
+### 7. DATA PRIVACY — NEVER COMMIT TEST DATA
+- **Never commit benchmark files, query results, or any file containing retrieved
+  Discord messages or usernames** — these contain real private channel content
+- Applies to: `retrieval_benchmark.py`, `benchmark_core.py`, `benchmark_queries.py`,
+  `benchmark*.json`, `benchmarks/`, and any similar test/eval artifacts
+- All such files must be covered by `.gitignore` before any work begins
+- If a file containing Discord data is accidentally staged, abort, `git rm --cached`,
+  and verify `.gitignore` before re-committing
+- If it has been pushed, scrub with `git-filter-repo --invert-paths` and force-push
+
+### 8. ASYNC SAFETY
 - All provider API calls wrapped in `run_in_executor()`
 - Never block the Discord event loop with synchronous calls
 - All SQLite operations via `asyncio.to_thread()`
 
-### 8. PREFIX TAGGING
+### 9. PREFIX TAGGING
 - All bot command output must be prefixed:
   - `ℹ️` — informational/noise (filter from API, summarizer, everything)
   - `⚙️` — settings changes (keep for replay, filter from API/summarizer)
 - New commands must use these prefixes on all `ctx.send()` calls
 - This replaces pattern-matching for noise filtering
 
-### 9. DOCUMENTATION
+### 10. DOCUMENTATION
 - **Update README.md, STATUS.md, HANDOFF.md, and README_ENV.md alongside every code change**
 - Keep CLAUDE.md current for Claude Code sessions
 - Full files only — never partial diffs or patches
 - Always provide complete file contents when delivering changes
 
-### 10. MAINTAIN CONSISTENCY
+### 11. MAINTAIN CONSISTENCY
 - Follow established patterns and conventions
 - Respect modular architecture and file organization
 - Maintain backward compatibility with existing APIs and imports
@@ -175,6 +185,7 @@
 5. 250-LINE LIMIT AND MODULAR PATTERNS
 6. PREFIX ALL BOT OUTPUT WITH ℹ️ OR ⚙️
 7. **UPDATE ALL DOCUMENTATION BEFORE MERGING**
+8. **NEVER COMMIT TEST DATA, BENCHMARK FILES, OR DISCORD CHANNEL CONTENT**
 
 For Technical Details: See README.md and STATUS.md
 For Current State: See HANDOFF.md
