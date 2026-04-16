@@ -3,4 +3,8 @@ __pycache__/
 *.pyc
 data/
 benchmarks/
+benchmark_results.json
+benchmark_core.py
+benchmark_queries.py
+retrieval_benchmark.py
 docs/
