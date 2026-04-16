@@ -1,20 +1,14 @@
 # utils/segmenter.py
-# Version 1.0.2
+# Version 1.0.3
 """
 Conversation segmentation + synthesis via Gemini (SOW v6.0.0).
 
-CHANGES v1.0.2: Relax coverage check (warn, not raise); truncate synthesis at 24000 chars before embed
-CHANGES v1.0.1: Use GEMINI_MAX_TOKENS for segmentation call (was hardcoded 8192)
+CHANGES v1.0.3: Log dropped messages per index in _parse_segments
+CHANGES v1.0.2: Relax coverage check (warn not raise); truncate synthesis at 24000 chars
+CHANGES v1.0.1: Use GEMINI_MAX_TOKENS (was hardcoded 8192)
 CREATED v1.0.0: Segmentation pipeline (SOW v6.0.0)
-- SEGMENTATION_SYSTEM_PROMPT: Gemini prompt for combined segment+synthesize
-- SEGMENTATION_SCHEMA: JSON schema for structured output
-- segment_and_synthesize(): main entry — processes messages in batches,
-  calls Gemini per batch with overlap handling, returns segment dicts
-- run_segmentation_phase(): async orchestrator — segment, embed, store
-- _build_segmentation_prompt(): format messages with local indices for Gemini
-- _parse_segments(): validate Gemini output covers all indices
-- _fallback_time_gap(): time-gap segmentation when LLM fails
-- _is_segmentable(): filter for segmentation (lighter than embedding filter)
+Functions: segment_and_synthesize, run_segmentation_phase, _parse_segments,
+  _build_segmentation_prompt, _fallback_time_gap, _is_segmentable
 """
 import asyncio
 from utils.logging_utils import get_logger
@@ -87,9 +81,8 @@ def _build_segmentation_prompt(indexed_msgs):
     return "\n".join(lines)
 
 
-def _parse_segments(response_data, n_messages):
+def _parse_segments(response_data, n_messages, batch=None):
     """Validate Gemini output covers local indices 0..n_messages-1.
-
     Returns parsed list or raises ValueError on invalid output.
     """
     import json
@@ -110,8 +103,14 @@ def _parse_segments(response_data, n_messages):
         covered.update(range(s, e + 1))
         prev_end = e
     if len(covered) != n_messages:
+        uncovered = sorted(set(range(n_messages)) - covered)
         logger.warning(
-            f"Partial coverage: {len(covered)}/{n_messages} — using partial result")
+            f"Partial coverage: {len(covered)}/{n_messages} — "
+            f"{len(uncovered)} messages dropped")
+        if batch:
+            for i in uncovered:
+                preview = (batch[i].content or "")[:80].replace("\n", " ")
+                logger.warning(f"  Dropped [{i}] {batch[i].author_name}: {preview}")
     return data
 
 
@@ -181,7 +180,7 @@ async def segment_and_synthesize(messages, provider, batch_size=500, overlap=20)
                     response_json_schema=SEGMENTATION_SCHEMA,
                     use_json_schema=True,
                 )
-                parsed = _parse_segments(raw, len(batch))
+                parsed = _parse_segments(raw, len(batch), batch)
                 break
             except Exception as e:
                 logger.warning(f"Segmentation attempt {attempt+1} failed: {e}")
