@@ -1,5 +1,5 @@
 # README.md
-# Version 6.2.0
+# Version 6.4.0
 
 # Synthergy Discord Bot
 
@@ -8,10 +8,10 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 ## Features
 
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
-- **Semantic memory** — topic-based retrieval injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
-- **Structured summaries** — three-pass Secretary/Structurer/Classifier pipeline maintains living meeting minutes tracking decisions, action items, topics, and open questions
+- **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
+- **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
 - **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
-- **Message persistence** — all messages stored in SQLite, surviving restarts without API refetch
+- **Message persistence** — all messages stored in SQLite; on restart, recent history is backfilled from Discord to catch messages sent while offline
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel
@@ -38,8 +38,7 @@ python main.py
 | Command | Access | Description |
 |---------|--------|-------------|
 | `!summary` | all | Show channel summary (decisions, topics, actions) |
-| `!summary full` | all | All sections including facts and archived topics |
-| `!summary raw` | all | Secretary's natural language minutes |
+| `!summary full` | all | All sections including key facts |
 | `!summary create` | admin | Run full summarization (re-cluster + re-summarize) |
 | `!summary update` | admin | Re-summarize only clusters updated since last run |
 | `!summary clear` | admin | Delete stored summary and start fresh |
@@ -50,9 +49,8 @@ python main.py
 | `!debug reembed` | admin | Delete all embeddings + re-embed every message with context |
 | `!debug dedup` | admin | Scan for duplicate test messages (3+ identical) |
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
-| `!debug clusters` | admin | Run UMAP + HDBSCAN clustering, show diagnostic report |
-| `!debug summarize_clusters` | admin | Run per-cluster Gemini summarization, show results |
 | `!debug segments` | admin | Show segment count, avg size, sample syntheses |
+| `!debug propositions` | admin | Show proposition count and samples |
 | `!explain` | all | Show context receipt for the last bot response |
 | `!explain detail` | all | Receipt + injected messages per cluster |
 | `!explain <id>` | all | Show context receipt for a specific response by message ID |
@@ -118,19 +116,20 @@ discord-bot/
         └── ...
 ```
 
-## Semantic Retrieval (v6.2.0 — hybrid BM25+dense+RRF)
+## Semantic Retrieval (v6.4.0 — three-signal proposition+dense+BM25+RRF)
 
 Every response is built from two context layers:
 
 **Always-on** (injected for every message): overview, key facts, open action items, open questions.
 
-**Retrieved** (per-query): hybrid dense + BM25 retrieval fused via Reciprocal Rank Fusion:
+**Retrieved** (per-query): three-signal hybrid retrieval fused via Reciprocal Rank Fusion:
 1. Query embedded via `embed_query_with_smart_context()` — adds conversational context to avoid topic bleed
-2. Dense: `find_relevant_segments()` scores query against all segment embeddings (top_k × 2 expanded pool, `RETRIEVAL_FLOOR` minimum)
-3. Score-gap: `_apply_score_gap()` cuts dense candidates at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
-4. BM25: `fts_search()` via SQLite FTS5 — matches synthesis + raw message content
-5. RRF: `rrf_fuse(dense, bm25, k=RRF_K)` — rank-based fusion, returns top-`RETRIEVAL_TOP_K` fused IDs
-6. Per segment: synthesis + source messages injected as `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
+2. Propositions: `find_relevant_propositions()` scores query against atomic claim embeddings; collapses to max-score-per-segment → segment IDs
+3. Dense: `find_relevant_segments()` scores query against all segment embeddings (top_k × 2 expanded pool, `RETRIEVAL_FLOOR` minimum)
+4. Score-gap: `_apply_score_gap()` cuts dense candidates at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
+5. BM25: `fts_search()` via SQLite FTS5 — matches synthesis + raw message content
+6. RRF: `rrf_fuse(prop, dense, bm25, k=RRF_K)` — rank-based fusion, returns top-`RETRIEVAL_TOP_K` fused IDs
+7. Per segment: synthesis + source messages injected as `[Topic: label]\nSummary: ...\n\nSource messages:\n[N] ...`
 
 **Rollback**: if no segments in DB (pre-v6 channel), `_cluster_rollback()` uses cluster centroid scoring with `RETRIEVAL_MIN_SCORE` threshold.
 
@@ -172,7 +171,7 @@ Key variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DISCORD_TOKEN` | Bot token (required) | — |
-| `AI_PROVIDER` | Default conversation provider | `deepseek` |
+| `AI_PROVIDER` | Default conversation provider | `openai` |
 | `OPENAI_API_KEY` | Required for embeddings + classifier | — |
 | `SUMMARIZER_PROVIDER` | Summarization provider | `gemini` |
 | `GEMINI_API_KEY` | Required for summarization | — |
@@ -181,6 +180,7 @@ Key variables:
 | `MAX_RECENT_MESSAGES` | Recent messages included in context | `5` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
 | `RETRIEVAL_TOP_K` | Max segments returned per query (dense pool = top_k × 2) | `7` |
+| `PROPOSITION_BATCH_SIZE` | Segment syntheses per GPT-4o-mini decomposition call | `10` |
 | `RETRIEVAL_FLOOR` | Absolute minimum score for segment retrieval | `0.20` |
 | `RETRIEVAL_SCORE_GAP` | Cut dense candidates at largest inter-score gap ≥ this | `0.08` |
 | `RRF_K` | Reciprocal Rank Fusion constant (lower = more top-rank weight) | `15` |
