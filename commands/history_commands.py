@@ -1,8 +1,10 @@
 # commands/history_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
 History management commands for the Discord bot.
 
+CHANGES v2.2.0: Truncate long message content in !history display to prevent
+  single entries from exceeding Discord's 2000-char limit
 CHANGES v2.1.0: ℹ️ prefix tagging for noise filtering
 - All display/status output prefixed with ℹ️
 
@@ -109,6 +111,10 @@ def register_history_commands(bot):
                     prefix = "System"
             else:
                 prefix = "User"
+
+            # Truncate long content so no single entry exceeds Discord's 2000-char limit
+            if len(content) > 350:
+                content = content[:350] + "…"
 
             entry = (f"**{message_number}."
                      f"** {HISTORY_LINE_PREFIX}{prefix}: {content}\n\n")

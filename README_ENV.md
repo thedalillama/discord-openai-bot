@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 6.2.0
+# Version 6.4.1
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -57,7 +57,7 @@ the trimmer drops oldest recent messages to fit within the remaining budget.
 
 The `data/` directory is created automatically on first run.
 
-## Semantic Retrieval Configuration (v6.2.0+)
+## Semantic Retrieval Configuration (v6.4.0+)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -70,6 +70,7 @@ The `data/` directory is created automatically on first run.
 | `QUERY_TOPIC_SHIFT_THRESHOLD` | At query time, cosine similarity below this vs previous message = topic shift → raw embedding; above = re-embed with context | `0.5` |
 | `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for a previous message to be included in the `[Context: ...]` prefix for stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
+| `PROPOSITION_BATCH_SIZE` | Segment syntheses per GPT-4o-mini decomposition call | `10` |
 
 Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`.
 
@@ -77,9 +78,11 @@ Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`
 64k context − 8k max_tokens at 15% = only 1,600 token budget), keep `CONTEXT_BUDGET_PERCENT`
 at 80 or retrieval will be starved and fall back to message similarity.
 
-**Primary path (v6.2.0):** dense retrieval with `RETRIEVAL_FLOOR` and `RETRIEVAL_SCORE_GAP`,
-fused with BM25 via `RRF_K`. `RETRIEVAL_MIN_SCORE` is only used on the cluster rollback
-path (pre-v6 channels with no segments) and for incremental cluster assignment.
+**Primary path (v6.4.0):** three-signal retrieval — proposition embeddings + dense segment
+embeddings + BM25, fused via `RRF_K`. `PROPOSITION_BATCH_SIZE` controls GPT-4o-mini
+decomposition call size. `RETRIEVAL_FLOOR` and `RETRIEVAL_SCORE_GAP` apply to dense
+candidates only. `RETRIEVAL_MIN_SCORE` is only used on the cluster rollback path (pre-v6
+channels with no segments) and for incremental cluster assignment.
 
 After changing `EMBEDDING_MODEL` or migrating to a new server, run:
 1. `!debug reembed` in Discord — wipes and re-embeds all messages with contextual text
@@ -154,9 +157,9 @@ Gemini is used for summarization only, not for conversation responses.
 | `UMAP_N_NEIGHBORS` | UMAP neighborhood size (lower = more local structure) | `15` |
 | `UMAP_N_COMPONENTS` | UMAP output dimensions | `5` |
 
-These control the UMAP + HDBSCAN pipeline used by `!debug clusters` and the
-segment clustering step in `!summary create`. `UMAP_N_NEIGHBORS` is automatically
-capped to `n_items - 1` for small channels/segment sets.
+These control the UMAP + HDBSCAN pipeline used by the segment clustering step in
+`!summary create`. `UMAP_N_NEIGHBORS` is automatically capped to `n_items - 1`
+for small channels/segment sets.
 
 ## Segment Pipeline Configuration (v6.0.0)
 
