@@ -246,5 +246,4 @@ def build_context_for_provider(channel_id, provider):
                 json.dump(final_messages, _f, indent=2, default=str)
         except Exception:
             pass
-    return final_messages
-            + layer2_turns + selected, receipt_data, citation_map)
+    return final_messages, receipt_data, citation_map
