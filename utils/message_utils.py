@@ -1,5 +1,5 @@
 # utils/message_utils.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Message utility functions for Discord bot.
 Handles message formatting, splitting, and Discord-specific message operations.
@@ -51,35 +51,33 @@ def split_message(text, max_length=2000):
     logger.debug(f"Split into {len(chunks)} chunks")
     return chunks
 
-def format_user_message_for_history(user_name, content, message_count):
+def format_user_message_for_history(user_name, content, message_count, msg_id=None):
     """
     Format a user message for storage in conversation history.
     Handles username cleaning for API compatibility.
-    
+
     Args:
         user_name (str): Discord user's display name
         content (str): Message content
         message_count (int): Current message count for fallback naming
-        
+        msg_id: Discord message ID for Layer 2 deduplication (optional)
+
     Returns:
         dict: Formatted message for API
     """
     # Clean the username to match API requirements (letters, numbers, underscores, hyphens only)
     clean_name = ''.join(c for c in user_name if c.isalnum() or c in '_-')
-    
+
     # If the name is empty after cleaning or doesn't change, use a default
     if not clean_name or clean_name != user_name:
-        return {
-            "role": "user", 
-            "name": f"user_{message_count}",
-            "content": f"{user_name}: {content}"
-        }
+        m = {"role": "user", "name": f"user_{message_count}",
+             "content": f"{user_name}: {content}"}
     else:
-        return {
-            "role": "user", 
-            "name": clean_name,
-            "content": f"{user_name}: {content}"
-        }
+        m = {"role": "user", "name": clean_name,
+             "content": f"{user_name}: {content}"}
+    if msg_id is not None:
+        m["_msg_id"] = msg_id
+    return m
 
 def create_history_content_for_bot_response(text_content, images_count=0):
     """

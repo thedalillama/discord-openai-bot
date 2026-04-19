@@ -1,7 +1,12 @@
 # utils/response_handler.py
-# Version 1.4.0
+# Version 1.5.0
 """
 AI response handling utilities for Discord bot.
+
+CHANGES v1.5.0: Thread _msg_id through bot responses for Layer 2 dedup
+- MODIFIED: add_response_to_history() — accept msg_id=None kwarg; include
+  _msg_id in stored dict when provided
+- MODIFIED: call sites pass response_msg.id after send
 
 CHANGES v1.4.0: Dead code cleanup (SOW v5.10.1)
 - REMOVED: send_text_response() (no callers — text sending done inline in task)
@@ -93,7 +98,9 @@ async def handle_ai_response_task(message, channel_id, messages,
                     response_msg = await message.channel.send(chunk)
                 if cite_footer:
                     await message.channel.send(_I + cite_footer)
-                add_response_to_history(channel_id, answer)
+                add_response_to_history(
+                    channel_id, answer,
+                    msg_id=getattr(response_msg, 'id', None))
 
         elif isinstance(bot_response, str):
             bot_response, cite_footer = apply_citations(bot_response, citation_map or {})
@@ -102,7 +109,9 @@ async def handle_ai_response_task(message, channel_id, messages,
                 response_msg = await message.channel.send(chunk)
             if cite_footer:
                 await message.channel.send(_I + cite_footer)
-            add_response_to_history(channel_id, bot_response)
+            add_response_to_history(
+                channel_id, bot_response,
+                msg_id=getattr(response_msg, 'id', None))
 
         elif isinstance(bot_response, dict):
             text_content = bot_response.get("text", "")
@@ -128,7 +137,9 @@ async def handle_ai_response_task(message, channel_id, messages,
                     logger.error(f"Error sending generated image {i+1}: {e}")
                     await message.channel.send("⚠️ I generated an image but couldn't send it.")
 
-            add_response_to_history(channel_id, text_content, len(images))
+            add_response_to_history(
+                channel_id, text_content, len(images),
+                msg_id=getattr(response_msg, 'id', None))
 
         if receipt_data and response_msg:
             try:
@@ -171,7 +182,7 @@ async def handle_ai_response(message, channel_id, messages, provider_override=No
             await message.channel.send("Sorry, I encountered an error processing your request.")
 
 
-def add_response_to_history(channel_id, text_content, images_count=0):
+def add_response_to_history(channel_id, text_content, images_count=0, msg_id=None):
     """
     Add AI response to channel conversation history.
 
@@ -182,6 +193,7 @@ def add_response_to_history(channel_id, text_content, images_count=0):
         channel_id: Discord channel ID
         text_content: Text content of the response
         images_count: Number of images generated (default: 0)
+        msg_id: Discord message ID for Layer 2 deduplication (optional)
 
     Returns:
         bool: True if added, False if skipped
@@ -196,10 +208,10 @@ def add_response_to_history(channel_id, text_content, images_count=0):
         logger.debug(f"Skipped noise message for channel {channel_id}: {history_content[:50]}...")
         return False
 
-    channel_history[channel_id].append({
-        "role": "assistant",
-        "content": history_content
-    })
+    entry = {"role": "assistant", "content": history_content}
+    if msg_id is not None:
+        entry["_msg_id"] = msg_id
+    channel_history[channel_id].append(entry)
 
     # Trim to MAX_HISTORY to prevent temporary overshoot between
     # user append (in bot.py) and assistant append (here)

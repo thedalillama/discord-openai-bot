@@ -1,7 +1,14 @@
 # utils/history/message_processing.py
-# Version 2.3.0
+# Version 2.4.0
 """
 Message processing and filtering for Discord bot history.
+
+CHANGES v2.4.0: Thread _msg_id through message creation and API prep
+- MODIFIED: create_user_message(), create_assistant_message(),
+  format_user_message_for_history() — accept optional msg_id kwarg;
+  include _msg_id in returned dict when provided
+- MODIFIED: prepare_messages_for_api() — pass through _msg_id from
+  channel_history so Layer 2 dedup in context_manager can match IDs
 
 CHANGES v2.3.0: Prefix-based filtering replaces pattern matching
 - ADDED: is_noise_message() — checks for ℹ️ prefix (command output, display)
@@ -168,19 +175,26 @@ def should_skip_message_from_history(message, is_bot_message=False):
     return False, "normal message"
 
 
-def format_user_message_for_history(display_name, content, history_length):
+def format_user_message_for_history(display_name, content, history_length,
+                                    msg_id=None):
     """Format a user message dict for storage in channel_history."""
-    return {"role": "user", "content": f"{display_name}: {content}"}
+    m = {"role": "user", "content": f"{display_name}: {content}"}
+    if msg_id is not None: m["_msg_id"] = msg_id
+    return m
 
 
-def create_user_message(display_name, content, history_length=None):
+def create_user_message(display_name, content, history_length=None, msg_id=None):
     """Create a user message dict."""
-    return {"role": "user", "content": f"{display_name}: {content}"}
+    m = {"role": "user", "content": f"{display_name}: {content}"}
+    if msg_id is not None: m["_msg_id"] = msg_id
+    return m
 
 
-def create_assistant_message(content):
+def create_assistant_message(content, msg_id=None):
     """Create an assistant message dict."""
-    return {"role": "assistant", "content": content}
+    m = {"role": "assistant", "content": content}
+    if msg_id is not None: m["_msg_id"] = msg_id
+    return m
 
 
 def create_system_update_message(content):
@@ -202,7 +216,10 @@ def prepare_messages_for_api(channel_id):
             continue
         if is_settings_persistence_message(content):
             continue
-        messages.append({"role": msg["role"], "content": content})
+        entry = {"role": msg["role"], "content": content}
+        if "_msg_id" in msg:
+            entry["_msg_id"] = msg["_msg_id"]
+        messages.append(entry)
 
     return messages
 

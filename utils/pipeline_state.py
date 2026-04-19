@@ -1,11 +1,15 @@
 # utils/pipeline_state.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Pipeline state CRUD for v7.0.0 incremental pipeline (SOW v7.0.0 M1).
 
 Tracks per-channel segmentation progress via the pipeline_state table.
 Provides session bridge and unsummarized message queries for Layer 2
 context injection.
+
+CHANGES v1.1.0: Filter noise messages from Layer 2 injection
+- MODIFIED: get_unsummarized_messages() — skip ℹ️/⚙️ bot output and !commands
+- MODIFIED: get_session_bridge_messages() — same filter applied defensively
 
 CREATED v1.0.0:
 - get_pipeline_state() — auto-initializing CRUD for pipeline_state table
@@ -120,8 +124,22 @@ def get_unsegmented_count(channel_id):
         conn.close()
 
 
+def _is_layer2_noise(content, is_bot):
+    """Return True if a message should be excluded from Layer 2 injection.
+    Matches the same logic as _seed_history_from_db() in discord_loader.py.
+    """
+    if not content:
+        return True
+    if content.startswith('!'):
+        return True
+    if content.startswith('ℹ️') or content.startswith('⚙️'):
+        return True
+    return False
+
+
 def get_unsummarized_messages(channel_id):
     """Messages after last_segmented_message_id, chronological.
+    Filters ℹ️/⚙️ bot output and !commands — same rules as conversation history.
 
     Returns list of dicts: id, author, content, created_at, is_bot.
     """
@@ -138,6 +156,7 @@ def get_unsummarized_messages(channel_id):
             {"id": r[0], "author": r[1], "content": r[2],
              "created_at": r[3], "is_bot": bool(r[4])}
             for r in rows
+            if not _is_layer2_noise(r[2], bool(r[4]))
         ]
     finally:
         conn.close()
@@ -177,10 +196,11 @@ def get_session_bridge_messages(channel_id):
                 "WHERE sm.segment_id=? ORDER BY sm.position ASC",
                 (seg_id,)).fetchall()
             for r in rows:
-                messages.append({
-                    "id": r[0], "author": r[1], "content": r[2],
-                    "created_at": r[3], "is_bot": bool(r[4]),
-                })
+                if not _is_layer2_noise(r[2], bool(r[4])):
+                    messages.append({
+                        "id": r[0], "author": r[1], "content": r[2],
+                        "created_at": r[3], "is_bot": bool(r[4]),
+                    })
         return messages
     finally:
         conn.close()
