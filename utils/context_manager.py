@@ -1,7 +1,9 @@
 # utils/context_manager.py
-# Version 3.0.1
+# Version 3.0.2
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v3.0.2: Add /tmp/last_full_context.json DEBUG dump (full messages array)
 
 CHANGES v3.0.1: Fix always_on receipt missing total_tokens key
 - MODIFIED: receipt_data always_on dict — add total_tokens (overview + control)
@@ -236,5 +238,13 @@ def build_context_for_provider(channel_id, provider):
             "model": getattr(provider, 'model', '?'),
         }
 
-    return ([{"role": "system", "content": system_content}]
+    final_messages = [{"role": "system", "content": system_content}] + layer2_turns + selected
+    if logger.isEnabledFor(10):
+        try:
+            import json
+            with open('/tmp/last_full_context.json', 'w') as _f:
+                json.dump(final_messages, _f, indent=2, default=str)
+        except Exception:
+            pass
+    return final_messages
             + layer2_turns + selected, receipt_data, citation_map)
