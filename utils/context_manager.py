@@ -1,7 +1,10 @@
 # utils/context_manager.py
-# Version 3.0.0
+# Version 3.0.1
 """
 Token-budget-aware context management and usage tracking.
+
+CHANGES v3.0.1: Fix always_on receipt missing total_tokens key
+- MODIFIED: receipt_data always_on dict — add total_tokens (overview + control)
 
 CHANGES v3.0.0: Three-layer context assembly (SOW v7.0.0 M1)
 - ADDED: read_control_file() — re-exported from context_helpers
@@ -198,6 +201,7 @@ def build_context_for_provider(channel_id, provider):
             "query": cluster_receipt.get("query", ""),
             "query_embedding_path": cluster_receipt.get("embedding_path", "unknown"),
             "always_on": {
+                "total_tokens": always_on_tokens + control_tokens,
                 "overview_tokens": always_on_tokens,
                 "control_file_tokens": control_tokens,
                 "key_facts_count": len([f for f in summary.get("key_facts", [])
