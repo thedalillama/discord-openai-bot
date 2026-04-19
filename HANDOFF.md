@@ -1,8 +1,65 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.0.0
+# Version 7.0.1
 
 ## Current Version Features
+
+### Version 7.0.1 — Layer 2 Fixes + Pipeline State + UMAP Process Pool
+
+Bug fix and hardening release for the v7.0.0 three-layer context system.
+
+**`_msg_id` threading (Layer 2 dedup):**
+Discord message IDs flow through every message dict in `channel_history`.
+`prepare_messages_for_api()` passes them through. `build_context_for_provider()`
+builds `layer2_ids` from the continuity block and filters `selected` (conversation
+history) against it — Layer 2 canonical; memory only adds messages too new to be in
+SQLite yet.
+
+**Dedup direction corrected:**
+Previously Layer 2 messages were dropped in favour of history copies. Fixed:
+`selected` is filtered against `layer2_ids`. Layer 2 turns (timestamped, SQLite)
+always kept; only truly unseen messages come from in-memory history.
+
+**Layer 2 noise filter:**
+`get_unsummarized_messages()` and `get_session_bridge_messages()` in
+`pipeline_state.py` now skip ℹ️/⚙️ bot output and `!` commands — matching
+the same rules as `_seed_history_from_db()`.
+
+**`save_pipeline_state` after `!summary create`:**
+`summarize_channel()` calls `save_pipeline_state(channel_id, max_msg_id, now)`
+after success. Layer 2's unsummarized window starts at the end of the last run.
+
+**ProcessPoolExecutor for UMAP:**
+`asyncio.to_thread` shares the GIL — 45-second UMAP runs caused Discord gateway
+disconnects. `_cluster_pool = ProcessPoolExecutor(max_workers=1)` in
+`cluster_engine.py`; used by both `summarizer.py` (segment clustering) and
+`cluster_overview.py` (message clustering) via `run_in_executor()`.
+
+**`!explain` always-on token count fix:**
+Added `"total_tokens": always_on_tokens + control_tokens` to `always_on`
+sub-dict in `receipt_data`.
+
+**Full context JSON dump at DEBUG:**
+`/tmp/last_full_context.json` written after assembling `final_messages` when
+log level is DEBUG.
+
+**Key files changed v7.0.1:**
+- `utils/context_manager.py` v3.0.0 → v3.0.3
+- `utils/pipeline_state.py` v1.0.0 → v1.1.0
+- `utils/history/message_processing.py` v2.3.0 → v2.4.0
+- `utils/history/discord_loader.py` v2.3.0 → v2.4.0
+- `utils/history/discord_converter.py` v1.0.0 → v1.1.0
+- `utils/response_handler.py` v1.4.0 → v1.5.0
+- `utils/message_utils.py` v1.1.0 — added `msg_id` param
+- `utils/summarizer.py` v4.3.0 → v4.5.0
+- `utils/cluster_engine.py` v1.2.0 → v1.3.0
+- `utils/cluster_overview.py` v2.4.0 → v2.5.0
+- `bot.py` — `format_user_message_for_history` calls pass `msg_id=message.id`
+
+**Next:** M2 (Entity State Machine) — add `status` columns to segments/clusters.
+See `docs/v7-implementation-plan.md` for full milestone plan.
+
+---
 
 ### Version 7.0.0 — Three-Layer Context Injection (M1)
 
@@ -24,9 +81,6 @@ Context assembly is now three-layer with budget priority:
 
 **`pipeline_state` auto-init:** for existing v6 channels with no row, derives
 `last_segmented_message_id` from max `last_message_id` in segments table.
-
-**Next:** M2 (Entity State Machine) — add `status` columns to segments/clusters.
-See `docs/v7-implementation-plan.md` for full milestone plan.
 
 ---
 

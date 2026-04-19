@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 7.0.0
+# Version 7.0.1
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -128,7 +128,7 @@ Key files: `utils/pipeline_state.py` (pipeline CRUD, session bridge, unsummarize
 `utils/fts_search.py` (populate_fts, fts_search, rrf_fuse — BM25 + fusion),
 `utils/context_retrieval.py` (hybrid retrieval + fallback, v1.9.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
-`utils/context_manager.py` (three-layer assembly + budget + citation pass-through, v3.0.0),
+`utils/context_manager.py` (three-layer assembly + budget + citation pass-through, v3.0.3),
 `utils/history/discord_loader.py` (DB seed + delta fetch orchestration, v2.3.0),
 `utils/history/realtime_settings_parser.py` (restore_settings_from_db, v2.3.0)
 
@@ -148,7 +148,7 @@ Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_updat
 (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v6.0.0 — segment-based)
-`!summary create` runs the segment pipeline via `summarizer.py` v4.1.0:
+`!summary create` runs the segment pipeline via `summarizer.py` v4.5.0:
 ```
 summarize_channel(channel_id)                  ← summarizer.py
   → run_segmentation_phase()                   ← segmenter.py
