@@ -1,18 +1,20 @@
 # utils/cluster_engine.py
-# Version 1.2.0
+# Version 1.3.0
 """
 UMAP + HDBSCAN clustering pipeline for v5.1.0.
 
 Handles dimensionality reduction, clustering, noise reduction, and centroid
 computation. All math lives here; SQLite CRUD lives in cluster_store.py.
 
+CHANGES v1.3.0: Add _cluster_pool — ProcessPoolExecutor for GIL-free UMAP runs
 CHANGES v1.2.0: Add _adaptive_params() — scale UMAP/HDBSCAN to input size
 CHANGES v1.1.0: Add cluster_segments() — segment embeddings path (SOW v6.0.0)
-CREATED v1.0.0: UMAP + HDBSCAN clustering pipeline (SOW v5.1.0)
-- cluster_messages(): UMAP reduce, HDBSCAN cluster, noise reassignment, centroids
-- Returns {clusters, noise_ids, stats} dict or None if too few embeddings
+CREATED v1.0.0: cluster_messages() — UMAP reduce, HDBSCAN cluster, centroids
 """
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor
+
+_cluster_pool = ProcessPoolExecutor(max_workers=1)
 from utils.embedding_store import get_message_embeddings, cosine_similarity
 from utils.logging_utils import get_logger
 from config import (

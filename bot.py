@@ -168,7 +168,8 @@ def create_bot():
             user_message = format_user_message_for_history(
                 message.author.display_name,
                 content_for_history,
-                len(channel_history[channel_id])
+                len(channel_history[channel_id]),
+                msg_id=message.id
             )
             channel_history[channel_id].append(user_message)
 
@@ -197,7 +198,8 @@ def create_bot():
         user_message = format_user_message_for_history(
             message.author.display_name,
             message.content,
-            len(channel_history[channel_id])
+            len(channel_history[channel_id]),
+            msg_id=message.id
         )
         channel_history[channel_id].append(user_message)
 
