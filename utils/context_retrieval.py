@@ -1,7 +1,12 @@
 # utils/context_retrieval.py
-# Version 1.8.0
+# Version 1.9.0
 """
-Segment-based semantic retrieval for context injection (SOW v6.1.0–v6.3.0).
+Segment-based semantic retrieval for context injection (SOW v6.1.0–v7.0.0).
+
+CHANGES v1.9.0: exclude_ids parameter for Layer 2 deduplication (SOW v7.0.0 M1)
+- MODIFIED: _retrieve_segment_context() — accept exclude_ids kwarg; merged into
+  recent_ids so Layer 2 continuity messages are not duplicated in Layer 3
+- MODIFIED: _cluster_rollback() — same exclude_ids pass-through
 
 CHANGES v1.8.0: Three-signal RRF — proposition + dense + BM25 (SOW v6.3.0)
 - ADDED: find_relevant_propositions() call; collapses to segment IDs pre-RRF
@@ -58,70 +63,12 @@ def _fallback_msg_search(query_vec, channel_id, token_budget, recent_ids):
         return "", 0, 0
 
 
-def _cluster_rollback(query_vec, channel_id, query_text, embedding_path,
-                      token_budget, recent_ids):
-    """Cluster centroid retrieval for pre-v6 channels.
-    Uses cluster_messages junction table (v5.x path).
-    """
-    from utils.context_manager import estimate_tokens
-    from utils.cluster_retrieval import find_relevant_clusters, get_cluster_messages
-    _empty = ("", 0, {}, {})
-    try:
-        all_clusters = find_relevant_clusters(
-            query_vec, channel_id, top_k=RETRIEVAL_TOP_K)
-        clusters = [(cid, lbl, s) for cid, lbl, s in all_clusters
-                    if s >= RETRIEVAL_MIN_SCORE]
-        below = [{"label": lbl, "score": round(s, 3)}
-                 for _, lbl, s in all_clusters if s < RETRIEVAL_MIN_SCORE]
-
-        lines, tokens_used, injected = [], 0, []
-        citation_map, citation_num = {}, 1
-        for cluster_id, label, score in clusters:
-            msgs = get_cluster_messages(cluster_id, exclude_ids=recent_ids)
-            if not msgs:
-                continue
-            temp_cites, msg_lines = {}, []
-            for _, author, content, created_at in msgs:
-                temp_cites[citation_num] = {
-                    "author": author, "content": content, "date": created_at or ""}
-                msg_lines.append(
-                    f"[{citation_num}] [{(created_at or '')[:10]}] "
-                    f"{author}: {content}")
-                citation_num += 1
-            section = f"[Topic: {label}]\n" + "\n".join(msg_lines)
-            sec_tokens = estimate_tokens(section)
-            if tokens_used + sec_tokens > token_budget:
-                citation_num -= len(msgs)
-                break
-            citation_map.update(temp_cites)
-            lines.append(section)
-            tokens_used += sec_tokens
-            injected.append({"cluster_id": str(cluster_id), "label": label,
-                             "score": round(score, 3),
-                             "messages_injected": len(msgs), "tokens": sec_tokens})
-
-        if not lines:
-            text, tokens, count = _fallback_msg_search(
-                query_vec, channel_id, token_budget, recent_ids)
-            receipt = {"query": query_text, "embedding_path": embedding_path,
-                       "retrieved_clusters": [], "clusters_below_threshold": below,
-                       "fallback_used": bool(text), "fallback_messages": count}
-            return text, tokens, receipt, {}
-
-        receipt = {"query": query_text, "embedding_path": embedding_path,
-                   "retrieved_clusters": injected,
-                   "clusters_below_threshold": below,
-                   "fallback_used": False, "fallback_messages": 0}
-        return "\n\n".join(lines), tokens_used, receipt, citation_map
-    except Exception as e:
-        logger.warning(f"Cluster rollback failed ch:{channel_id}: {e}")
-        return _empty
-
-
-def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
+def _retrieve_segment_context(channel_id, conversation_msgs, token_budget,
+                              exclude_ids=None):
     """Embed latest user message; fuse BM25+dense segments; return context.
     Returns (context_text, tokens_used, receipt, citation_map).
     ("", 0, {}, {}) on failure.
+    exclude_ids: message IDs already in Layer 2 continuity — not duplicated here.
     """
     from utils.context_manager import estimate_tokens
     _empty = ("", 0, {}, {})
@@ -146,15 +93,18 @@ def _retrieve_segment_context(channel_id, conversation_msgs, token_budget):
             return _empty
 
         recent_ids = {msg["_msg_id"] for msg in conversation_msgs if "_msg_id" in msg}
+        if exclude_ids:
+            recent_ids = recent_ids | set(exclude_ids)
 
         segments = find_relevant_segments(
             query_vec, channel_id, top_k=RETRIEVAL_TOP_K * 2, floor=RETRIEVAL_FLOOR)
 
         if not segments:
             logger.debug(f"No segments ch:{channel_id} — cluster rollback")
+            from utils.cluster_fallback import _cluster_rollback
             return _cluster_rollback(
                 query_vec, channel_id, query_text, embedding_path,
-                token_budget, recent_ids)
+                token_budget, recent_ids, exclude_ids=exclude_ids)
 
         gap_applied = False
         if RETRIEVAL_SCORE_GAP > 0 and len(segments) > 1:

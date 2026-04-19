@@ -1,8 +1,34 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 6.4.2
+# Version 7.0.0
 
 ## Current Version Features
+
+### Version 7.0.0 — Three-Layer Context Injection (M1)
+
+Context assembly is now three-layer with budget priority:
+- **Layer 1 (guaranteed):** system prompt + `data/control.txt` (if exists) + always-on summary
+- **Layer 2 (guaranteed):** session bridge (raw msgs from most recent session's segments) + unsummarized msgs (everything after `last_segmented_message_id`). Budget-capped at `LAYER2_BUDGET_PCT=0.7` of remaining; always wins over retrieval.
+- **Layer 3 (fills remainder):** historical RRF retrieval (propositions + dense + BM25), now with `exclude_ids` to avoid duplicating Layer 2 messages.
+
+**Key files changed:**
+- `utils/context_manager.py` v3.0.0 — full rewrite of `build_context_for_provider()`
+- `utils/context_retrieval.py` v1.9.0 — `exclude_ids` parameter added
+- `utils/pipeline_state.py` NEW v1.0.0 — `pipeline_state` CRUD + session bridge + unsummarized queries
+- `utils/context_helpers.py` NEW v1.0.0 — helpers extracted from context_manager
+- `utils/cluster_fallback.py` NEW v1.0.0 — `_cluster_rollback` extracted from context_retrieval
+- `schema/011.sql` NEW — `pipeline_state` table
+- `config.py` v1.20.0 — `CONTROL_FILE_PATH`, `SESSION_GAP_MINUTES`, `LAYER2_BUDGET_PCT`
+- `commands/debug_commands.py` v2.0.0 — `!debug pipeline` command
+- `commands/explain_commands.py` v1.3.0 — continuity section in receipt display
+
+**`pipeline_state` auto-init:** for existing v6 channels with no row, derives
+`last_segmented_message_id` from max `last_message_id` in segments table.
+
+**Next:** M2 (Entity State Machine) — add `status` columns to segments/clusters.
+See `docs/v7-implementation-plan.md` for full milestone plan.
+
+---
 
 ### Version 6.4.2 — Benchmark Score Fix + History Seeding
 

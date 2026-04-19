@@ -1,16 +1,12 @@
 # utils/cluster_overview.py
-# Version 2.4.0
+# Version 2.5.0
 """
 Cross-cluster overview generation and full pipeline orchestrator.
 
+CHANGES v2.5.0: Use ProcessPoolExecutor for run_clustering() to avoid GIL blocking
 CHANGES v2.4.0: Pass pipeline label ("segment-v6"/"cluster-v5") through translate_to_channel_summary
 CHANGES v2.3.0: pre_run_stats=None skips run_clustering(); use_segments=True for segment path
 CHANGES v2.2.0: Replace qa_pass with embedding dedup + answered-Q check
-- MODIFIED: run_cluster_pipeline() replaces single qa_pass() call with
-  deduplicate_summary() then remove_answered_questions() from cluster_qa;
-  embedding dedup handles "Use PostgreSQL" × 3; targeted GPT-4o-mini
-  handles questions answered by facts/decisions in the same summary
-
 CHANGES v2.1.0: QA pass added (step 8, DeepSeek Reasoner)
 CHANGES v2.0.0: Classifier-before-overview restructure
 CHANGES v1.0.x: progress_fn, classifier pass, prompt tuning
@@ -187,7 +183,9 @@ async def run_cluster_pipeline(channel_id, provider, progress_fn=None, pre_run_s
     logger.info(f"Cluster pipeline start ch:{channel_id}")
     use_segments = pre_run_stats is not None
     if not use_segments:
-        stats = await asyncio.to_thread(run_clustering, channel_id)
+        from utils.cluster_engine import _cluster_pool
+        stats = await asyncio.get_running_loop().run_in_executor(
+            _cluster_pool, run_clustering, channel_id)
         if stats is None:
             return {"error": "Not enough embeddings — run !debug backfill first",
                     "messages_processed": 0, "cluster_count": 0,

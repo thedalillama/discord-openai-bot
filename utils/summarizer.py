@@ -1,9 +1,16 @@
 # utils/summarizer.py
-# Version 4.3.0
+# Version 4.5.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
+
+CHANGES v4.5.0: Use ProcessPoolExecutor for run_segment_clustering() (GIL-free UMAP)
+
+CHANGES v4.4.0: Save pipeline_state after successful !summary create (SOW v7.0.0)
+- MODIFIED: summarize_channel() — after run_cluster_pipeline succeeds, calls
+  save_pipeline_state(channel_id, max_msg_id, now) so Layer 2 injection
+  knows the segmentation pointer
 
 CHANGES v4.3.0: Run proposition decomposition phase after FTS5 (SOW v6.3.0)
 - MODIFIED: summarize_channel() — calls run_proposition_phase(channel_id)
@@ -66,31 +73,45 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
     provider = get_provider(SUMMARIZER_PROVIDER)
     try:
         messages = await asyncio.to_thread(get_channel_messages, channel_id)
+        max_msg_id = messages[-1].id if messages else 0
         seg_count = await run_segmentation_phase(
             channel_id, messages, provider, progress_fn)
         if seg_count == 0:
             logger.warning(
                 f"No segments created ch:{channel_id} — falling back to "
                 f"message-based clustering")
-            return await run_cluster_pipeline(channel_id, provider,
-                                              progress_fn=progress_fn)
-        from utils.fts_search import populate_fts
-        from utils.proposition_decomposer import run_proposition_phase
-        await asyncio.to_thread(populate_fts, channel_id)
-        prop_count = await run_proposition_phase(channel_id, progress_fn)
-        if prop_count == 0:
-            logger.warning(
-                f"Proposition phase produced 0 props ch:{channel_id} "
-                f"— retrieval degrades to dense+BM25")
-        seg_stats = await asyncio.to_thread(run_segment_clustering, channel_id)
-        if seg_stats is None:
-            logger.warning(
-                f"Segment clustering failed ch:{channel_id} — falling back")
-            return await run_cluster_pipeline(channel_id, provider,
-                                              progress_fn=progress_fn)
-        return await run_cluster_pipeline(channel_id, provider,
-                                          progress_fn=progress_fn,
-                                          pre_run_stats=seg_stats)
+            result = await run_cluster_pipeline(channel_id, provider,
+                                               progress_fn=progress_fn)
+        else:
+            from utils.fts_search import populate_fts
+            from utils.proposition_decomposer import run_proposition_phase
+            await asyncio.to_thread(populate_fts, channel_id)
+            prop_count = await run_proposition_phase(channel_id, progress_fn)
+            if prop_count == 0:
+                logger.warning(
+                    f"Proposition phase produced 0 props ch:{channel_id} "
+                    f"— retrieval degrades to dense+BM25")
+            from utils.cluster_engine import _cluster_pool
+            seg_stats = await asyncio.get_running_loop().run_in_executor(
+                _cluster_pool, run_segment_clustering, channel_id)
+            if seg_stats is None:
+                logger.warning(
+                    f"Segment clustering failed ch:{channel_id} — falling back")
+                result = await run_cluster_pipeline(channel_id, provider,
+                                                   progress_fn=progress_fn)
+            else:
+                result = await run_cluster_pipeline(channel_id, provider,
+                                                    progress_fn=progress_fn,
+                                                    pre_run_stats=seg_stats)
+        if not result.get("error") and max_msg_id:
+            from utils.pipeline_state import save_pipeline_state
+            from datetime import datetime, timezone
+            await asyncio.to_thread(
+                save_pipeline_state, channel_id, max_msg_id,
+                datetime.now(timezone.utc).isoformat())
+            logger.info(
+                f"Pipeline state updated ch:{channel_id} pointer={max_msg_id}")
+        return result
     except Exception as e:
         logger.error(f"Cluster pipeline failed ch:{channel_id}: {e}")
         return {"error": str(e), "messages_processed": 0,

@@ -1,7 +1,11 @@
 # utils/history/discord_converter.py
-# Version 1.0.1
+# Version 1.1.0
 """
 Discord message conversion functionality for standardizing message format.
+
+CHANGES v1.1.0: Pass msg_id to message creation for _msg_id dedup threading
+- MODIFIED: convert_discord_messages() — pass message.id to create_user_message()
+  and create_assistant_message() so Layer 2 dedup can match against history IDs
 
 CHANGES v1.0.1: Filter noise bot messages at load time (SOW v2.19.0)
 - ADDED: is_history_output import
@@ -65,7 +69,8 @@ async def convert_discord_messages(channel, messages):
                     noise_skipped += 1
                     logger.debug(f"Skipping noise bot message: {message.content[:60]}...")
                     continue
-                bot_message = create_assistant_message(message.content)
+                bot_message = create_assistant_message(
+                    message.content, msg_id=message.id)
                 add_message_to_history(channel_id, bot_message)
                 converted_count += 1
 
@@ -74,7 +79,8 @@ async def convert_discord_messages(channel, messages):
                 user_message = create_user_message(
                     message.author.display_name,
                     message.content,
-                    len(messages)
+                    len(messages),
+                    msg_id=message.id
                 )
                 add_message_to_history(channel_id, user_message)
                 converted_count += 1

@@ -1,8 +1,40 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 6.4.2
+# Version 7.0.0
 
 ## Current Version Features
+
+### Version 7.0.0 — Three-Layer Context Injection (M1)
+
+**Three-layer context assembly:**
+Context is now assembled in priority order — Layer 1 (system + control file +
+always-on summary) is always guaranteed. Layer 2 (session bridge + unsummarized
+messages) is budget-guaranteed and injected as message turns before the
+conversation history. Layer 3 (historical RRF retrieval) fills whatever budget
+remains. Recent messages are never trimmed in favour of old history.
+
+**Session bridge:** The bot injects raw source messages from the most recent
+conversation session's segments, bridging the gap between what's summarized and
+what's live in memory. Pronoun references resolve naturally across the summary
+boundary.
+
+**Unsummarized injection:** All messages after `last_segmented_message_id` are
+injected as Layer 2 turns. The bot never says "I don't have context" about recent
+messages that are already in the DB.
+
+**Operator control file:** Create `data/control.txt` to inject arbitrary text
+into every system prompt. Useful for channel-specific standing instructions.
+Missing or empty file = no injection.
+
+**`!debug pipeline`:** Shows pipeline state for the current channel —
+last segmented message ID, unsummarized message count, last pipeline run,
+summary status, session bridge message count.
+
+**New files:** `utils/pipeline_state.py` (pipeline CRUD + session bridge queries),
+`utils/context_helpers.py` (context assembly helpers), `utils/cluster_fallback.py`
+(extracted v5 cluster rollback path), `schema/011.sql` (pipeline_state table).
+
+---
 
 ### Version 6.4.2 — Benchmark Score Fix + History Seeding
 

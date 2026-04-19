@@ -1,7 +1,10 @@
 # utils/history/discord_loader.py
-# Version 2.3.0
+# Version 2.4.0
 """
 Discord API interaction coordination for message history loading.
+
+CHANGES v2.4.0: Pass msg.id to create_*_message() in _seed_history_from_db()
+  so seeded history entries carry _msg_id for Layer 2 deduplication
 
 CHANGES v2.3.0: Seed in-memory history from SQLite before delta fetch so the
   bot has conversation context on the first message after restart
@@ -58,9 +61,9 @@ def _seed_history_from_db(channel_id):
         if msg.is_bot_author:
             if is_history_output(content) or is_settings_persistence_message(content):
                 continue
-            kept.append(create_assistant_message(content))
+            kept.append(create_assistant_message(content, msg_id=msg.id))
         else:
-            kept.append(create_user_message(msg.author_name, content))
+            kept.append(create_user_message(msg.author_name, content, msg_id=msg.id))
     # Take only the last MAX_HISTORY after filtering
     for entry in kept[-MAX_HISTORY:]:
         add_message_to_history(channel_id, entry)

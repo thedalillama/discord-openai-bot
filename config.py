@@ -1,7 +1,14 @@
 # config.py
-# Version 1.19.0
+# Version 1.20.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
+
+CHANGES v1.20.0: v7.0.0 M1 context injection configuration (SOW v7.0.0)
+- ADDED: CONTROL_FILE_PATH — path to operator control file injected into system prompt
+- ADDED: SESSION_GAP_MINUTES — session boundary gap for session bridge calculation;
+  separate from SEGMENT_GAP_MINUTES so each can be tuned independently
+- ADDED: LAYER2_BUDGET_PCT — fraction of remaining budget (after Layer 1) for
+  Layer 2 continuity block; guarantees at least 1-LAYER2_BUDGET_PCT for retrieval
 
 CHANGES v1.19.0: Proposition decomposition configuration (SOW v6.3.0)
 - ADDED: PROPOSITION_BATCH_SIZE (default 10) — segment syntheses per GPT-4o-mini
@@ -205,6 +212,20 @@ SEGMENT_BATCH_SIZE = int(os.environ.get('SEGMENT_BATCH_SIZE', '500'))
 SEGMENT_OVERLAP = int(os.environ.get('SEGMENT_OVERLAP', '20'))
 # SEGMENT_GAP_MINUTES: time gap threshold for fallback time-gap segmentation.
 SEGMENT_GAP_MINUTES = int(os.environ.get('SEGMENT_GAP_MINUTES', '30'))
+
+# v7.0.0 M1: Context injection configuration (SOW v7.0.0)
+# CONTROL_FILE_PATH: plain-text file injected into system prompt after bot
+# personality. Empty or missing file = no injection. Token cost is operator's
+# responsibility.
+CONTROL_FILE_PATH = os.environ.get('CONTROL_FILE_PATH', './data/control.txt')
+# SESSION_GAP_MINUTES: minutes of silence defining a session boundary for the
+# session bridge. Kept separate from SEGMENT_GAP_MINUTES — both default 30
+# but can be tuned independently.
+SESSION_GAP_MINUTES = int(os.environ.get('SESSION_GAP_MINUTES', '30'))
+# LAYER2_BUDGET_PCT: max fraction of remaining budget (after Layer 1) for the
+# Layer 2 continuity block. Guarantees at least (1 - LAYER2_BUDGET_PCT) of
+# remaining budget for Layer 3 historical retrieval.
+LAYER2_BUDGET_PCT = float(os.environ.get('LAYER2_BUDGET_PCT', '0.7'))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 6.4.1
+# Version 7.0.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -45,6 +45,9 @@ GEMINI_MAX_TOKENS=32768
 DATABASE_PATH=./data/messages.db
 CONTEXT_BUDGET_PERCENT=80
 MAX_RECENT_MESSAGES=5
+CONTROL_FILE_PATH=./data/control.txt  # injected into every system prompt
+SESSION_GAP_MINUTES=30                # session boundary for session bridge
+LAYER2_BUDGET_PCT=0.7                 # fraction of remaining budget for Layer 2
 ```
 
 Priority: shell env vars > `.env` file > `config.py` defaults.
@@ -61,22 +64,32 @@ Priority: shell env vars > `.env` file > `config.py` defaults.
 4. Addressed messages → `build_context_for_provider()` → `handle_ai_response()`
 5. `raw_events.py` → persists every message to SQLite + embeds with OpenAI in parallel
 
-### Semantic Retrieval (v6.4.1 — proposition+dense+BM25+RRF)
-Every response context has two layers:
-- **Always-on**: overview, key facts, open actions, open questions (from summary)
-- **Retrieved**: latest user message embedded WITH context → three-signal hybrid →
-  segment syntheses + source messages injected as "PAST MESSAGES FROM THIS CHANNEL"
+### Context Assembly (v7.0.0 — three-layer budget-priority)
+Every response context has three layers assembled in priority order:
+
+**Layer 1 (guaranteed):** System prompt + `data/control.txt` (if exists) +
+always-on summary (overview, key facts, open actions, open questions).
+
+**Layer 2 (guaranteed):** Session bridge + unsummarized messages, injected as
+message turns. Budget-capped at `LAYER2_BUDGET_PCT=70%` of remaining after
+Layer 1 — always wins over retrieval. Recent messages never trimmed for history.
+- Session bridge: raw source messages from most recent session's segments
+  (walk backward from last segment until gap > `SESSION_GAP_MINUTES`)
+- Unsummarized: all messages after `last_segmented_message_id`
+
+**Layer 3 (fills remainder):** Historical RRF retrieval (propositions + dense +
+BM25) — same retrieval path as v6.4.x, now with `exclude_ids` to avoid
+duplicating Layer 2 messages.
 
 Retrieval path (`context_manager.py` → `context_retrieval.py`):
-1. Build contextual query: prepend last 3 in-memory conversation messages
-2. `embed_query_with_smart_context()` on contextual query
-3. `find_relevant_propositions()` — cosine vs ALL proposition embeddings; collapse max-score-per-segment → seg IDs
-4. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
-5. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
-6. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
-7. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
-8. `get_segment_with_messages()` — synthesis + source messages per segment
-9. Rollback: if no segments, `_cluster_rollback()` uses cluster centroids + `get_cluster_messages()`
+1. `embed_query_with_smart_context()` on contextual query
+2. `find_relevant_propositions()` — cosine vs ALL proposition embeddings; collapse max-score-per-segment → seg IDs
+3. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
+4. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
+5. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
+6. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
+7. `get_segment_with_messages()` — synthesis + source messages per segment
+8. Rollback: if no segments, `_cluster_rollback()` (in `cluster_fallback.py`) uses cluster centroids
 
 **Embedding strategy (v5.6.0):**
 All embeddings include conversational context via `build_contextual_text()` in
@@ -92,25 +105,30 @@ Query uses `embed_query_with_smart_context()` to avoid topic bleed-through:
 `build_contextual_text()` for stored embeddings is unchanged.
 
 Fallback chain:
-1. Clusters above `RETRIEVAL_MIN_SCORE` with messages → inject as `[Topic: {label}]`
-2. No clusters above threshold OR all clusters have 0 messages → direct message search
-3. Both empty (no clusters, no embeddings) → full summary injected + WARNING logged
+Fallback chain (Layer 3):
+1. Segments above `RETRIEVAL_FLOOR` → inject as `[Topic: {label}]` with source messages
+2. No segments → `_cluster_rollback()` — cluster centroids + `get_cluster_messages()`
+3. No clusters → direct message embedding search
+4. All empty → full summary injected + WARNING logged
 
 Timestamps: every retrieved message prefixed with `[YYYY-MM-DD]`; today's date injected
 at top of context block. Section header uses `[Topic: {label}]` — model-facing framing.
 
-Citations (v5.9.0): retrieved messages numbered `[N]` contiguously across clusters;
+Citations (v5.9.0): retrieved messages numbered `[N]` contiguously across segments;
 citation instruction injected into context block header; `apply_citations()` strips
 hallucinations and builds Sources footer after response; footer sent as ℹ️ follow-up
 if combined length > 1950 chars. No citations when retrieval empty or for commands.
 Key files: `utils/citation_utils.py` (strip/build/apply), `utils/context_retrieval.py`
 (citation numbering + 4-tuple return), `utils/context_manager.py` (citation pass-through)
 
-Key files: `utils/cluster_retrieval.py` (find_relevant_segments, get_segment_with_messages),
+Key files: `utils/pipeline_state.py` (pipeline CRUD, session bridge, unsummarized queries),
+`utils/context_helpers.py` (Layer 2 helpers — control file, merge/dedup/trim/format),
+`utils/cluster_fallback.py` (v5.x cluster rollback path),
+`utils/cluster_retrieval.py` (find_relevant_segments, get_segment_with_messages),
 `utils/fts_search.py` (populate_fts, fts_search, rrf_fuse — BM25 + fusion),
-`utils/context_retrieval.py` (hybrid retrieval + fallback, v1.7.0),
+`utils/context_retrieval.py` (hybrid retrieval + fallback, v1.9.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
-`utils/context_manager.py` (always-on + budget + timestamps + citation pass-through),
+`utils/context_manager.py` (three-layer assembly + budget + citation pass-through, v3.0.0),
 `utils/history/discord_loader.py` (DB seed + delta fetch orchestration, v2.3.0),
 `utils/history/realtime_settings_parser.py` (restore_settings_from_db, v2.3.0)
 
@@ -203,6 +221,7 @@ placeholders, and messages under 4 words (questions exempt).
 | `!debug noise/cleanup/status` | Maintenance tools (admin) |
 | `!debug backfill` | Embed missing messages + contextual text (admin) |
 | `!debug segments` | Show segment count, avg size, sample syntheses (admin) |
+| `!debug pipeline` | Show pipeline state — unsummarized count, last run, session bridge (admin) |
 | `!explain` | Context receipt for most recent bot response |
 | `!explain detail` | Receipt + injected messages per cluster |
 | `!explain <id>` | Context receipt for specific response message ID |
