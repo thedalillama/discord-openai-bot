@@ -1,8 +1,66 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.0.0
+# Version 7.0.1
 
 ## Current Version Features
+
+### Version 7.0.1 — Layer 2 Fixes + Pipeline State + UMAP Process Pool
+
+**`_msg_id` threading for Layer 2 deduplication:**
+Discord message IDs are now threaded through every message dict in
+`channel_history` (`_msg_id` key). `prepare_messages_for_api()` passes them
+through. `build_context_for_provider()` builds `layer2_ids` from the continuity
+block and filters `selected` (conversation history) against it — Layer 2 is
+canonical; in-memory history only contributes messages too new to be in SQLite.
+
+**Dedup direction corrected:**
+Previously Layer 2 messages were dropped in favour of in-memory history copies.
+Fixed: `selected` is filtered against `layer2_ids`. Layer 2 turns (timestamped,
+from SQLite) are always kept; only truly unseen recent messages come from memory.
+
+**Layer 2 noise filter:**
+`get_unsummarized_messages()` and `get_session_bridge_messages()` in
+`pipeline_state.py` now skip ℹ️/⚙️-prefixed bot output and `!` commands —
+matching the same rules as `_seed_history_from_db()`. Bot command echoes and
+admin output no longer appear as conversation turns in Layer 2.
+
+**`save_pipeline_state` after `!summary create`:**
+`summarize_channel()` captures `max_msg_id = messages[-1].id` before the
+pipeline runs, then calls `save_pipeline_state(channel_id, max_msg_id, now)`
+after a successful run. Layer 2's "unsummarized" window now correctly starts
+at the end of the just-completed segmentation — not at the v6 pointer.
+
+**ProcessPoolExecutor for UMAP (GIL-free clustering):**
+`asyncio.to_thread` shares the GIL; 45-second UMAP runs blocked the Discord
+event loop and caused gateway disconnects during `!summary create`. A shared
+`ProcessPoolExecutor(max_workers=1)` — `_cluster_pool` in `cluster_engine.py`
+— is now used for both `run_segment_clustering()` (in `summarizer.py`) and
+`run_clustering()` (in `cluster_overview.py`) via `run_in_executor()`.
+
+**`!explain` always-on token count fix:**
+Receipt dict was missing `total_tokens` — `explain_commands.py` read that key
+but it was never set. Fixed: `total_tokens = always_on_tokens + control_tokens`
+added to the `always_on` sub-dict in `receipt_data`.
+
+**Full context JSON dump at DEBUG:**
+After assembling `final_messages`, `context_manager.py` writes
+`/tmp/last_full_context.json` when log level is DEBUG. Useful for inspecting
+exactly what the model receives.
+
+**Files changed:**
+- `utils/context_manager.py` v3.0.0 → v3.0.3
+- `utils/pipeline_state.py` v1.0.0 → v1.1.0
+- `utils/history/message_processing.py` v2.3.0 → v2.4.0
+- `utils/history/discord_loader.py` v2.3.0 → v2.4.0
+- `utils/history/discord_converter.py` v1.0.0 → v1.1.0
+- `utils/response_handler.py` v1.4.0 → v1.5.0
+- `utils/message_utils.py` v1.1.0 — added `msg_id` param
+- `utils/summarizer.py` v4.3.0 → v4.5.0
+- `utils/cluster_engine.py` v1.2.0 → v1.3.0
+- `utils/cluster_overview.py` v2.4.0 → v2.5.0
+- `bot.py` — `format_user_message_for_history` calls pass `msg_id=message.id`
+
+---
 
 ### Version 7.0.0 — Three-Layer Context Injection (M1)
 
@@ -426,7 +484,7 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 ```
 discord-bot/
 ├── bot.py                         # v3.4.0
-├── config.py                      # v1.18.0
+├── config.py                      # v1.20.0
 ├── main.py
 ├── .env
 ├── data/
@@ -440,7 +498,9 @@ discord-bot/
 │   ├── 006.sql                    # v5.4.0 needs_resummarize column
 │   ├── 007.sql                    # v5.11.0 drop topics, topic_messages
 │   ├── 008.sql                    # v6.0.0 segments, segment_messages, cluster_segments
-│   └── 009.sql                    # v6.2.0 segments_fts FTS5 virtual table
+│   ├── 009.sql                    # v6.2.0 segments_fts FTS5 virtual table
+│   ├── 010.sql                    # v6.4.0 propositions table
+│   └── 011.sql                    # v7.0.0 pipeline_state table
 ├── ai_providers/
 │   ├── __init__.py                # v1.5.0
 │   ├── openai_provider.py         # v1.4.0
@@ -449,49 +509,57 @@ discord-bot/
 │   └── gemini_provider.py         # v1.2.1
 ├── commands/
 │   ├── __init__.py                # v2.7.0
-│   ├── summary_commands.py        # v2.4.0
-│   ├── debug_commands.py          # v1.8.0
-│   ├── cluster_commands.py        # v1.4.0
+│   ├── summary_commands.py        # v2.5.0
+│   ├── debug_commands.py          # v2.0.0
+│   ├── cluster_commands.py        # v1.6.0
 │   ├── dedup_commands.py          # v1.0.0
-│   ├── explain_commands.py        # v1.1.0
+│   ├── explain_commands.py        # v1.3.0
 │   ├── auto_respond_commands.py   # v2.2.0
 │   ├── ai_provider_commands.py    # v2.1.0
 │   ├── thinking_commands.py       # v2.2.0
 │   ├── prompt_commands.py         # v2.2.0
 │   ├── status_commands.py         # v2.2.0
-│   └── history_commands.py        # v2.1.0
+│   └── history_commands.py        # v2.2.0
 ├── utils/
 │   ├── citation_utils.py          # v1.0.0
 │   ├── receipt_store.py           # v1.0.0
-│   ├── fts_search.py              # v1.0.0  ← new v6.2.0
-│   ├── segment_store.py           # v1.0.0  ← new v6.0.0
-│   ├── segmenter.py               # v1.0.0  ← new v6.0.0
-│   ├── cluster_engine.py          # v1.1.0
+│   ├── proposition_store.py       # v1.0.0
+│   ├── proposition_decomposer.py  # v1.1.0
+│   ├── fts_search.py              # v1.1.0
+│   ├── segment_store.py           # v1.0.1
+│   ├── segmenter.py               # v1.0.3
+│   ├── cluster_engine.py          # v1.3.0  ← ProcessPoolExecutor
 │   ├── cluster_store.py           # v2.0.0
-│   ├── cluster_summarizer.py      # v1.1.0
-│   ├── cluster_overview.py        # v2.3.0
+│   ├── cluster_summarizer.py      # v1.2.0
+│   ├── cluster_overview.py        # v2.5.0  ← ProcessPoolExecutor
 │   ├── cluster_classifier.py      # v1.6.0
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.2.0
+│   ├── cluster_retrieval.py       # v1.3.0
+│   ├── cluster_fallback.py        # v1.0.0
+│   ├── pipeline_state.py          # v1.1.0  ← Layer 2 noise filter
+│   ├── context_helpers.py         # v1.0.0
+│   ├── context_retrieval.py       # v1.9.0
+│   ├── context_manager.py         # v3.0.3  ← dedup fix + receipt + JSON dump
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.3.0
-│   ├── message_store.py           # v1.2.0
-│   ├── raw_events.py              # v1.8.0
+│   ├── message_store.py           # v1.3.0
+│   ├── message_utils.py           # v1.1.0  ← msg_id param
+│   ├── raw_events.py              # v1.9.0
 │   ├── db_migration.py            # v1.0.0
 │   ├── embedding_store.py         # v1.10.0
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
-│   ├── context_retrieval.py       # v1.7.0
-│   ├── context_manager.py         # v2.5.2
-│   ├── response_handler.py        # v1.4.0
-│   ├── summarizer.py              # v4.2.0
+│   ├── response_handler.py        # v1.5.0  ← msg_id threading
+│   ├── summarizer.py              # v4.5.0  ← pipeline state + ProcessPool
 │   ├── summary_store.py           # v1.1.0
-│   ├── summary_display.py         # v1.3.2
+│   ├── summary_display.py         # v1.3.3
 │   └── history/
-│       ├── message_processing.py       # v2.3.0
-│       ├── realtime_settings_parser.py # v2.2.0
+│       ├── message_processing.py       # v2.4.0  ← msg_id + _msg_id passthrough
+│       ├── discord_loader.py           # v2.4.0  ← msg_id in seed
+│       ├── discord_converter.py        # v1.1.0  ← msg_id in convert
+│       ├── realtime_settings_parser.py # v2.3.0
 │       ├── channel_coordinator.py      # v2.1.0
 │       ├── management_utilities.py     # v2.0.0
 │       └── ...

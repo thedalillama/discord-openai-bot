@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 6.4.2
+# Version 7.0.1
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -171,9 +171,18 @@
 - Provider singleton caching, async executor wrapping
 - Token-budget context: always-on + retrieved + 5 recent messages
 
+### Three-Layer Context (v7.0.0+, fixes in v7.0.1)
+- Layer 1: system prompt + `data/control.txt` + always-on summary (guaranteed)
+- Layer 2: session bridge + unsummarized messages (budget-guaranteed, wins over retrieval)
+  - Noise filtered: ℹ️/⚙️/! messages excluded from Layer 2 (`pipeline_state.py` v1.1.0)
+  - `_msg_id` threaded through all `channel_history` dicts; `prepare_messages_for_api()` passes it through; dedup filters `selected` against `layer2_ids` (Layer 2 canonical)
+  - `save_pipeline_state()` called after `!summary create` so unsummarized window is accurate
+- Layer 3: historical RRF retrieval (propositions + dense + BM25) fills remainder
+- UMAP clustering uses `ProcessPoolExecutor(max_workers=1)` (`_cluster_pool` in `cluster_engine.py`) to avoid GIL-related Discord gateway disconnects
+
 ### Startup & Persistence (v6.4.1)
 - SQLite with WAL mode, thread-local connections (`message_store.py` v1.3.0)
-- Tables: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments, propositions
+- Tables: messages, summaries, embeddings, clusters, cluster_messages, segments, segment_messages, cluster_segments, propositions, pipeline_state
 - On startup: settings restored from SQLite (`restore_settings_from_db()` — queries ⚙️ bot messages); Discord fetched delta-only after `last_processed_id`; in-memory history seeded from DB (last MAX_HISTORY×10 messages, filtered)
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 
