@@ -1,7 +1,12 @@
 # commands/debug_commands.py
-# Version 1.9.0
+# Version 2.0.0
 """
 Debug and maintenance commands: noise scan, cleanup, summary status.
+
+CHANGES v2.0.0: Add !debug pipeline command (SOW v7.0.0 M1)
+- ADDED: debug_pipeline() — show pipeline_state for current channel:
+  last segmented message, unsummarized count, last run, summary status,
+  session bridge message count.
 
 CHANGES v1.9.0: Remove !debug clusters and !debug summarize_clusters from
 help text — both commands removed in cluster_commands.py v1.5.0 (v6.3.0).
@@ -49,6 +54,7 @@ def register_debug_commands(bot):
             f"`!debug reembed` — re-embed all with context\n"
             f"`!debug segments` — segment count + sample syntheses\n"
             f"`!debug propositions` — proposition count + samples\n"
+            f"`!debug pipeline` — pipeline state + unsummarized count\n"
             f"`!debug dedup` — scan for duplicate test messages\n"
             f"`!debug dedup confirm` — remove duplicates")
 
@@ -168,6 +174,40 @@ def register_debug_commands(bot):
 
         from utils.summary_display import send_paginated
         await send_paginated(ctx, lines)
+
+    @debug_cmd.command(name='pipeline')
+    async def debug_pipeline(ctx):
+        """Show pipeline state for this channel (admin)."""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        try:
+            from utils.pipeline_state import (
+                get_pipeline_state, get_unsegmented_count,
+                get_session_bridge_messages)
+            from utils.summary_store import get_channel_summary
+
+            state = await asyncio.to_thread(get_pipeline_state, ctx.channel.id)
+            unseg = await asyncio.to_thread(get_unsegmented_count, ctx.channel.id)
+            bridge = await asyncio.to_thread(
+                get_session_bridge_messages, ctx.channel.id)
+            raw, _ = await asyncio.to_thread(get_channel_summary, ctx.channel.id)
+            summary_status = "current" if raw else "none"
+
+            ptr = state["last_segmented_message_id"]
+            last_run = state["last_pipeline_run"] or "never"
+            if last_run != "never":
+                last_run = last_run[:19].replace('T', ' ')
+
+            await ctx.send(
+                f"{_I}**Pipeline State #{ctx.channel.name}**\n"
+                f"Last segmented message: {ptr}\n"
+                f"Unsummarized messages: {unseg}\n"
+                f"Last pipeline run: {last_run}\n"
+                f"Summary status: {summary_status}\n"
+                f"Session bridge: {len(bridge)} msgs")
+        except Exception as e:
+            await ctx.send(f"{_I}Error: {e}")
 
     return debug_cmd
 

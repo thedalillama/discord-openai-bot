@@ -1,7 +1,11 @@
 # commands/explain_commands.py
-# Version 1.2.0
+# Version 1.3.0
 """
 !explain command — show context receipt for the most recent bot response.
+
+CHANGES v1.3.0: Continuity section display (SOW v7.0.0 M1)
+- MODIFIED: format_receipt() — shows Layer 2 continuity block stats
+  (session bridge msgs, unsummarized msgs, tokens used, trimmed flag)
 
 CHANGES v1.2.0: Segment-based receipt display (SOW v6.1.0)
 - MODIFIED: format_receipt() handles retrieved_segments (v6.1.0+) and
@@ -38,6 +42,19 @@ def format_receipt(receipt):
 
     path = receipt.get("query_embedding_path", "unknown")
     lines.append(f"\n**Query Embedding**: {path}")
+
+    cont = receipt.get("continuity")
+    if cont:
+        trimmed_str = " (trimmed)" if cont.get("trimmed") else ""
+        lines.append(
+            f"\n**Continuity (Layer 2)** ({cont.get('continuity_tokens', 0):,} tokens"
+            f"{trimmed_str}):")
+        lines.append(
+            f"  Session bridge: {cont.get('session_bridge_messages', 0)} msgs")
+        lines.append(
+            f"  Unsummarized: {cont.get('unsummarized_messages', 0)} msgs")
+        lines.append(
+            f"  Total injected: {cont.get('total_continuity_messages', 0)} msgs")
 
     ao = receipt.get("always_on", {})
     lines.append(f"\n**Always-On Context** ({ao.get('total_tokens', 0):,} tokens):")
