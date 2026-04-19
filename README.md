@@ -1,5 +1,5 @@
 # README.md
-# Version 6.4.1
+# Version 7.0.1
 
 # Synthergy Discord Bot
 
@@ -10,7 +10,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
 - **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
 - **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
-- **Token-budget context** — provider-aware context building ensures every API call fits within the context window; recent messages capped at 5 to avoid overwhelming retrieved context
+- **Three-layer context** — Layer 1 (system + always-on summary), Layer 2 (session bridge + unsummarized messages, budget-guaranteed), Layer 3 (RRF retrieval); recent conversation never trimmed by old history
 - **Message persistence** — all messages stored in SQLite; on restart, backfill fetches only messages newer than the last stored ID; in-memory history seeded from DB without a full Discord history pull
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
