@@ -1,9 +1,11 @@
 # utils/summarizer.py
-# Version 4.4.0
+# Version 4.5.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
+
+CHANGES v4.5.0: Use ProcessPoolExecutor for run_segment_clustering() (GIL-free UMAP)
 
 CHANGES v4.4.0: Save pipeline_state after successful !summary create (SOW v7.0.0)
 - MODIFIED: summarize_channel() — after run_cluster_pipeline succeeds, calls
@@ -89,7 +91,9 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
                 logger.warning(
                     f"Proposition phase produced 0 props ch:{channel_id} "
                     f"— retrieval degrades to dense+BM25")
-            seg_stats = await asyncio.to_thread(run_segment_clustering, channel_id)
+            from utils.cluster_engine import _cluster_pool
+            seg_stats = await asyncio.get_running_loop().run_in_executor(
+                _cluster_pool, run_segment_clustering, channel_id)
             if seg_stats is None:
                 logger.warning(
                     f"Segment clustering failed ch:{channel_id} — falling back")
