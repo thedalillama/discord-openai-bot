@@ -1,8 +1,53 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.0.1
+# Version 7.1.0
 
 ## Current Version Features
+
+### Version 7.1.0 — Entity State Machine (M2)
+
+**Explicit segment status tracking:**
+`segments` table now has a `status` column tracking pipeline progress:
+`created` → `embedded` → `propositioned` → `indexed` → `clustered`/`unclustered`.
+`summarizer.py` sets status after each stage; `run_segment_clustering` sets
+`clustered`/`unclustered` via SQL JOIN after UMAP+HDBSCAN completes.
+
+**Cluster status helpers:**
+`update_cluster_status` and `get_cluster_status_counts` added to `cluster_store.py`.
+Cluster status (`active`/`archived`/`dirty`/`dropped`) was already set by the LLM
+during summarization — M2 adds query helpers and indexes for it.
+
+**`!debug pipeline` enhanced:**
+Now shows segment and cluster status counts:
+```
+Segments: 78 total (78 clustered)
+Clusters: 11 total (1 active, 0 dirty, 0 dropped)
+```
+
+**One-time migration (`schema/012.sql`):**
+Existing segments correctly initialized from DB state — segments in
+`cluster_segments` set to `clustered`; segments with embeddings but no cluster
+set to `unclustered`; remainder set to `embedded`. No `!summary create` needed.
+
+**Dead code removed:**
+`format_cluster_report` deleted from `cluster_store.py` — had no callers since
+`!debug clusters` was removed in v6.3.0.
+
+**`get_cluster_content` consolidated:**
+Moved from `segment_store.py` into `cluster_retrieval.py` (was already a
+delegate wrapper there). `cluster_retrieval.py` is now the single home for
+all cluster/segment retrieval queries.
+
+**Files changed:**
+- `schema/012.sql` NEW — segments status column + indexes + migration
+- `utils/segment_store.py` v1.0.1 → v1.1.0
+- `utils/cluster_retrieval.py` v1.3.0 → v1.4.0
+- `utils/cluster_store.py` v2.0.0 → v2.1.0
+- `utils/summarizer.py` v4.5.0 → v4.6.0
+- `utils/cluster_classifier.py` v1.6.0 → v1.7.0
+- `commands/debug_commands.py` v2.0.0 → v2.1.0
+
+---
 
 ### Version 7.0.1 — Layer 2 Fixes + Pipeline State + UMAP Process Pool
 
@@ -510,7 +555,7 @@ discord-bot/
 ├── commands/
 │   ├── __init__.py                # v2.7.0
 │   ├── summary_commands.py        # v2.5.0
-│   ├── debug_commands.py          # v2.0.0
+│   ├── debug_commands.py          # v2.1.0  ← status counts in pipeline
 │   ├── cluster_commands.py        # v1.6.0
 │   ├── dedup_commands.py          # v1.0.0
 │   ├── explain_commands.py        # v1.3.0
@@ -526,17 +571,17 @@ discord-bot/
 │   ├── proposition_store.py       # v1.0.0
 │   ├── proposition_decomposer.py  # v1.1.0
 │   ├── fts_search.py              # v1.1.0
-│   ├── segment_store.py           # v1.0.1
+│   ├── segment_store.py           # v1.1.0  ← status helpers
 │   ├── segmenter.py               # v1.0.3
-│   ├── cluster_engine.py          # v1.3.0  ← ProcessPoolExecutor
-│   ├── cluster_store.py           # v2.0.0
+│   ├── cluster_engine.py          # v1.3.0
+│   ├── cluster_store.py           # v2.1.0  ← status helpers
 │   ├── cluster_summarizer.py      # v1.2.0
-│   ├── cluster_overview.py        # v2.5.0  ← ProcessPoolExecutor
-│   ├── cluster_classifier.py      # v1.6.0
+│   ├── cluster_overview.py        # v2.5.0
+│   ├── cluster_classifier.py      # v1.7.0
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.3.0
+│   ├── cluster_retrieval.py       # v1.4.0  ← get_cluster_content inlined
 │   ├── cluster_fallback.py        # v1.0.0
 │   ├── pipeline_state.py          # v1.1.0  ← Layer 2 noise filter
 │   ├── context_helpers.py         # v1.0.0
@@ -552,7 +597,7 @@ discord-bot/
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
 │   ├── response_handler.py        # v1.5.0  ← msg_id threading
-│   ├── summarizer.py              # v4.5.0  ← pipeline state + ProcessPool
+│   ├── summarizer.py              # v4.6.0  ← entity status per stage
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.3
 │   └── history/

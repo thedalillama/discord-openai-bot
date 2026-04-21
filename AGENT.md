@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 7.0.1
+# Version 7.1.0
 # Agent Development Rules for Discord Bot Project
 
 ## Core Agent Principles
@@ -179,6 +179,7 @@
   - `save_pipeline_state()` called after `!summary create` so unsummarized window is accurate
 - Layer 3: historical RRF retrieval (propositions + dense + BM25) fills remainder
 - UMAP clustering uses `ProcessPoolExecutor(max_workers=1)` (`_cluster_pool` in `cluster_engine.py`) to avoid GIL-related Discord gateway disconnects
+- Segment status set per pipeline stage: `created`→`embedded`→`propositioned`→`indexed`→`clustered`/`unclustered`; `get_segment_status_counts(channel_id)` / `get_cluster_status_counts(channel_id)` for observability
 
 ### Startup & Persistence (v6.4.1)
 - SQLite with WAL mode, thread-local connections (`message_store.py` v1.3.0)
