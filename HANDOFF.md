@@ -1,8 +1,35 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.0.1
+# Version 7.1.0
 
 ## Current Version Features
+
+### Version 7.1.0 — Entity State Machine (M2)
+
+Adds explicit `status` columns to `segments` and `clusters` for pipeline observability.
+
+**Segment status lifecycle:** `created` → `embedded` → `propositioned` → `indexed`
+→ `clustered`/`unclustered`. `summarizer.py` sets status after each stage;
+`run_segment_clustering` sets `clustered`/`unclustered` via SQL JOIN.
+
+**Cluster status:** already set by LLM during summarization (`active`/`archived`).
+M2 adds `update_cluster_status` + `get_cluster_status_counts` helpers and indexes.
+
+**`!debug pipeline`:** now shows segment/cluster status counts.
+
+**Key files changed v7.1.0:**
+- `schema/012.sql` NEW — status column + indexes + one-time migration
+- `utils/segment_store.py` v1.0.1 → v1.1.0 — status helpers + clustered/unclustered
+- `utils/cluster_retrieval.py` v1.3.0 → v1.4.0 — inline get_cluster_content
+- `utils/cluster_store.py` v2.0.0 → v2.1.0 — status helpers, dead code removed
+- `utils/summarizer.py` v4.5.0 → v4.6.0 — status set per pipeline stage
+- `utils/cluster_classifier.py` v1.6.0 → v1.7.0 — version bump, future 'dropped' wiring
+- `commands/debug_commands.py` v2.0.0 → v2.1.0 — status counts in !debug pipeline
+
+**Next:** M3 — incremental pipeline (process only new segments since last run).
+See `docs/v7-implementation-plan.md` for full milestone plan.
+
+---
 
 ### Version 7.0.1 — Layer 2 Fixes + Pipeline State + UMAP Process Pool
 

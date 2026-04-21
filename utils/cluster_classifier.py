@@ -1,10 +1,15 @@
 # utils/cluster_classifier.py
-# Version 1.6.0
+# Version 1.7.0
 """
 GPT-4o-mini classifier for cross-cluster overview items.
 
 Per-item whitelist filter — first quality gate in the pipeline.
 QA (dedup + answered-Q check) has moved to utils/cluster_qa.py.
+
+CHANGES v1.7.0: Import update_cluster_status for M2 status tracking (SOW v7.1.0)
+- Setting cluster status='dropped' for all-dropped clusters requires cluster_id
+  linkage through the overview items, which is not yet implemented. The helper
+  is imported here for future wiring in M3.
 
 CHANGES v1.6.0: Remove QA pass — moved to cluster_qa.py
 - REMOVED: qa_pass(), _call_qa(), QA_SYSTEM_PROMPT, _QA_REQUIRED_KEYS
