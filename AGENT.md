@@ -1,37 +1,44 @@
 # AGENT.md
-# Version 7.1.0
+# Version 7.2.0
 # Agent Development Rules for Discord Bot Project
 
-## Core Agent Principles
+## Development Procedure
 
-### 1. MANDATORY APPROVAL PROCESS
-- NO CODE CHANGES WITHOUT APPROVAL
-- Present proposed changes with rationale and impact assessment
-- Wait for explicit approval before implementing
-- If uncertain, always ask first
+Every change follows this exact 7-step order.
+Steps marked ⛔ require the user's explicit approval before proceeding.
 
-### 2. DISCUSSION-FIRST APPROACH
-- Discuss the problem, proposed solution, and alternatives before coding
-- Explain reasoning behind technical decisions
-- Consider impact on existing functionality and architecture
+### 1. DISCUSS & GET APPROVAL ⛔ MANDATORY STOP
+- Present the problem, proposed solution, and alternatives
+- Explain reasoning and impact on existing functionality
+- **Wait for explicit "yes" before writing any code**
 
-## Git Workflow
+### 2. DEVELOP on `claude-code` branch
+- All work on `claude-code` — never commit directly to `main` or `development`
 
-### 3. BRANCH MANAGEMENT
-- `main` branch: Stable, production-ready code only
-- `development` branch: Primary development branch
-- Feature branches (e.g. `claude-code`): For isolated work streams
-- Never commit untested code to `main`
+### 3. IMPLEMENT the code changes
+- Follow Code Standards below (250-line limit, version bumps, docstring changelogs)
 
-### 4. DEVELOPMENT PROCESS
-- Develop and test in `development` or feature branches
-- Commit frequently with clear, descriptive messages
-- Test all functionality before considering merge to `main`
-- `main` should always be deployable
+### 4. TEST via Discord commands ⛔ MANDATORY STOP
+- No automated tests — validation is manual in Discord
+- Report results to user
+- **Wait for approval before proceeding**
 
-### 5. RELEASE WORKFLOW
-- All development stays in branch until fully tested
-- Validate existing functionality after changes
+### 5. UPDATE DOCS + COMMIT (code and docs in one commit)
+- Bump version headers in all modified files
+- Update README.md, STATUS.md, HANDOFF.md, README_ENV.md, CLAUDE.md, AGENT.md
+- Single commit containing both code and documentation — never push code without docs
+
+### 6. PUSH to `claude-code` ⛔ MANDATORY STOP
+- **Wait for explicit approval before pushing**
+
+### 7. MERGE to `development` and push ⛔ MANDATORY STOP
+- **Wait for explicit approval before merging**
+- Never merge to `main`
+
+## Branch Policy
+- `main`: stable, production-ready — never commit here directly
+- `development`: integration branch — merge from `claude-code` only after approval
+- `claude-code`: all active development work
 - Tag releases in `main` for version tracking (v2.x, v3.x, v4.x)
 
 ## Code Standards
@@ -188,14 +195,15 @@
 - Prefix system (ℹ️/⚙️) for noise vs settings classification
 
 ## REMEMBER:
-1. NO CODE CHANGES WITHOUT APPROVAL!
-2. ALL DEVELOPMENT IN `development` OR FEATURE BRANCHES
-3. `main` BRANCH IS FOR STABLE CODE ONLY
-4. DISCUSS FIRST, CODE SECOND
-5. 250-LINE LIMIT AND MODULAR PATTERNS
-6. PREFIX ALL BOT OUTPUT WITH ℹ️ OR ⚙️
-7. **UPDATE ALL DOCUMENTATION BEFORE MERGING**
-8. **NEVER COMMIT TEST DATA, BENCHMARK FILES, OR DISCORD CHANNEL CONTENT**
+1. ⛔ DISCUSS FIRST — NO CODE WITHOUT APPROVAL
+2. ALL DEVELOPMENT ON `claude-code` BRANCH
+3. ⛔ TEST IN DISCORD BEFORE DOCS/PUSH
+4. DOCS + CODE IN ONE COMMIT — NEVER TWO PUSHES
+5. ⛔ GET APPROVAL BEFORE PUSH TO `claude-code`
+6. ⛔ GET APPROVAL BEFORE MERGE TO `development`
+7. 250-LINE LIMIT AND MODULAR PATTERNS
+8. PREFIX ALL BOT OUTPUT WITH ℹ️ OR ⚙️
+9. **NEVER COMMIT TEST DATA, BENCHMARK FILES, OR DISCORD CHANNEL CONTENT**
 
 For Technical Details: See README.md and STATUS.md
 For Current State: See HANDOFF.md
