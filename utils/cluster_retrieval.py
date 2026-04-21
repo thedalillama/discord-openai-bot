@@ -1,17 +1,12 @@
 # utils/cluster_retrieval.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Query-time cluster/segment/proposition retrieval for semantic context injection.
 
+CHANGES v1.4.0: Inline get_cluster_content (SOW v7.1.0 M2)
+- get_cluster_content was in segment_store.py and delegated here; now lives here directly.
 CHANGES v1.3.0: Proposition-level retrieval (SOW v6.3.0)
-- ADD: find_relevant_propositions() — score query vs all proposition embeddings;
-  collapse to max-score-per-segment before returning segment IDs for RRF input.
-  Each segment appears at most once (no size bias from proposition count).
-
-CHANGES v1.2.0: Direct segment retrieval (SOW v6.1.0)
-- ADD: find_relevant_segments(), _apply_score_gap(), get_segment_with_messages()
-- KEEP: find_relevant_clusters(), get_cluster_messages(), get_cluster_content()
-
+CHANGES v1.2.0: Direct segment retrieval; find_relevant_segments, get_segment_with_messages
 CHANGES v1.1.0: Segment-aware retrieval (SOW v6.0.0)
 CREATED v1.0.0: Cluster-based retrieval (SOW v5.5.0)
 """
@@ -202,8 +197,31 @@ def get_cluster_messages(cluster_id, exclude_ids=None):
 def get_cluster_content(cluster_id, exclude_ids=None):
     """Return segment syntheses and source messages for a cluster.
 
-    Delegates to segment_store.get_cluster_content(). Retained for rollback.
-    Returns empty list if no segments exist.
+    Returns [{"segment_id", "synthesis", "topic_label",
+    "messages": [(msg_id, author, content, created_at), ...]}].
     """
-    from utils.segment_store import get_cluster_content as _get
-    return _get(cluster_id, exclude_ids)
+    exclude = set(exclude_ids or [])
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        segs = conn.execute(
+            "SELECT s.id, s.topic_label, s.synthesis FROM cluster_segments cs "
+            "JOIN segments s ON s.id=cs.segment_id "
+            "WHERE cs.cluster_id=? ORDER BY s.first_message_at ASC",
+            (cluster_id,)).fetchall()
+        result = []
+        for seg_id, topic_label, synthesis in segs:
+            msgs = conn.execute(
+                "SELECT m.id, m.author_name, m.content, m.created_at "
+                "FROM segment_messages sm JOIN messages m ON m.id=sm.message_id "
+                "WHERE sm.segment_id=? ORDER BY sm.position ASC",
+                (seg_id,)).fetchall()
+            result.append({
+                "segment_id":  seg_id,
+                "topic_label": topic_label or "",
+                "synthesis":   synthesis,
+                "messages":    [(r[0], r[1], r[2], r[3])
+                                for r in msgs if r[0] not in exclude],
+            })
+        return result
+    finally:
+        conn.close()
