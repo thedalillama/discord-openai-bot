@@ -1,8 +1,25 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.1.0
+# Version 7.2.0
 
 ## Current Version Features
+
+### Version 7.2.0 — Remove archived status from Gemini summarizer
+
+Gemini was marking ~70% of clusters as `archived`, excluding them from the always-on
+summary. Summarizer should not make keep/drop decisions — classifier owns that.
+
+**Fix:** Removed `status` field from `CLUSTER_SUMMARY_SCHEMA` and prompt in
+`cluster_summarizer.py`. Status hardcoded to `"active"`. `schema/013.sql` resets
+existing archived clusters to active.
+
+**Key files changed v7.2.0:**
+- `schema/013.sql` NEW — one-time migration: archived → active
+- `utils/cluster_summarizer.py` v1.2.0 → v1.3.0
+
+**Next:** M3 — incremental pipeline (process only new segments since last run).
+
+---
 
 ### Version 7.1.0 — Entity State Machine (M2)
 

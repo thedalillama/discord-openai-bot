@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 7.1.0
+# Version 7.2.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
