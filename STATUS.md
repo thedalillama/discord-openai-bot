@@ -1,8 +1,27 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.1.0
+# Version 7.2.0
 
 ## Current Version Features
+
+### Version 7.2.0 — Remove archived status from Gemini summarizer
+
+**Problem:** Gemini was marking ~70% of clusters as `archived` during summarization,
+excluding them from the always-on summary. The summarizer should not make keep/drop
+decisions — that's the classifier's job.
+
+**Fix:** Removed `status` field from `CLUSTER_SUMMARY_SCHEMA` and `CLUSTER_SYSTEM_PROMPT`
+in `cluster_summarizer.py`. Status is now hardcoded to `"active"` when storing each
+cluster summary. `schema/013.sql` migrates existing `archived` clusters to `active`.
+
+**Result:** All clusters now contribute to the always-on summary. 45/45 active in
+#general, 12/12 active in #openclaw after re-running `!summary create`.
+
+**Files changed:**
+- `schema/013.sql` NEW — one-time migration: archived → active
+- `utils/cluster_summarizer.py` v1.2.0 → v1.3.0
+
+---
 
 ### Version 7.1.0 — Entity State Machine (M2)
 

@@ -1,15 +1,19 @@
 # CLAUDE.md
-# Version 7.1.0
+# Version 7.2.1
 
 This file provides guidance to Claude Code when working with this repository.
 
-## Workflow Rules
+## Development Procedure
 
-- **NO CODE CHANGES WITHOUT APPROVAL** — discuss first, wait for approval
-- **Always present complete files** — never partial diffs or patches
-- **Increment version numbers** — bump header and update docstring changelog
-- **Update README.md, STATUS.md, HANDOFF.md, README_ENV.md** alongside every code change
-- **All development in `development` or feature branches** — `main` is production
+Every change follows this exact order. Steps marked ⛔ require explicit user approval before proceeding.
+
+1. ⛔ **Discuss + get approval** — present problem, solution, alternatives; wait for "yes" before writing code
+2. **Develop on `claude-code` branch** — never commit directly to `main` or `development`
+3. **Implement** — 250-line limit, version bumps, docstring changelogs
+4. ⛔ **Test via Discord commands** — report results; wait for approval before continuing
+5. **Update docs + commit** — README.md, STATUS.md, HANDOFF.md, README_ENV.md, CLAUDE.md, AGENT.md in same commit as code; never push code without docs
+6. ⛔ **Push to `claude-code`** — wait for approval before pushing
+7. ⛔ **Merge to `development`** — wait for approval; never merge to `main`
 
 ## Running the Bot
 
