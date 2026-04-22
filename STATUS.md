@@ -1,8 +1,41 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.3.0
+# Version 7.3.1
 
 ## Current Version Features
+
+### Version 7.3.1 — Layer 2 drainage and segment noise fixes
+
+**Bug 1 — Session bridge too aggressive (v7.3.0 regression):**
+The v7.3.0 session bridge fix excluded `indexed` segments, which combined with
+the worker draining `last_segmented_message_id`, left Layer 2 completely empty.
+Fix: only exclude `clustered/unclustered` segments (already in always-on summary).
+`indexed` segments remain in the bridge for recent session continuity.
+
+**Bug 2 — Unsummarized pool drained by background worker:**
+`get_unsummarized_messages` used `last_segmented_message_id` as its boundary,
+which the worker advances on every run. After the worker ran, the unsummarized
+pool was empty. Fix: boundary is now the max message ID from `clustered/unclustered`
+segments — only `!summary create` moves it, not the worker.
+
+**Bug 3 — Bot noise in segment source messages:**
+Bot ℹ️/⚙️ progress messages, image URLs, and `!command` output were stored in
+`segment_messages` and retrieved as cited sources, polluting the context window
+with noise instead of actual conversation. Fix: `get_segment_with_messages` now
+filters these with `_is_segment_noise()` before returning source messages.
+
+**Root cause of gorilla loop:** `data/control.txt` contained
+"Magilla is a boy. Always mention this when discussing Magilla." — every time
+Magilla appeared in retrieved context the bot followed the instruction.
+Also confirmed: the gorilla citation example in `context_manager.py` was priming
+the model with gorilla content on every retrieval response (now fixed: v3.0.4).
+
+**Files changed:**
+- `utils/pipeline_state.py` v1.1.0 → v1.3.0 — bugs 1 + 2
+- `utils/cluster_retrieval.py` v1.4.0 → v1.5.0 — bug 3
+- `utils/context_manager.py` v3.0.3 → v3.0.4 — neutral citation example
+
+---
 
 ### Version 7.3.0 — Background Pipeline Worker (M3)
 

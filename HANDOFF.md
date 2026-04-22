@@ -1,8 +1,25 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.3.0
+# Version 7.3.1
 
 ## Current Version Features
+
+### Version 7.3.1 — Layer 2 drainage and segment noise fixes
+
+Three bugs found during M3 testing:
+
+1. Session bridge excluded `indexed` segments (too aggressive) — reverted to only exclude `clustered/unclustered`
+2. Worker advancing `last_segmented_message_id` drained the unsummarized pool — boundary now uses max message ID from clustered segments only
+3. Bot ℹ️/⚙️ noise and `!command` output in segment source messages — filtered in `get_segment_with_messages`
+
+Also fixed: hardcoded gorilla example in citation instruction (`context_manager.py`).
+
+**Key files changed v7.3.1:**
+- `utils/pipeline_state.py` v1.3.0 — session bridge + unsummarized boundary fixes
+- `utils/cluster_retrieval.py` v1.5.0 — noise filter on source messages
+- `utils/context_manager.py` v3.0.4 — neutral citation example
+
+---
 
 ### Version 7.3.0 — Background Pipeline Worker (M3)
 

@@ -1,10 +1,13 @@
 # utils/cluster_retrieval.py
-# Version 1.4.0
+# Version 1.5.0
 """
 Query-time cluster/segment/proposition retrieval for semantic context injection.
 
+CHANGES v1.5.0: Filter noise from segment source messages
+- get_segment_with_messages() now skips ℹ️/⚙️ bot output and !commands from
+  source messages. Bot noise (progress messages, image URLs) was polluting
+  retrieved context and the token budget.
 CHANGES v1.4.0: Inline get_cluster_content (SOW v7.1.0 M2)
-- get_cluster_content was in segment_store.py and delegated here; now lives here directly.
 CHANGES v1.3.0: Proposition-level retrieval (SOW v6.3.0)
 CHANGES v1.2.0: Direct segment retrieval; find_relevant_segments, get_segment_with_messages
 CHANGES v1.1.0: Segment-aware retrieval (SOW v6.0.0)
@@ -77,10 +80,22 @@ def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15):
     return results[:top_k]
 
 
+def _is_segment_noise(content):
+    """Return True if a source message should be excluded from retrieved context."""
+    if not content:
+        return True
+    if content.startswith('!'):
+        return True
+    if content.startswith('ℹ️') or content.startswith('⚙️'):
+        return True
+    return False
+
+
 def get_segment_with_messages(segment_id, exclude_ids=None):
     """Return synthesis and source messages for a single segment.
 
     Placed here (not segment_store.py) due to the 250-line limit on that file.
+    Filters ℹ️/⚙️ bot output and !commands from source messages.
 
     Returns:
         {"segment_id", "topic_label", "synthesis",
@@ -106,7 +121,9 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
             "topic_label": topic_label or "",
             "synthesis":   synthesis or "",
             "messages":    [(r[0], r[1], r[2], r[3])
-                            for r in msgs if r[0] not in exclude],
+                            for r in msgs
+                            if r[0] not in exclude
+                            and not _is_segment_noise(r[2])],
         }
     finally:
         conn.close()
