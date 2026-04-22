@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 7.2.1
+# Version 7.3.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -228,6 +228,10 @@ placeholders, and messages under 4 words (questions exempt).
 | `!debug backfill` | Embed missing messages + contextual text (admin) |
 | `!debug segments` | Show segment count, avg size, sample syntheses (admin) |
 | `!debug pipeline` | Show pipeline state — unsummarized count, last run, session bridge (admin) |
+| `!pipeline status` | Show worker state, lock holder, unsegmented count, last run (admin) |
+| `!pipeline stop` | Stop the background pipeline worker (admin) |
+| `!pipeline start` | Start the background pipeline worker (admin) |
+| `!pipeline run` | Run one manual pipeline cycle immediately (admin) |
 | `!explain` | Context receipt for most recent bot response |
 | `!explain detail` | Receipt + injected messages per cluster |
 | `!explain <id>` | Context receipt for specific response message ID |

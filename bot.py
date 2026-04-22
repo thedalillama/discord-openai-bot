@@ -1,8 +1,10 @@
 # bot.py
-# Version 3.4.0
+# Version 3.5.0
 """
 Core bot module that sets up the Discord bot and defines main event handlers.
 
+CHANGES v3.5.0: Start background pipeline worker on ready (SOW v7.3.0 M3)
+- MODIFIED: on_ready() — calls start_worker() after startup_backfill()
 CHANGES v3.4.0: Wrap build_context_for_provider() in asyncio.to_thread() (SOW v6.2.0)
 - FIXED: Both direct-address and auto-respond call sites now await asyncio.to_thread()
   to prevent synchronous retrieval (SQLite + HTTP) from blocking the event loop.
@@ -116,6 +118,10 @@ def create_bot():
 
         # Backfill any messages missed while the bot was offline
         await startup_backfill(bot)
+
+        from utils.pipeline_worker import start_worker
+        start_worker()
+        logger.info("Background pipeline worker started")
 
     @bot.event
     async def on_message(message):

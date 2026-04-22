@@ -1,56 +1,23 @@
 # utils/summarizer.py
-# Version 4.6.0
+# Version 4.7.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
 
+CHANGES v4.7.0: Pipeline lock for !summary create (SOW v7.3.0 M3)
+- MODIFIED: summarize_channel() — acquires pipeline lock before running.
+  force=True polls every 2s (up to 30s) waiting for worker to release.
+  Returns error dict if lock cannot be acquired.
 CHANGES v4.6.0: Set segment status after each pipeline stage (SOW v7.1.0 M2)
-- MODIFIED: summarize_channel() — calls update_channel_segment_status after
-  embedding ('embedded'), propositions ('propositioned'), FTS5 ('indexed').
-  Clustering sets 'clustered'/'unclustered' inside run_segment_clustering().
-
 CHANGES v4.5.0: Use ProcessPoolExecutor for run_segment_clustering() (GIL-free UMAP)
-
 CHANGES v4.4.0: Save pipeline_state after successful !summary create (SOW v7.0.0)
-- MODIFIED: summarize_channel() — after run_cluster_pipeline succeeds, calls
-  save_pipeline_state(channel_id, max_msg_id, now) so Layer 2 injection
-  knows the segmentation pointer
-
 CHANGES v4.3.0: Run proposition decomposition phase after FTS5 (SOW v6.3.0)
-- MODIFIED: summarize_channel() — calls run_proposition_phase(channel_id)
-  after populate_fts(), before run_segment_clustering(). Proposition phase
-  failure does not abort the pipeline — degrades to dense+BM25 retrieval.
-
 CHANGES v4.2.0: Populate FTS5 index after segmentation (SOW v6.2.0)
-- MODIFIED: summarize_channel() — calls populate_fts(channel_id) via
-  asyncio.to_thread() after run_segmentation_phase() succeeds (seg_count > 0).
-  FTS5 failure does not abort the pipeline — it degrades BM25 to empty list.
-
 CHANGES v4.1.0: Segment pipeline integration (SOW v6.0.0)
-- MODIFIED: summarize_channel() — runs segmentation phase before clustering:
-  load messages → run_segmentation_phase() → run_segment_clustering() →
-  run_cluster_pipeline(pre_run_stats=...). Falls back to message-based
-  clustering if segmentation produces no segments or segment clustering fails.
-
 CHANGES v4.0.0: Dead code removal (SOW v5.10.0)
-- REMOVED: _incremental_loop() — v4.x batch-and-delegate loop (dead since v3.0.0)
-- REMOVED: _process_response() — v4.x parse/classify/normalize/validate (dead since v3.0.0)
-- REMOVED: _repair_call() — v4.x one-retry repair prompt (dead since v3.0.0)
-- REMOVED: _get_unsummarized_messages() — v4.x message query (dead since v3.0.0)
-- REMOVED: _partial() — v4.x result builder (dead since v3.0.0)
-- REMOVED: import of estimate_tokens (no longer needed)
-- All removed functions were retained for rollback safety during v5 development.
-  The v5 cluster pipeline has been live since v5.3.0 through v5.9.0.
-  Git history preserves all deleted code.
-
 CHANGES v3.1.0: Add quick_update_channel() for !summary update (SOW v5.4.0)
 CHANGES v3.0.0: Route to cluster-based pipeline (SOW v5.3.0)
-CHANGES v2.2.0: Batched cold start
-CHANGES v2.1.0: Incremental path uses three-pass pipeline
-CHANGES v2.0.0: Migrate incremental path to anyOf schema
-CHANGES v1.9.0: Two-pass authoring for cold starts
-CHANGES v1.1.0-v1.8.0: Three-layer pipeline, batch loop, noise filters
 CREATED v1.0.0: Structured summary generation (SOW v3.2.0)
 """
 import asyncio
@@ -59,24 +26,41 @@ from utils.logging_utils import get_logger
 logger = get_logger('summarizer')
 
 
-async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
+async def summarize_channel(channel_id, batch_size=None, progress_fn=None,
+                            force=False):
     """Generate or update the structured summary for a channel.
 
-    Segment pipeline: load messages → segment+synthesize (Gemini) →
-    embed syntheses → UMAP+HDBSCAN on segments → per-cluster summarization →
-    overview → classify → dedup → save.
-
-    Falls back to message-based clustering if segmentation fails.
-    batch_size is accepted but ignored. Retained for API compatibility.
+    Acquires the pipeline lock before running. If force=True, waits up to 30s
+    for the worker to release. batch_size is accepted but ignored.
     """
-    from utils.cluster_overview import run_cluster_pipeline
-    from utils.segmenter import run_segmentation_phase
-    from utils.segment_store import run_segment_clustering
-    from utils.message_store import get_channel_messages
-    from ai_providers import get_provider
-    from config import SUMMARIZER_PROVIDER
-    provider = get_provider(SUMMARIZER_PROVIDER)
+    from utils.pipeline_worker import (
+        acquire_pipeline_lock, release_pipeline_lock, get_pipeline_lock_holder)
+    if not force:
+        if not acquire_pipeline_lock(channel_id, "summary"):
+            holder = get_pipeline_lock_holder(channel_id)
+            return {"error": (
+                f"Pipeline is processing (locked by {holder}). "
+                "Use `!summary create force` to override."
+            ), "messages_processed": 0, "cluster_count": 0,
+               "noise_count": 0, "overview_generated": False}
+    else:
+        deadline = asyncio.get_event_loop().time() + 30
+        while True:
+            if acquire_pipeline_lock(channel_id, "summary"):
+                break
+            if asyncio.get_event_loop().time() >= deadline:
+                return {"error": "Timed out waiting for pipeline lock (30s).",
+                        "messages_processed": 0, "cluster_count": 0,
+                        "noise_count": 0, "overview_generated": False}
+            await asyncio.sleep(2)
     try:
+        from utils.cluster_overview import run_cluster_pipeline
+        from utils.segmenter import run_segmentation_phase
+        from utils.segment_store import run_segment_clustering
+        from utils.message_store import get_channel_messages
+        from ai_providers import get_provider
+        from config import SUMMARIZER_PROVIDER
+        provider = get_provider(SUMMARIZER_PROVIDER)
         messages = await asyncio.to_thread(get_channel_messages, channel_id)
         max_msg_id = messages[-1].id if messages else 0
         seg_count = await run_segmentation_phase(
@@ -129,6 +113,8 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
         return {"error": str(e), "messages_processed": 0,
                 "cluster_count": 0, "noise_count": 0,
                 "overview_generated": False}
+    finally:
+        release_pipeline_lock(channel_id)
 
 
 async def quick_update_channel(channel_id, progress_fn=None):

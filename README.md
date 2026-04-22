@@ -1,5 +1,5 @@
 # README.md
-# Version 7.2.0
+# Version 7.3.0
 
 # Synthergy Discord Bot
 
@@ -10,6 +10,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Multi-provider AI** — OpenAI (GPT), Anthropic (Claude), DeepSeek per channel
 - **Semantic memory** — segment-based hybrid retrieval (BM25 + dense + RRF) injects relevant past messages into every response; always-on context keeps overview, facts, actions, and questions available at all times
 - **Structured summaries** — segment+cluster pipeline (Gemini segmentation → UMAP/HDBSCAN → per-cluster summarization → classify → overview) produces living meeting minutes tracking decisions, action items, topics, and open questions
+- **Background pipeline worker** — asyncio task polls every 30s, incrementally segments new messages, embeds, decomposes propositions, and rebuilds FTS index without manual intervention
 - **Three-layer context** — Layer 1 (system + always-on summary), Layer 2 (session bridge + unsummarized messages, budget-guaranteed), Layer 3 (RRF retrieval); recent conversation never trimmed by old history
 - **Message persistence** — all messages stored in SQLite; on restart, backfill fetches only messages newer than the last stored ID; in-memory history seeded from DB without a full Discord history pull
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
@@ -51,6 +52,10 @@ python main.py
 | `!debug dedup confirm` | admin | Soft-delete duplicates, clean embeddings + clusters |
 | `!debug segments` | admin | Show segment count, avg size, sample syntheses |
 | `!debug propositions` | admin | Show proposition count and samples |
+| `!pipeline status` | admin | Show worker state, lock holder, unsegmented count, last run |
+| `!pipeline stop` | admin | Stop the background pipeline worker |
+| `!pipeline start` | admin | Start the background pipeline worker |
+| `!pipeline run` | admin | Run one manual pipeline cycle immediately |
 | `!explain` | all | Show context receipt for the last bot response |
 | `!explain detail` | all | Receipt + injected messages per cluster |
 | `!explain <id>` | all | Show context receipt for a specific response by message ID |
@@ -80,6 +85,7 @@ discord-bot/
 ├── commands/                      # Command modules
 │   ├── summary_commands.py            # !summary group
 │   ├── debug_commands.py              # !debug group (incl. backfill)
+│   ├── pipeline_commands.py           # !pipeline group (v7.3.0)
 │   ├── auto_respond_commands.py       # !autorespond
 │   ├── ai_provider_commands.py        # !ai
 │   ├── thinking_commands.py           # !thinking
@@ -95,6 +101,8 @@ discord-bot/
     ├── cluster_overview.py            # Pipeline orchestrator, overview LLM, field translation
     ├── cluster_classifier.py          # GPT-4o-mini whitelist filter (classify_overview_items)
     ├── cluster_qa.py                  # Embedding dedup + answered-question removal
+    ├── pipeline_worker.py             # Background pipeline worker + lock (v7.3.0)
+    ├── incremental_segmenter.py       # Incremental segment + extend logic (v7.3.0)
     ├── cluster_assign.py              # On-arrival centroid assignment (incremental, v5.4.0)
     ├── cluster_update.py              # Quick re-summarization of dirty clusters (v5.4.0)
     ├── embedding_store.py             # OpenAI embeddings, pack/unpack, message search

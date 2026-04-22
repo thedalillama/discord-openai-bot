@@ -1,8 +1,33 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.2.0
+# Version 7.3.0
 
 ## Current Version Features
+
+### Version 7.3.0 — Background Pipeline Worker (M3)
+
+Background asyncio task starts on bot startup, polls every 30s, runs 4 incremental
+stages per channel: segment (Gemini) → embed (OpenAI batch) → decompose propositions
+→ index FTS5. Pipeline lock prevents concurrent worker + `!summary create`.
+
+`!summary create force` polls lock every 2s up to 30s. `!pipeline stop/start/run/status`
+commands provide operator control. Incremental segmenter uses the last 5 segment
+syntheses as continuity context and can extend the most recent segment.
+
+**Key files changed v7.3.0:**
+- `utils/pipeline_worker.py` NEW v1.0.0 — worker loop, lock, 4 stages
+- `utils/incremental_segmenter.py` NEW v1.0.0 — incremental segment + extend logic
+- `commands/pipeline_commands.py` NEW v1.0.0 — `!pipeline` command group
+- `config.py` v1.21.0 — `PIPELINE_POLL_INTERVAL`, `MIN_SEGMENT_BATCH`, `MAX_SEGMENT_BATCH`, `EMERGENCY_SEGMENT_THRESHOLD`
+- `bot.py` v3.5.0 — `start_worker()` in `on_ready()`
+- `utils/summarizer.py` v4.7.0 — pipeline lock around `summarize_channel`
+- `commands/summary_commands.py` v2.6.0 — `force` flag for `!summary create`
+- `commands/__init__.py` v2.8.0 — register `pipeline_commands`
+
+**Tested:** Worker fires on startup (2 channels processed), all 4 stages complete,
+`!pipeline stop/start/run/status` verified, lock contention confirmed.
+
+---
 
 ### Version 7.2.0 — Remove archived status from Gemini summarizer
 
@@ -16,8 +41,6 @@ existing archived clusters to active.
 **Key files changed v7.2.0:**
 - `schema/013.sql` NEW — one-time migration: archived → active
 - `utils/cluster_summarizer.py` v1.2.0 → v1.3.0
-
-**Next:** M3 — incremental pipeline (process only new segments since last run).
 
 ---
 

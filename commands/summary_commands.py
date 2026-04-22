@@ -1,12 +1,13 @@
 # commands/summary_commands.py
-# Version 2.5.0
+# Version 2.6.0
 """
 !summary command group for channel summary management.
 
-CHANGES v2.5.0: Remove !summary raw (dead — minutes_text never written by v5.x+
-pipeline); fix !summary full description; remove stale "cluster-v5" pipeline label
-and dead v4.x else branch from !summary create result (v6.3.0).
-
+CHANGES v2.6.0: Add force flag to !summary create (SOW v7.3.0 M3)
+- MODIFIED: summary_create() — accepts optional 'force' argument.
+  !summary create force waits up to 30s for the pipeline lock before running.
+  !summary create (no flag) fails immediately if worker holds the lock.
+CHANGES v2.5.0: Remove !summary raw; fix !summary full description
 CHANGES v2.4.0: !summary update — re-summarize dirty clusters only (SOW v5.4.0)
 CHANGES v2.3.0: Cluster pipeline result display + clear clusters on !summary clear
 CHANGES v2.2.0: ℹ️/⚙️ prefix tagging for noise filtering
@@ -15,11 +16,12 @@ CHANGES v2.0.0: Restructured as command group
 CREATED v1.0.0: Structured summary generation (SOW v3.2.0)
 
 Usage:
-  !summary         Overview, topics, decisions, actions, questions
-  !summary full    All sections including key facts
-  !summary create  Run summarization (admin only)
-  !summary update  Re-summarize dirty clusters (admin only)
-  !summary clear   Delete stored summary and clusters (admin only)
+  !summary               Overview, topics, decisions, actions, questions
+  !summary full          All sections including key facts
+  !summary create        Run summarization (admin only)
+  !summary create force  Wait for pipeline lock, then run (admin only)
+  !summary update        Re-summarize dirty clusters (admin only)
+  !summary clear         Delete stored summary and clusters (admin only)
 """
 import json
 from utils.logging_utils import get_logger
@@ -52,12 +54,13 @@ def register_summary_commands(bot):
         await send_paginated(ctx, format_summary(summary, full=True))
 
     @summary_cmd.command(name='create')
-    async def summary_create(ctx):
-        """Run summarization for this channel (admin only)."""
+    async def summary_create(ctx, flag: str = None):
+        """Run summarization for this channel (admin only). Add 'force' to wait for lock."""
         channel_name = ctx.channel.name
         if not ctx.author.guild_permissions.administrator:
             await ctx.send(f"{_I}You need admin permissions to run summarization.")
             return
+        force = (flag == 'force')
         await ctx.send(
             f"{_I}Starting summarization for #{channel_name}. "
             f"This takes several minutes...")
@@ -68,7 +71,7 @@ def register_summary_commands(bot):
                 await ctx.send(f"{_I}{msg}")
 
             result = await summarize_channel(
-                ctx.channel.id, progress_fn=_progress)
+                ctx.channel.id, progress_fn=_progress, force=force)
             if result.get("error"):
                 await ctx.send(f"{_I}Summarization failed: {str(result['error'])[:1800]}")
                 return
