@@ -1,17 +1,14 @@
 # utils/cluster_store.py
-# Version 2.0.0
+# Version 2.1.0
 """
 SQLite CRUD and orchestration for cluster-based summarization.
 
+CHANGES v2.1.0: Entity status helpers (SOW v7.1.0 M2)
+- ADDED: update_cluster_status, get_cluster_status_counts
+- REMOVED: format_cluster_report (dead since !debug clusters removed in v6.3.0)
 CHANGES v2.0.0: Incremental assignment helpers (SOW v5.4.0)
-- ADDED: get_dirty_clusters() — clusters with needs_resummarize=1
-- ADDED: mark_clusters_clean() — clear needs_resummarize flag
-- ADDED: get_unassigned_message_count() — embedded msgs not in any cluster
-
-CHANGES v1.1.0: get_cluster_message_ids, get_clusters_for_channel,
-  update_cluster_label_summary, get_messages_by_ids
-CREATED v1.0.0: store_cluster, clear_channel_clusters, get_cluster_stats,
-  run_clustering, format_cluster_report (SOW v5.1.0)
+CHANGES v1.1.0: get_cluster_message_ids, get_clusters_for_channel, update_cluster_label_summary
+CREATED v1.0.0: store_cluster, clear_channel_clusters, get_cluster_stats, run_clustering
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -225,26 +222,26 @@ def get_unassigned_message_count(channel_id):
         conn.close()
 
 
-def format_cluster_report(channel_name, stats, cluster_rows, params):
-    """Format !debug clusters output for Discord."""
-    total = stats["total_messages"]
-    count = stats["cluster_count"]
-    noise = stats["noise_count"]
-    pct = stats["noise_ratio"] * 100
-    lines = [
-        f"ℹ️ **Cluster Analysis** (channel: #{channel_name})",
-        f"Messages: {total} total, {count} clusters, {noise} noise ({pct:.1f}%)",
-        f"Largest cluster: {stats['largest_cluster_size']} msgs"
-        f" ({stats['largest_cluster_fraction']*100:.1f}%)", "",
-    ]
-    for i, row in enumerate(cluster_rows):
-        first = (row["first_message_at"] or "")[:10]
-        last  = (row["last_message_at"]  or "")[:10]
-        date_range = f"{first} – {last}" if first else "no dates"
-        lines.append(f"Cluster {i}: {row['message_count']} msgs ({date_range})")
-    lines.append(f"Noise: {noise} msgs unassigned")
-    lines.append("")
-    lines.append(
-        f"Parameters: min_cluster_size={params['mcs']}, min_samples={params['ms']},"
-        f" umap_n={params['umap_n']}, umap_d={params['umap_d']}")
-    return "\n".join(lines)
+def update_cluster_status(cluster_id, status):
+    """Set status on one cluster."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        conn.execute(
+            "UPDATE clusters SET status=?, updated_at=? WHERE id=?",
+            (status, now, cluster_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_cluster_status_counts(channel_id):
+    """Return {status: count} dict for a channel."""
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) FROM clusters "
+            "WHERE channel_id=? GROUP BY status", (channel_id,)).fetchall()
+        return {r[0]: r[1] for r in rows}
+    finally:
+        conn.close()

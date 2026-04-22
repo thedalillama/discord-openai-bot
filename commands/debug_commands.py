@@ -1,34 +1,14 @@
 # commands/debug_commands.py
-# Version 2.0.0
+# Version 2.1.0
 """
 Debug and maintenance commands: noise scan, cleanup, summary status.
 
+CHANGES v2.1.0: Show segment/cluster status counts in !debug pipeline (SOW v7.1.0 M2)
 CHANGES v2.0.0: Add !debug pipeline command (SOW v7.0.0 M1)
-- ADDED: debug_pipeline() — show pipeline_state for current channel:
-  last segmented message, unsummarized count, last run, summary status,
-  session bridge message count.
-
-CHANGES v1.9.0: Remove !debug clusters and !debug summarize_clusters from
-help text — both commands removed in cluster_commands.py v1.5.0 (v6.3.0).
-
-CHANGES v1.8.0: Add !debug dedup to help text (SOW v5.8.1)
-CHANGES v1.7.0: Extract cluster commands to cluster_commands.py (SOW v5.6.0)
-CHANGES v1.6.0: Fix !debug clusters pagination missing ℹ️ prefix
-CHANGES v1.5.0: Add !debug summarize_clusters command (SOW v5.2.0)
-CHANGES v1.4.0: Add !debug clusters command (SOW v5.1.0)
-CHANGES v1.3.0: Batch embedding + archived topic re-link fix
-CHANGES v1.2.0: Backfill embeddings command (SOW v4.0.0)
-CHANGES v1.1.0: Show classifier drops in !debug status
+CHANGES v1.9.0: Remove dead !debug clusters/summarize_clusters from help
+CHANGES v1.7.0–v1.8.0: Extract cluster commands; add dedup help entry
+CHANGES v1.1.0–v1.6.0: Pagination fix, cluster/embed/backfill commands, classifier drops
 CREATED v1.0.0: Consolidates cleanup + summary diagnostics
-
-Usage:
-  !debug noise      - Preview deletable bot messages
-  !debug cleanup    - Delete bot noise from Discord history
-  !debug status     - Show summary internals (IDs, hashes, chains)
-  !debug backfill   - Embed missing messages with contextual text
-  !debug reembed    - Delete all embeddings + re-embed with context
-  !debug segments   - Show segment count, avg size, sample syntheses
-  !debug dedup      - Scan for duplicate test messages
 """
 import asyncio
 import json
@@ -186,12 +166,18 @@ def register_debug_commands(bot):
                 get_pipeline_state, get_unsegmented_count,
                 get_session_bridge_messages)
             from utils.summary_store import get_channel_summary
+            from utils.segment_store import get_segment_status_counts
+            from utils.cluster_store import get_cluster_status_counts
 
             state = await asyncio.to_thread(get_pipeline_state, ctx.channel.id)
             unseg = await asyncio.to_thread(get_unsegmented_count, ctx.channel.id)
             bridge = await asyncio.to_thread(
                 get_session_bridge_messages, ctx.channel.id)
             raw, _ = await asyncio.to_thread(get_channel_summary, ctx.channel.id)
+            seg_counts = await asyncio.to_thread(
+                get_segment_status_counts, ctx.channel.id)
+            cl_counts = await asyncio.to_thread(
+                get_cluster_status_counts, ctx.channel.id)
             summary_status = "current" if raw else "none"
 
             ptr = state["last_segmented_message_id"]
@@ -199,13 +185,23 @@ def register_debug_commands(bot):
             if last_run != "never":
                 last_run = last_run[:19].replace('T', ' ')
 
+            seg_total = sum(seg_counts.values())
+            seg_clustered = seg_counts.get('clustered', 0)
+            cl_total = sum(cl_counts.values())
+            cl_active = cl_counts.get('active', 0)
+            cl_dirty = cl_counts.get('dirty', 0)
+            cl_dropped = cl_counts.get('dropped', 0)
+
             await ctx.send(
                 f"{_I}**Pipeline State #{ctx.channel.name}**\n"
                 f"Last segmented message: {ptr}\n"
                 f"Unsummarized messages: {unseg}\n"
                 f"Last pipeline run: {last_run}\n"
                 f"Summary status: {summary_status}\n"
-                f"Session bridge: {len(bridge)} msgs")
+                f"Session bridge: {len(bridge)} msgs\n"
+                f"Segments: {seg_total} total ({seg_clustered} clustered)\n"
+                f"Clusters: {cl_total} total ({cl_active} active, "
+                f"{cl_dirty} dirty, {cl_dropped} dropped)")
         except Exception as e:
             await ctx.send(f"{_I}Error: {e}")
 

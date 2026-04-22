@@ -1,15 +1,19 @@
 # CLAUDE.md
-# Version 7.0.1
+# Version 7.2.1
 
 This file provides guidance to Claude Code when working with this repository.
 
-## Workflow Rules
+## Development Procedure
 
-- **NO CODE CHANGES WITHOUT APPROVAL** — discuss first, wait for approval
-- **Always present complete files** — never partial diffs or patches
-- **Increment version numbers** — bump header and update docstring changelog
-- **Update README.md, STATUS.md, HANDOFF.md, README_ENV.md** alongside every code change
-- **All development in `development` or feature branches** — `main` is production
+Every change follows this exact order. Steps marked ⛔ require explicit user approval before proceeding.
+
+1. ⛔ **Discuss + get approval** — present problem, solution, alternatives; wait for "yes" before writing code
+2. **Develop on `claude-code` branch** — never commit directly to `main` or `development`
+3. **Implement** — 250-line limit, version bumps, docstring changelogs
+4. ⛔ **Test via Discord commands** — report results; wait for approval before continuing
+5. **Update docs + commit** — README.md, STATUS.md, HANDOFF.md, README_ENV.md, CLAUDE.md, AGENT.md in same commit as code; never push code without docs
+6. ⛔ **Push to `claude-code`** — wait for approval before pushing
+7. ⛔ **Merge to `development`** — wait for approval; never merge to `main`
 
 ## Running the Bot
 
@@ -129,6 +133,8 @@ Key files: `utils/pipeline_state.py` (pipeline CRUD, session bridge, unsummarize
 `utils/context_retrieval.py` (hybrid retrieval + fallback, v1.9.0),
 `utils/embedding_context.py` (build_contextual_text, v5.6.0),
 `utils/context_manager.py` (three-layer assembly + budget + citation pass-through, v3.0.3),
+`utils/segment_store.py` (segment CRUD + status helpers, v1.1.0),
+`utils/cluster_store.py` (cluster CRUD + status helpers, v2.1.0),
 `utils/history/discord_loader.py` (DB seed + delta fetch orchestration, v2.3.0),
 `utils/history/realtime_settings_parser.py` (restore_settings_from_db, v2.3.0)
 
@@ -148,7 +154,7 @@ Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_updat
 (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v6.0.0 — segment-based)
-`!summary create` runs the segment pipeline via `summarizer.py` v4.5.0:
+`!summary create` runs the segment pipeline via `summarizer.py` v4.6.0:
 ```
 summarize_channel(channel_id)                  ← summarizer.py
   → run_segmentation_phase()                   ← segmenter.py

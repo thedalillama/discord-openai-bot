@@ -1,9 +1,14 @@
 # utils/summarizer.py
-# Version 4.5.0
+# Version 4.6.0
 """
 Summarization pipeline router.
 
 Routes !summary create and !summary update to the cluster-based pipeline.
+
+CHANGES v4.6.0: Set segment status after each pipeline stage (SOW v7.1.0 M2)
+- MODIFIED: summarize_channel() — calls update_channel_segment_status after
+  embedding ('embedded'), propositions ('propositioned'), FTS5 ('indexed').
+  Clustering sets 'clustered'/'unclustered' inside run_segment_clustering().
 
 CHANGES v4.5.0: Use ProcessPoolExecutor for run_segment_clustering() (GIL-free UMAP)
 
@@ -85,12 +90,19 @@ async def summarize_channel(channel_id, batch_size=None, progress_fn=None):
         else:
             from utils.fts_search import populate_fts
             from utils.proposition_decomposer import run_proposition_phase
+            from utils.segment_store import update_channel_segment_status
+            await asyncio.to_thread(
+                update_channel_segment_status, channel_id, 'created', 'embedded')
             await asyncio.to_thread(populate_fts, channel_id)
             prop_count = await run_proposition_phase(channel_id, progress_fn)
             if prop_count == 0:
                 logger.warning(
                     f"Proposition phase produced 0 props ch:{channel_id} "
                     f"— retrieval degrades to dense+BM25")
+            await asyncio.to_thread(
+                update_channel_segment_status, channel_id, 'embedded', 'propositioned')
+            await asyncio.to_thread(
+                update_channel_segment_status, channel_id, 'propositioned', 'indexed')
             from utils.cluster_engine import _cluster_pool
             seg_stats = await asyncio.get_running_loop().run_in_executor(
                 _cluster_pool, run_segment_clustering, channel_id)

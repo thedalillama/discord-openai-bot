@@ -1,5 +1,5 @@
 # utils/cluster_summarizer.py
-# Version 1.2.0
+# Version 1.3.0
 """
 Per-cluster LLM summarization pipeline for v5.2.0.
 
@@ -7,6 +7,10 @@ Calls Gemini once per cluster to extract label, summary, decisions,
 key_facts, action_items, and open_questions. Results stored in the
 clusters table summary column as a JSON blob.
 
+CHANGES v1.3.0: Remove archived status from Gemini schema (SOW v7.2.0)
+- MODIFIED: CLUSTER_SYSTEM_PROMPT — removed status field description
+- MODIFIED: CLUSTER_SUMMARY_SCHEMA — removed status from properties + required
+- MODIFIED: summarize_cluster() — hardcoded status="active" (classifier owns keep/drop)
 CHANGES v1.2.0: Log segment count instead of stale message_count in v6 path
 CHANGES v1.1.0: Segment-aware summarization (SOW v6.0.0)
 - MODIFIED: summarize_cluster() — add use_segments=False parameter.
@@ -50,8 +54,6 @@ FIELD DEFINITIONS:
   if identifiable.
 - open_questions: Unresolved questions requiring future answers. NOT
   rhetorical, trivia, or already-answered questions.
-- status: "active" if the topic is ongoing or has open items; "archived"
-  if the discussion concluded with no pending work.
 - source_message_ids: Use the M-labels (M1, M2, etc.) provided with each
   message.
 
@@ -89,13 +91,12 @@ CLUSTER_SUMMARY_SCHEMA = {
     "properties": {
         "summary":        {"type": "string"},
         "label":          {"type": "string"},
-        "status":         {"type": "string", "enum": ["active", "archived"]},
         "decisions":      {"type": "array", "items": _ITEM},
         "key_facts":      {"type": "array", "items": _ITEM},
         "action_items":   {"type": "array", "items": _ACTION_ITEM},
         "open_questions": {"type": "array", "items": _ITEM},
     },
-    "required": ["summary", "label", "status", "decisions",
+    "required": ["summary", "label", "decisions",
                  "key_facts", "action_items", "open_questions"],
 }
 
@@ -175,7 +176,7 @@ async def summarize_cluster(cluster_id, channel_id, provider, use_segments=False
                 cluster_id,
                 result.get("label", ""),
                 summary_json,
-                result.get("status", "active"))
+                "active")
             if use_segments:
                 result["segment_count"] = len(seg_ids)
             return result
