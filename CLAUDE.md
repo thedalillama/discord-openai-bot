@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 7.3.0
+# Version 7.3.1
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -77,9 +77,11 @@ always-on summary (overview, key facts, open actions, open questions).
 **Layer 2 (guaranteed):** Session bridge + unsummarized messages, injected as
 message turns. Budget-capped at `LAYER2_BUDGET_PCT=70%` of remaining after
 Layer 1 — always wins over retrieval. Recent messages never trimmed for history.
-- Session bridge: raw source messages from most recent session's segments
-  (walk backward from last segment until gap > `SESSION_GAP_MINUTES`)
-- Unsummarized: all messages after `last_segmented_message_id`
+- Session bridge: source messages from most recent session's non-clustered segments
+  (walk backward until gap > `SESSION_GAP_MINUTES`; excludes `clustered/unclustered`
+  which are already in Layer 1; includes `indexed` segments from the worker).
+- Unsummarized: messages after the max message ID in any `clustered/unclustered`
+  segment. Boundary moves only on `!summary create` — worker indexing does not drain it.
 
 **Layer 3 (fills remainder):** Historical RRF retrieval (propositions + dense +
 BM25) — same retrieval path as v6.4.x, now with `exclude_ids` to avoid
@@ -92,7 +94,7 @@ Retrieval path (`context_manager.py` → `context_retrieval.py`):
 4. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
 5. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
 6. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
-7. `get_segment_with_messages()` — synthesis + source messages per segment
+7. `get_segment_with_messages()` — synthesis + source messages per segment; noise-filtered (skips ℹ️/⚙️, !commands)
 8. Rollback: if no segments, `_cluster_rollback()` (in `cluster_fallback.py`) uses cluster centroids
 
 **Embedding strategy (v5.6.0):**
@@ -126,17 +128,12 @@ Key files: `utils/citation_utils.py` (strip/build/apply), `utils/context_retriev
 (citation numbering + 4-tuple return), `utils/context_manager.py` (citation pass-through)
 
 Key files: `utils/pipeline_state.py` (pipeline CRUD, session bridge, unsummarized queries),
-`utils/context_helpers.py` (Layer 2 helpers — control file, merge/dedup/trim/format),
-`utils/cluster_fallback.py` (v5.x cluster rollback path),
+`utils/context_helpers.py` (Layer 2 helpers), `utils/cluster_fallback.py` (v5.x rollback),
 `utils/cluster_retrieval.py` (find_relevant_segments, get_segment_with_messages),
-`utils/fts_search.py` (populate_fts, fts_search, rrf_fuse — BM25 + fusion),
-`utils/context_retrieval.py` (hybrid retrieval + fallback, v1.9.0),
-`utils/embedding_context.py` (build_contextual_text, v5.6.0),
-`utils/context_manager.py` (three-layer assembly + budget + citation pass-through, v3.0.3),
-`utils/segment_store.py` (segment CRUD + status helpers, v1.1.0),
-`utils/cluster_store.py` (cluster CRUD + status helpers, v2.1.0),
-`utils/history/discord_loader.py` (DB seed + delta fetch orchestration, v2.3.0),
-`utils/history/realtime_settings_parser.py` (restore_settings_from_db, v2.3.0)
+`utils/fts_search.py` (populate_fts, fts_search, rrf_fuse), `utils/context_retrieval.py` (hybrid retrieval + fallback),
+`utils/embedding_context.py` (build_contextual_text), `utils/context_manager.py` (three-layer assembly, v3.0.4),
+`utils/segment_store.py` (segment CRUD + status), `utils/cluster_store.py` (cluster CRUD + status),
+`utils/history/discord_loader.py` (DB seed + delta fetch), `utils/history/realtime_settings_parser.py` (restore_settings_from_db)
 
 ### Incremental Assignment (v5.4.0)
 After embedding, `raw_events.py` calls `assign_to_nearest_cluster(channel_id, message_id)`
@@ -150,11 +147,10 @@ re-summarizes dirty clusters via `summarize_cluster()`, marks clean, re-runs the
 post-processing stack (classify → overview → dedup → answered-Q → save). Preserves
 `cluster_count` and `noise_message_count` from existing summary (no re-cluster).
 
-Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_update.py`
-(quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
+Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_update.py` (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v6.0.0 — segment-based)
-`!summary create` runs the segment pipeline via `summarizer.py` v4.6.0:
+`!summary create` runs the segment pipeline via `summarizer.py` v4.7.0:
 ```
 summarize_channel(channel_id)                  ← summarizer.py
   → run_segmentation_phase()                   ← segmenter.py
@@ -182,8 +178,7 @@ Key files: `summarizer.py` (router), `segmenter.py` (Gemini segmentation+synthes
 `cluster_summarizer.py` (per-cluster Gemini), `cluster_classifier.py` (whitelist filter),
 `cluster_qa.py` (dedup + answered-Q check), `cluster_engine.py` (UMAP + HDBSCAN)
 
-**v4.x three-pass pipeline** was removed in v5.10.0 (10 files deleted, git
-history preserves). Only the cluster/segment pipeline is active.
+**v4.x three-pass pipeline** was removed in v5.10.0 (git history preserves). Only the cluster/segment pipeline is active.
 
 ### Noise Filtering
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).

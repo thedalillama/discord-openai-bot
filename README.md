@@ -1,5 +1,5 @@
 # README.md
-# Version 7.3.0
+# Version 7.3.1
 
 # Synthergy Discord Bot
 
