@@ -1,8 +1,85 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.2.0
+# Version 7.3.1
 
 ## Current Version Features
+
+### Version 7.3.1 — Layer 2 drainage and segment noise fixes
+
+**Bug 1 — Session bridge too aggressive (v7.3.0 regression):**
+The v7.3.0 session bridge fix excluded `indexed` segments, which combined with
+the worker draining `last_segmented_message_id`, left Layer 2 completely empty.
+Fix: only exclude `clustered/unclustered` segments (already in always-on summary).
+`indexed` segments remain in the bridge for recent session continuity.
+
+**Bug 2 — Unsummarized pool drained by background worker:**
+`get_unsummarized_messages` used `last_segmented_message_id` as its boundary,
+which the worker advances on every run. After the worker ran, the unsummarized
+pool was empty. Fix: boundary is now the max message ID from `clustered/unclustered`
+segments — only `!summary create` moves it, not the worker.
+
+**Bug 3 — Bot noise in segment source messages:**
+Bot ℹ️/⚙️ progress messages, image URLs, and `!command` output were stored in
+`segment_messages` and retrieved as cited sources, polluting the context window
+with noise instead of actual conversation. Fix: `get_segment_with_messages` now
+filters these with `_is_segment_noise()` before returning source messages.
+
+**Root cause of gorilla loop:** `data/control.txt` contained
+"Magilla is a boy. Always mention this when discussing Magilla." — every time
+Magilla appeared in retrieved context the bot followed the instruction.
+Also confirmed: the gorilla citation example in `context_manager.py` was priming
+the model with gorilla content on every retrieval response (now fixed: v3.0.4).
+
+**Files changed:**
+- `utils/pipeline_state.py` v1.1.0 → v1.3.0 — bugs 1 + 2
+- `utils/cluster_retrieval.py` v1.4.0 → v1.5.0 — bug 3
+- `utils/context_manager.py` v3.0.3 → v3.0.4 — neutral citation example
+
+---
+
+### Version 7.3.0 — Background Pipeline Worker (M3)
+
+**Background worker** runs as an asyncio task on bot startup, polling every 30s.
+For each channel with a `pipeline_state` row, it runs up to 4 incremental stages:
+1. `_segment_channel` — Gemini segments new messages since `last_segmented_message_id`
+2. `embed_segments` — batch-embeds `status=created` segments via OpenAI
+3. `decompose_propositions` — decomposes `status=embedded` segments per-segment
+4. `index_fts` — rebuilds FTS5 index; advances `status=propositioned` → `indexed`
+
+**Trigger logic** (`should_segment`):
+- Fires if `unseg_count >= MIN_SEGMENT_BATCH` (10) AND `last_pipeline_run < last_msg_time`
+- Emergency path: fires immediately if `unseg_count >= EMERGENCY_SEGMENT_THRESHOLD` (200)
+- Idle gap path: fires if `minutes_since(last_msg_time) > SEGMENT_GAP_MINUTES` (30)
+
+**Pipeline lock** — per-channel in-memory lock prevents worker + `!summary create` running
+concurrently. `!summary create force` polls every 2s up to 30s waiting for the lock.
+
+**Pipeline control commands (`!pipeline`):**
+- `!pipeline status` — worker state, lock holder, unsegmented count, last run
+- `!pipeline stop` — sets `_worker_stopped=True`, worker exits after current channel
+- `!pipeline start` — creates new asyncio task, sets `_worker_stopped=False`
+- `!pipeline run` — manual one-shot: acquire lock, run all 4 stages, release
+
+**Incremental segmenter** (`incremental_segmenter.py`) extends the segment pipeline:
+- `get_unsegmented_messages_for_pipeline` — messages after pointer not in `segment_messages`
+- `segment_with_context` — Gemini call with 5 recent segments as continuity context
+- `extend_existing_segment` — atomic: add messages + update synthesis + reset status + clear props
+
+**Results:** Worker fired on first startup, created 1 new segment in #general and 2 in
+#openclaw. All 4 stages completed. `!pipeline stop/start/run/status` all verified in Discord.
+`!summary create` correctly blocked while worker holds lock.
+
+**Files changed:**
+- `utils/pipeline_worker.py` NEW v1.0.0 — background worker, lock, 4 stages
+- `utils/incremental_segmenter.py` NEW v1.0.0 — incremental segment logic
+- `commands/pipeline_commands.py` NEW v1.0.0 — !pipeline command group
+- `config.py` v1.20.0 → v1.21.0 — 4 new env vars
+- `bot.py` v3.4.0 → v3.5.0 — `start_worker()` in `on_ready()`
+- `utils/summarizer.py` v4.6.0 → v4.7.0 — pipeline lock acquire/release
+- `commands/summary_commands.py` v2.5.0 → v2.6.0 — `force` flag for `!summary create`
+- `commands/__init__.py` v2.7.0 → v2.8.0 — register pipeline_commands
+
+---
 
 ### Version 7.2.0 — Remove archived status from Gemini summarizer
 

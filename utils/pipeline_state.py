@@ -1,5 +1,5 @@
 # utils/pipeline_state.py
-# Version 1.1.0
+# Version 1.3.0
 """
 Pipeline state CRUD for v7.0.0 incremental pipeline (SOW v7.0.0 M1).
 
@@ -7,9 +7,14 @@ Tracks per-channel segmentation progress via the pipeline_state table.
 Provides session bridge and unsummarized message queries for Layer 2
 context injection.
 
+CHANGES v1.3.0: Fix Layer 2 drainage by background worker
+- MODIFIED: get_unsummarized_messages() — boundary is now the max message ID
+  from clustered/unclustered segments (last !summary create run), not
+  last_segmented_message_id. Worker indexing no longer drains the pool.
+- MODIFIED: get_session_bridge_messages() — only exclude clustered/unclustered
+  segments (already in always-on summary). Indexed segments stay in bridge.
+CHANGES v1.2.0: Exclude indexed/clustered segments from session bridge (too aggressive — reverted)
 CHANGES v1.1.0: Filter noise messages from Layer 2 injection
-- MODIFIED: get_unsummarized_messages() — skip ℹ️/⚙️ bot output and !commands
-- MODIFIED: get_session_bridge_messages() — same filter applied defensively
 
 CREATED v1.0.0:
 - get_pipeline_state() — auto-initializing CRUD for pipeline_state table
@@ -138,15 +143,25 @@ def _is_layer2_noise(content, is_bot):
 
 
 def get_unsummarized_messages(channel_id):
-    """Messages after last_segmented_message_id, chronological.
-    Filters ℹ️/⚙️ bot output and !commands — same rules as conversation history.
+    """Messages after the last !summary create run, chronological.
 
+    Boundary = max message ID in any clustered/unclustered segment. This
+    prevents the background worker (which advances last_segmented_message_id)
+    from draining the unsummarized pool. Only !summary create, which produces
+    clustered segments, moves this boundary.
+
+    Filters ℹ️/⚙️ bot output and !commands.
     Returns list of dicts: id, author, content, created_at, is_bot.
     """
-    state = get_pipeline_state(channel_id)
-    pointer = state["last_segmented_message_id"]
     conn = sqlite3.connect(DATABASE_PATH)
     try:
+        row = conn.execute(
+            "SELECT MAX(m.id) FROM segment_messages sm "
+            "JOIN messages m ON m.id=sm.message_id "
+            "JOIN segments s ON s.id=sm.segment_id "
+            "WHERE s.channel_id=? AND s.status IN ('clustered','unclustered')",
+            (channel_id,)).fetchone()
+        pointer = row[0] if row and row[0] else 0
         rows = conn.execute(
             "SELECT id, author_name, content, created_at, is_bot_author "
             "FROM messages WHERE channel_id=? AND id > ? AND is_deleted=0 "
@@ -173,7 +188,9 @@ def get_session_bridge_messages(channel_id):
     try:
         segments = conn.execute(
             "SELECT id, first_message_at, last_message_at FROM segments "
-            "WHERE channel_id=? ORDER BY first_message_at ASC",
+            "WHERE channel_id=? "
+            "AND status NOT IN ('clustered', 'unclustered') "
+            "ORDER BY first_message_at ASC",
             (channel_id,)).fetchall()
         if not segments:
             return []

@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 7.2.0
+# Version 7.3.1
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -180,6 +180,21 @@ skipped (already captured). Reduces topic boundary artifacts at batch seams.
 `SEGMENT_GAP_MINUTES` controls the time-gap fallback segmenter that fires when
 Gemini segmentation fails for a batch. Messages separated by more than this many
 minutes are split into different segments.
+
+## Background Pipeline Worker Configuration (v7.3.0)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PIPELINE_POLL_INTERVAL` | Seconds between worker poll cycles | `30` |
+| `MIN_SEGMENT_BATCH` | Minimum unsegmented messages before segmentation fires | `10` |
+| `MAX_SEGMENT_BATCH` | Maximum unsegmented messages per incremental run | `50` |
+| `EMERGENCY_SEGMENT_THRESHOLD` | Unsegmented count that bypasses idle-gap check | `200` |
+
+The worker starts automatically on bot startup. Use `!pipeline stop` before restarting
+the bot for worker code changes; use `!pipeline start` to resume after restart.
+`MIN_SEGMENT_BATCH` prevents the segmenter from firing on every single new message.
+`EMERGENCY_SEGMENT_THRESHOLD` ensures large backlogs are processed promptly regardless
+of idle gap.
 
 ## Logging Configuration
 

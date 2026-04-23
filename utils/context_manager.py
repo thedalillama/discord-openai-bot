@@ -1,14 +1,12 @@
 # utils/context_manager.py
-# Version 3.0.3
+# Version 3.0.4
 """
 Token-budget-aware context management and usage tracking.
 
+CHANGES v3.0.4: Replace gorilla citation example with neutral one
 CHANGES v3.0.3: Reverse dedup — Layer 2 canonical; selected only adds SQLite-missing msgs
-
 CHANGES v3.0.2: Add /tmp/last_full_context.json DEBUG dump (full messages array)
-
 CHANGES v3.0.1: Fix always_on receipt missing total_tokens key (overview + control)
-
 CHANGES v3.0.0: Three-layer context assembly (SOW v7.0.0 M1)
 - ADDED: read_control_file() — re-exported from context_helpers
 - MODIFIED: build_context_for_provider() — Layer 1 (system+control+always-on),
@@ -153,8 +151,8 @@ def build_context_for_provider(channel_id, provider):
         cite_instr = (
             "CITATION INSTRUCTIONS: Messages are numbered [1], [2], etc. "
             "When your answer uses specific information from these messages, "
-            'cite with [N] inline. Example: "Gorillas can lift 5-10x their '
-            'weight [1]."\n\n') if citation_map else ""
+            'cite with [N] inline. Example: "The meeting was moved to Friday'
+            ' [1]."\n\n') if citation_map else ""
         system_content += (
             f"\n\n--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
             f"The following are real messages previously sent in this channel, "

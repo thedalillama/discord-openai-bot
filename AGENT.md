@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 7.2.0
+# Version 7.3.1
 # Agent Development Rules for Discord Bot Project
 
 ## Development Procedure
