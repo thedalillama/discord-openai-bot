@@ -1,8 +1,30 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.3.1
+# Version 7.4.1
 
 ## Current Version Features
+
+### Version 7.4.1 — General response QC pass + hallucination loop fix
+
+**QC pass** (`utils/response_qc.py` NEW): GPT-4o-mini checks responses against full
+injected context. Fires only when `--- CONVERSATION CONTEXT ---` or
+`--- PAST MESSAGES FROM THIS CHANNEL` markers are present. On fail: re-reasons with
+`[QC CORRECTION]` prohibition prepended to last user message. Double fail → `None`
+→ caller sends `ℹ️ ... [QC_FAIL]`, skips history storage. Fails open on API error.
+
+**Hallucination loop fix**: Non-ℹ️ bot AI responses were embedded and injected as
+`[N]` source messages, creating a feedback loop where wrong answers became evidence.
+- `raw_events.py` v1.9.1: skips embedding when `message.author.id == bot.user.id`
+- `cluster_retrieval.py` v1.5.1: `_is_segment_noise()` returns True for all
+  `is_bot_author=1` messages — bot responses excluded from source injection
+
+**Key files changed v7.4.1:**
+- `utils/response_qc.py` NEW v1.0.1 — QC orchestrator, GPT-4o-mini checker
+- `utils/response_handler.py` v1.7.0 — QC integration in all response branches
+- `utils/raw_events.py` v1.9.1 — skip self-author embedding
+- `utils/cluster_retrieval.py` v1.5.1 — filter bot messages from source injection
+
+---
 
 ### Version 7.3.1 — Layer 2 drainage and segment noise fixes
 

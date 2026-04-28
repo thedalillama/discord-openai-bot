@@ -1,12 +1,14 @@
 # utils/cluster_retrieval.py
-# Version 1.5.0
+# Version 1.5.1
 """
 Query-time cluster/segment/proposition retrieval for semantic context injection.
 
-CHANGES v1.5.0: Filter noise from segment source messages
-- get_segment_with_messages() now skips ℹ️/⚙️ bot output and !commands from
-  source messages. Bot noise (progress messages, image URLs) was polluting
-  retrieved context and the token budget.
+CHANGES v1.5.1: Filter bot-authored messages from segment source injection
+- _is_segment_noise() accepts is_bot_author; True for any bot message — prevents
+  AI responses from becoming source evidence for future responses (hallucination loop).
+- get_segment_with_messages() selects m.is_bot_author and passes it to noise check.
+
+CHANGES v1.5.0: Filter ℹ️/⚙️/! noise from segment source messages
 CHANGES v1.4.0: Inline get_cluster_content (SOW v7.1.0 M2)
 CHANGES v1.3.0: Proposition-level retrieval (SOW v6.3.0)
 CHANGES v1.2.0: Direct segment retrieval; find_relevant_segments, get_segment_with_messages
@@ -80,13 +82,17 @@ def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15):
     return results[:top_k]
 
 
-def _is_segment_noise(content):
-    """Return True if a source message should be excluded from retrieved context."""
+def _is_segment_noise(content, is_bot_author=False):
+    """Return True if a source message should be excluded from retrieved context.
+
+    Bot messages always excluded: ℹ️/⚙️ are noise; non-prefixed AI responses
+    create hallucination loops. Syntheses capture bot contributions reliably.
+    """
     if not content:
         return True
     if content.startswith('!'):
         return True
-    if content.startswith('ℹ️') or content.startswith('⚙️'):
+    if is_bot_author:
         return True
     return False
 
@@ -112,7 +118,7 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
             return None
         seg_id, topic_label, synthesis = row
         msgs = conn.execute(
-            "SELECT m.id, m.author_name, m.content, m.created_at "
+            "SELECT m.id, m.author_name, m.content, m.created_at, m.is_bot_author "
             "FROM segment_messages sm JOIN messages m ON m.id=sm.message_id "
             "WHERE sm.segment_id=? ORDER BY sm.position ASC",
             (seg_id,)).fetchall()
@@ -123,7 +129,7 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
             "messages":    [(r[0], r[1], r[2], r[3])
                             for r in msgs
                             if r[0] not in exclude
-                            and not _is_segment_noise(r[2])],
+                            and not _is_segment_noise(r[2], bool(r[4]))],
         }
     finally:
         conn.close()

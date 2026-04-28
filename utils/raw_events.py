@@ -1,7 +1,12 @@
 # utils/raw_events.py
-# Version 1.9.0
+# Version 1.9.1
 """
 Discord event handlers for SQLite message persistence.
+
+CHANGES v1.9.1: Skip embedding for self-authored responses
+- persistence_on_message() checks message.author.id == bot.user.id; skips
+  embedding when True. Prevents bot AI responses from becoming segment source
+  evidence that creates hallucination feedback loops.
 
 CHANGES v1.9.0: Move get_last_processed_id inside try block so backfill errors are logged
 CHANGES v1.8.0: Embedding noise filter extraction (SOW v5.13.0)
@@ -88,9 +93,12 @@ def setup_raw_events(bot):
             logger.error(f"Failed to store message {msg.id}: {e}")
             return
 
-        # Embed message for semantic retrieval
+        # Embed message for semantic retrieval.
+        # Skip our own responses: they're captured in segment syntheses and the
+        # session bridge; embedding them lets wrong answers become source evidence.
         content = msg.content
-        if not should_skip_embedding(content, msg.is_bot_author):
+        is_self = (bot.user is not None and message.author.id == bot.user.id)
+        if not is_self and not should_skip_embedding(content, msg.is_bot_author):
             try:
                 from utils.embedding_store import embed_and_store_message
                 from utils.embedding_context import build_contextual_text

@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 7.3.1
+# Version 7.4.1
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -184,11 +184,19 @@ Key files: `summarizer.py` (router), `segmenter.py` (Gemini segmentation+synthes
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).
 Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()`.
 
-Embedding noise filter (v5.13.0): `utils/embedding_noise_filter.py`
+Embedding noise filter (v5.13.0, updated v7.4.1): `utils/embedding_noise_filter.py`
 `should_skip_embedding(content, is_bot_author)` — single gate applied at
 embed time (`raw_events.py`) and backfill (`embedding_store.py`). Skips
 commands, bot output, diagnostic prefixes, `[Original Message Deleted]`
 placeholders, and messages under 4 words (questions exempt).
+v7.4.1: `raw_events.py` additionally skips embedding when `message.author.id ==
+bot.user.id` — prevents our own AI responses from being embedded and later
+injected as source evidence, which caused hallucination feedback loops.
+
+Response QC (v7.4.1): `utils/response_qc.py` — GPT-4o-mini verifies each response
+against the full injected context when context markers are present. Fires after
+generation; re-reasons on fail; returns None (QC_FAIL) if both passes fail.
+Key files: `utils/response_qc.py` (QC logic), `utils/response_handler.py` (integration)
 
 ### Providers
 - OpenAI, Anthropic, DeepSeek (conversation) — per-channel configurable

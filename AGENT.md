@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 7.3.1
+# Version 7.4.1
 # Agent Development Rules for Discord Bot Project
 
 ## Development Procedure
@@ -128,12 +128,14 @@ Steps marked ⛔ require the user's explicit approval before proceeding.
 - `utils/context_retrieval.py` — retrieval extracted from context_manager.py
 - `commands/cluster_commands.py` — cluster commands extracted from debug_commands.py
 
-### Noise Guard (v5.13.0)
+### Noise Guard (v5.13.0, updated v7.4.1)
 - `utils/embedding_noise_filter.py` `should_skip_embedding()` — single gate
   for what gets embedded; applied in `raw_events.py` (live) and
   `embedding_store.py` `get_messages_without_embeddings()` (backfill)
 - Skip criteria: empty, `!`/`ℹ️`/`⚙️` prefix, bot diagnostic prefixes,
   `[Original Message Deleted]` placeholder, fewer than 4 words (questions exempt)
+- v7.4.1: `raw_events.py` also skips embedding when `message.author.id == bot.user.id`
+  (our own AI responses — prevents hallucination feedback loops via source injection)
 - `debug_commands.py` v1.6.0 routes all pagination through `send_paginated()`
   to guarantee ℹ️ on every chunk
 
