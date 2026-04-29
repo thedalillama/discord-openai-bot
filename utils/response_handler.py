@@ -1,8 +1,11 @@
 # utils/response_handler.py
-# Version 1.5.0
+# Version 1.7.0
 """
 AI response handling utilities for Discord bot.
 
+CHANGES v1.7.0: General QC pass replaces citation verifier (SOW v7.4.1)
+- MODIFIED: handle_ai_response_task() — calls run_response_qc() on all responses
+  with injected context; returns QC_FAIL message if both passes fail
 CHANGES v1.5.0: Thread _msg_id through bot responses for Layer 2 dedup
 - MODIFIED: add_response_to_history() — accept msg_id=None kwarg; include
   _msg_id in stored dict when provided
@@ -48,6 +51,7 @@ REASONING_PREFIX = "[DEEPSEEK_REASONING]:"
 REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
 
 _I = "ℹ️ "
+_QC_FAIL_MSG = _I + "I was unable to produce a verified response to that question. [QC_FAIL]"
 
 
 async def handle_ai_response_task(message, channel_id, messages,
@@ -69,6 +73,8 @@ async def handle_ai_response_task(message, channel_id, messages,
         citation_map: Optional {int: {author, content, date}} for citation validation
     """
     from utils.citation_utils import apply_citations
+    from utils.response_qc import _has_injected_context, run_response_qc
+    _has_ctx = _has_injected_context(messages[0].get("content", "") if messages else "")
     try:
         bot_response = await generate_ai_response(
             messages,
@@ -92,6 +98,12 @@ async def handle_ai_response_task(message, channel_id, messages,
 
             # Send answer and store in history
             if answer.strip():
+                if _has_ctx:
+                    _qc = await run_response_qc(answer, messages, channel_id, provider_override)
+                    if _qc is None:
+                        await message.channel.send(_QC_FAIL_MSG)
+                        return
+                    answer = _qc
                 answer, cite_footer = apply_citations(answer, citation_map or {})
                 answer_chunks = split_message(answer)
                 for chunk in answer_chunks:
@@ -103,6 +115,12 @@ async def handle_ai_response_task(message, channel_id, messages,
                     msg_id=getattr(response_msg, 'id', None))
 
         elif isinstance(bot_response, str):
+            if _has_ctx:
+                _qc = await run_response_qc(bot_response, messages, channel_id, provider_override)
+                if _qc is None:
+                    await message.channel.send(_QC_FAIL_MSG)
+                    return
+                bot_response = _qc
             bot_response, cite_footer = apply_citations(bot_response, citation_map or {})
             text_chunks = split_message(bot_response)
             for chunk in text_chunks:
@@ -116,6 +134,12 @@ async def handle_ai_response_task(message, channel_id, messages,
         elif isinstance(bot_response, dict):
             text_content = bot_response.get("text", "")
             images = bot_response.get("images", [])
+            if _has_ctx:
+                _qc = await run_response_qc(text_content, messages, channel_id, provider_override)
+                if _qc is None:
+                    await message.channel.send(_QC_FAIL_MSG)
+                    return
+                text_content = _qc
             text_content, cite_footer = apply_citations(text_content, citation_map or {})
 
             if text_content.strip():

@@ -1,8 +1,10 @@
 # commands/explain_commands.py
-# Version 1.3.0
+# Version 1.3.1
 """
 !explain command — show context receipt for the most recent bot response.
 
+CHANGES v1.3.1: Show speaker_filter in receipt — format_receipt() displays
+  "Speaker filter: <author>" under Retrieved Segments when set.
 CHANGES v1.3.0: Continuity section display (SOW v7.0.0 M1)
 - MODIFIED: format_receipt() — shows Layer 2 continuity block stats
   (session bridge msgs, unsummarized msgs, tokens used, trimmed flag)
@@ -71,6 +73,9 @@ def format_receipt(receipt):
         lines.append(
             f"\n**Retrieved Segments** ({total_ret:,} tokens"
             f"{', gap-cut' if gap else ''}):")
+        sf = receipt.get("speaker_filter")
+        if sf:
+            lines.append(f"  Speaker filter: {sf}")
         for i, s in enumerate(segs, 1):
             synth_only = " [synthesis-only]" if s.get("synthesis_only") else ""
             lines.append(

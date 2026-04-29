@@ -1,5 +1,5 @@
 # README.md
-# Version 7.3.1
+# Version 7.4.1
 
 # Synthergy Discord Bot
 
@@ -13,6 +13,7 @@ A multi-provider AI Discord bot with semantic conversational memory. Supports Op
 - **Background pipeline worker** — asyncio task polls every 30s, incrementally segments new messages, embeds, decomposes propositions, and rebuilds FTS index without manual intervention
 - **Three-layer context** — Layer 1 (system + always-on summary), Layer 2 (session bridge + unsummarized messages, budget-guaranteed), Layer 3 (RRF retrieval); recent conversation never trimmed by old history
 - **Message persistence** — all messages stored in SQLite; on restart, backfill fetches only messages newer than the last stored ID; in-memory history seeded from DB without a full Discord history pull
+- **Response QC** — GPT-4o-mini verifies each response against injected context; re-reasons on failure; sends `[QC_FAIL]` message if both passes fail rather than returning an unverified answer
 - **Citation-backed responses** — when answering from retrieved history, bot cites specific messages inline with `[N]` notation and appends a Sources footer; hallucinated citations stripped automatically
 - **Contextual embeddings** — every message embedded with 3-message conversational context prepended (v5.6.0); short replies and bot responses embed with their conversation, not in isolation
 - **Per-channel settings** — AI provider, system prompt, auto-response, and thinking display configurable per channel

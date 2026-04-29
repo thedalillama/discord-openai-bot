@@ -1,8 +1,45 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.3.1
+# Version 7.4.1
 
 ## Current Version Features
+
+### Version 7.4.1 — General response QC pass + hallucination loop fix
+
+**Response QC (`utils/response_qc.py` NEW v1.0.1):**
+After generating a response, GPT-4o-mini checks whether the response makes specific
+factual claims not supported by the injected context (always-on summary, session
+bridge, retrieved segments). Only fires when injected context is detected via
+`_CONTEXT_MARKERS`. On fail: re-reasons with a `[QC CORRECTION]` prohibition block
+prepended to the last user message. On second fail: returns `None`; caller sends
+`ℹ️ ... [QC_FAIL]` and does not store in history. Max: 2× GPT-4o-mini + 1× provider.
+Fails open on any GPT-4o-mini error.
+
+**Response handler integration (`utils/response_handler.py` v1.7.0):**
+`handle_ai_response_task()` calls `run_response_qc()` on all three response branches
+(string, reasoning split, dict) when injected context is detected. Returns QC_FAIL
+message if both passes fail.
+
+**Hallucination feedback loop fix:**
+Root cause: non-ℹ️ bot AI conversation responses were being embedded and injected as
+`[N]` source messages in future responses, creating a self-reinforcing loop where wrong
+answers became evidence for future wrong answers.
+
+Fix 1 — `utils/raw_events.py` v1.9.1: skips embedding when `message.author.id ==
+bot.user.id`. Our bot's own responses are captured in segment syntheses and the Layer 2
+bridge; embedding them enables the feedback loop.
+
+Fix 2 — `utils/cluster_retrieval.py` v1.5.1: `_is_segment_noise()` now returns True for
+any `is_bot_author=1` message. Bot responses are excluded from `[N]` source message
+injection; segment syntheses accurately capture bot contributions.
+
+**Files changed:**
+- `utils/response_qc.py` NEW v1.0.1
+- `utils/response_handler.py` v1.6.0 → v1.7.0
+- `utils/raw_events.py` v1.9.0 → v1.9.1
+- `utils/cluster_retrieval.py` v1.5.0 → v1.5.1
+
+---
 
 ### Version 7.3.1 — Layer 2 drainage and segment noise fixes
 

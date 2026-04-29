@@ -1,12 +1,14 @@
 # utils/cluster_retrieval.py
-# Version 1.5.0
+# Version 1.5.3
 """
 Query-time cluster/segment/proposition retrieval for semantic context injection.
 
-CHANGES v1.5.0: Filter noise from segment source messages
-- get_segment_with_messages() now skips ℹ️/⚙️ bot output and !commands from
-  source messages. Bot noise (progress messages, image URLs) was polluting
-  retrieved context and the token budget.
+CHANGES v1.5.3: find_relevant_propositions() speaker_filter — text-match on content
+CHANGES v1.5.2: Revert is_bot_author filter — _is_segment_noise() drops param,
+  uses stripped ℹ️/⚙️ check; SQL reverts (no m.is_bot_author). Speaker filter in
+  context_retrieval.py handles attribution when query names a participant.
+CHANGES v1.5.1: Filter bot-authored messages from segment injection (reverted)
+CHANGES v1.5.0: Filter ℹ️/⚙️/! noise from segment source messages
 CHANGES v1.4.0: Inline get_cluster_content (SOW v7.1.0 M2)
 CHANGES v1.3.0: Proposition-level retrieval (SOW v6.3.0)
 CHANGES v1.2.0: Direct segment retrieval; find_relevant_segments, get_segment_with_messages
@@ -81,12 +83,17 @@ def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15):
 
 
 def _is_segment_noise(content):
-    """Return True if a source message should be excluded from retrieved context."""
+    """Return True if a source message should be excluded from retrieved context.
+
+    Filters ℹ️/⚙️ bot output prefixes and ! commands. Bot AI responses are kept;
+    speaker filter in context_retrieval.py handles attribution accuracy.
+    """
     if not content:
         return True
     if content.startswith('!'):
         return True
-    if content.startswith('ℹ️') or content.startswith('⚙️'):
+    stripped = content.strip()
+    if stripped.startswith('ℹ️') or stripped.startswith('⚙️'):
         return True
     return False
 
@@ -129,22 +136,15 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
         conn.close()
 
 
-def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20):
+def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20,
+                               speaker_filter=None):
     """Score query vs proposition embeddings; collapse to segment IDs.
 
-    Each segment gets at most one entry — the highest-scoring proposition
-    per segment. This prevents size bias: a segment with 5 propositions
-    does not outrank one with 2 simply by having more entries in RRF.
+    If speaker_filter is set, restricts to propositions whose content mentions
+    the speaker (text match). Propositions name participants explicitly so this
+    is more precise than message author filtering.
 
-    Args:
-        query_embedding: query vector (list or np.array)
-        channel_id: Discord channel ID
-        top_k: max segment IDs to return
-        floor: minimum proposition score; propositions below this are ignored
-
-    Returns:
-        list of (segment_id, best_score) tuples, score descending.
-        Returns [] if no propositions exist (degrades to dense+BM25).
+    Returns: list of (segment_id, best_score) tuples, score descending.
     """
     from utils.proposition_store import get_proposition_embeddings
     rows = get_proposition_embeddings(channel_id)
@@ -152,12 +152,17 @@ def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20
         return []
     query = np.array(query_embedding, dtype=np.float32)
     seg_best = {}
-    for _, seg_id, _, vec in rows:
+    speaker_segs = set()
+    for _, seg_id, content, vec in rows:
         vec_arr = np.array(vec, dtype=np.float32)
         norm = float(np.linalg.norm(query) * np.linalg.norm(vec_arr))
         score = float(np.dot(query, vec_arr)) / norm if norm > 0 else 0.0
         if score >= floor and score > seg_best.get(seg_id, -1):
             seg_best[seg_id] = score
+        if speaker_filter and speaker_filter.lower() in content.lower():
+            speaker_segs.add(seg_id)
+    if speaker_filter:
+        seg_best = {sid: s for sid, s in seg_best.items() if sid in speaker_segs}
     results = sorted(seg_best.items(), key=lambda x: x[1], reverse=True)
     return results[:top_k]
 
