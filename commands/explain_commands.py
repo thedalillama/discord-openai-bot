@@ -1,25 +1,16 @@
 # commands/explain_commands.py
-# Version 1.3.1
+# Version 1.3.3
 """
 !explain command — show context receipt for the most recent bot response.
 
-CHANGES v1.3.1: Show speaker_filter in receipt — format_receipt() displays
-  "Speaker filter: <author>" under Retrieved Segments when set.
+CHANGES v1.3.3: Display QC_FAIL warning in receipt when qc_failed=True.
+CHANGES v1.3.2: Replace speaker_filter display with query_planner section (SOW v7.5.0)
 CHANGES v1.3.0: Continuity section display (SOW v7.0.0 M1)
 - MODIFIED: format_receipt() — shows Layer 2 continuity block stats
   (session bridge msgs, unsummarized msgs, tokens used, trimmed flag)
 
-CHANGES v1.2.0: Segment-based receipt display (SOW v6.1.0)
-- MODIFIED: format_receipt() handles retrieved_segments (v6.1.0+) and
-  retrieved_clusters (rollback/pre-v6.1 receipts) — checks which key is present
-- MODIFIED: format_injected_messages() uses get_segment_with_messages() for
-  segment receipts; falls back to get_cluster_messages() for cluster receipts
-
-CHANGES v1.1.0: Add !explain detail mode (SOW v5.7.1)
-- ADDED: format_injected_messages() — fetch and format cluster messages on demand
-- MODIFIED: explain_cmd() accepts variadic args: !explain | !explain detail |
-  !explain <id> | !explain detail <id>
-
+CHANGES v1.2.0: Segment-based receipt display; segment/cluster path dispatch (SOW v6.1.0)
+CHANGES v1.1.0: !explain detail mode; format_injected_messages(); variadic args (SOW v5.7.1)
 CREATED v1.0.0: Context receipt display (SOW v5.7.0)
 
 All output prefixed with ℹ️. Uses send_paginated() for long receipts.
@@ -37,6 +28,8 @@ _CLUSTER_SHOW = 5  # show first N + last N when list exceeds 2*N messages
 def format_receipt(receipt):
     """Format a receipt dict into Discord display lines."""
     lines = []
+    if receipt.get("qc_failed"):
+        lines.append("⚠️ **QC_FAIL** — response was blocked; this is the context that was used.")
     query = receipt.get("query", "")
     lines.append(
         f'**Context Receipt** (response to: "{query[:80]}")' if query
@@ -73,9 +66,18 @@ def format_receipt(receipt):
         lines.append(
             f"\n**Retrieved Segments** ({total_ret:,} tokens"
             f"{', gap-cut' if gap else ''}):")
-        sf = receipt.get("speaker_filter")
-        if sf:
-            lines.append(f"  Speaker filter: {sf}")
+        p = receipt.get("query_planner")
+        if p and p.get("used"):
+            af = ", ".join(p.get("author_filter") or [])
+            tf = p.get("time_filter") or {}
+            lines.append(
+                f"  Planner ({p.get('planner_latency_ms',0)}ms): mode={p.get('mode','?')}"
+                + (f", author={af}" if af else "")
+                + (f", after={str(tf.get('after',''))[:10]}" if tf.get("after") else "")
+                + (f", before={str(tf.get('before',''))[:10]}" if tf.get("before") else "")
+                + (f", {p.get('candidates')} cands" if p.get("candidates") is not None else ""))
+            if p.get("note"):
+                lines.append(f"  Note: {p['note']}")
         for i, s in enumerate(segs, 1):
             synth_only = " [synthesis-only]" if s.get("synthesis_only") else ""
             lines.append(
@@ -122,7 +124,6 @@ def format_receipt(receipt):
 
 
 def format_injected_messages(receipt):
-    """Fetch and format injected segment/cluster messages for detail view."""
     from utils.cluster_retrieval import get_cluster_messages, get_segment_with_messages
 
     segs = receipt.get("retrieved_segments")
@@ -196,11 +197,9 @@ def format_injected_messages(receipt):
 
 
 def register_explain_commands(bot):
-
     @bot.command(name='explain')
     async def explain_cmd(ctx, *args):
-        """Show context receipt. Usage: !explain | !explain detail |
-        !explain <id> | !explain detail <id>"""
+        """Show context receipt. Usage: !explain | !explain detail | !explain <id>"""
         channel_id = ctx.channel.id
 
         mode = None

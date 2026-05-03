@@ -1,8 +1,72 @@
 # STATUS.md
 # Discord Bot Development Status
-# Version 7.4.1
+# Version 7.5.0
 
 ## Current Version Features
+
+### Version 7.5.0 — Query Planner + Metadata-Aware Retrieval
+
+**Query Planner (`utils/query_planner.py` NEW v1.1.4):**
+Fast-path check (`needs_query_planner()`) detects metadata signals — member name
+tokens (≥3 chars, fuzzy), temporal phrases (`_TIME_RE`), existence patterns
+(`_EXIST_RE`), pronoun references (`_PRONOUN_RE`), attribution queries
+(`_ATTRIB_RE`: "who said/guessed/told"). Queries without signals bypass the
+planner entirely (no latency penalty). When signals are detected, GPT-4o-mini
+(tool-call) parses the query into `{content_query, author, after, before, mode}`.
+Planner and embedding calls run in parallel via `ThreadPoolExecutor`. `current_speaker`
+is extracted from the `"Author: message"` prefix and excluded from pronoun resolution
+both in the LLM instruction and the Python fallback (`_resolve_pronoun_fallback()`).
+Author names fuzzy-normalized post-parse ("OpenClaw" → "OpenClaw Bot"). Modes:
+`lookup`, `summary`, `existence`, `attribution`. `plan_and_retrieve()` replaces
+`_retrieve_segment_context()` as the Layer 3 entry point in `context_manager.py`.
+
+**Query Router (`utils/query_router.py` NEW v1.0.1):**
+Composes metadata intent into SQL pre-filter (`get_candidate_segments()`): author
+JOIN on `segment_messages`, time bounds on segment date range. `route_query()` passes
+the candidate segment set as `segment_filter` to `_retrieve_segment_context()`, so RRF
+never scores segments outside the SQL-filtered pool. Existence mode: BM25 zero-hit
+check returns grounded "not found" immediately. Zero candidates → grounded "not found"
+(prevents hallucination). Author filter also passed to `_retrieve_segment_context()` /
+`get_segment_with_messages()` so only the target author's messages are injected per
+segment. Planner info (mode, author, time bounds, latency, candidates) written to receipt
+for `!explain`.
+
+**Author-filter context header (`utils/context_manager.py` v3.1.4):**
+When a query has an author filter, system prompt uses `--- {af}'s Channel Messages ---`
+header with topic-grounded instruction: "User asked: '{query}'. Only answer if relevant.
+Frame specific values with their date: 'on [date] {af} said ...'." Always-on summary
+suppressed for author-filtered queries to avoid over-constraining the model.
+
+**Response QC improvements (`utils/response_qc.py` v1.0.1 → v1.1.2):**
+Presence-only QC rewrite (v1.1.2): checks only whether specific values (numbers, exact
+quotes, named dates) are completely absent from context. No temporal/accuracy reasoning —
+if a value appears anywhere in context, QC passes. Added `REASON` logging per unsupported
+sentence for debugging. `_CONTEXT_MARKERS` extended with `"'s Channel Messages"`.
+
+**QC_FAIL receipt (`utils/response_handler.py` v1.7.2, `commands/explain_commands.py` v1.3.3):**
+When QC_FAIL fires, receipt is saved with `qc_failed=True` so `!explain` shows what
+context was used. `format_receipt()` prepends ⚠️ `QC_FAIL` warning. `_save_qc_fail_receipt()`
+helper handles all three response branches (string, reasoning-split, dict).
+
+**is_bot_author filter reverted (`utils/cluster_retrieval.py` v1.6.0):**
+v7.4.1 Fix 2 (`_is_segment_noise()` returning True for all `is_bot_author=1`) was overly
+broad — it excluded conversation-participant bots (e.g. Synthergy-GPT4) from source
+injection. Reverted to ℹ️/⚙️/! prefix check only. Bot AI responses remain excluded via
+the `raw_events.py` `is_self` gate.
+
+**Files changed:**
+- `utils/query_planner.py` NEW v1.1.4
+- `utils/query_router.py` NEW v1.0.1
+- `utils/context_manager.py` v3.0.4 → v3.1.4
+- `utils/context_retrieval.py` v1.9.0 → v1.15.1
+- `utils/fts_search.py` v1.1.0 → v1.2.0
+- `utils/cluster_retrieval.py` v1.5.1 → v1.6.0
+- `utils/response_qc.py` v1.0.1 → v1.1.2
+- `utils/response_handler.py` v1.7.0 → v1.7.2
+- `commands/explain_commands.py` v1.3.0 → v1.3.3
+- `config.py` v1.21.0 → v1.22.0
+
+---
 
 ### Version 7.4.1 — General response QC pass + hallucination loop fix
 
@@ -661,8 +725,8 @@ citations stripped; Sources footer appended (≤1950 chars inline, else ℹ️ f
 
 ```
 discord-bot/
-├── bot.py                         # v3.4.0
-├── config.py                      # v1.20.0
+├── bot.py                         # v3.5.0
+├── config.py                      # v1.22.0
 ├── main.py
 ├── .env
 ├── data/
@@ -691,7 +755,7 @@ discord-bot/
 │   ├── debug_commands.py          # v2.1.0  ← status counts in pipeline
 │   ├── cluster_commands.py        # v1.6.0
 │   ├── dedup_commands.py          # v1.0.0
-│   ├── explain_commands.py        # v1.3.0
+│   ├── explain_commands.py        # v1.3.3
 │   ├── auto_respond_commands.py   # v2.2.0
 │   ├── ai_provider_commands.py    # v2.1.0
 │   ├── thinking_commands.py       # v2.2.0
@@ -703,7 +767,9 @@ discord-bot/
 │   ├── receipt_store.py           # v1.0.0
 │   ├── proposition_store.py       # v1.0.0
 │   ├── proposition_decomposer.py  # v1.1.0
-│   ├── fts_search.py              # v1.1.0
+│   ├── query_planner.py           # v1.1.4 (NEW)
+│   ├── query_router.py            # v1.0.1 (NEW)
+│   ├── fts_search.py              # v1.2.0
 │   ├── segment_store.py           # v1.1.0  ← status helpers
 │   ├── segmenter.py               # v1.0.3
 │   ├── cluster_engine.py          # v1.3.0
@@ -714,12 +780,12 @@ discord-bot/
 │   ├── cluster_qa.py              # v1.0.0
 │   ├── cluster_assign.py          # v1.0.0
 │   ├── cluster_update.py          # v1.0.0
-│   ├── cluster_retrieval.py       # v1.4.0  ← get_cluster_content inlined
+│   ├── cluster_retrieval.py       # v1.6.0
 │   ├── cluster_fallback.py        # v1.0.0
-│   ├── pipeline_state.py          # v1.1.0  ← Layer 2 noise filter
+│   ├── pipeline_state.py          # v1.3.0
 │   ├── context_helpers.py         # v1.0.0
-│   ├── context_retrieval.py       # v1.9.0
-│   ├── context_manager.py         # v3.0.3  ← dedup fix + receipt + JSON dump
+│   ├── context_retrieval.py       # v1.15.1
+│   ├── context_manager.py         # v3.1.4
 │   ├── logging_utils.py           # v1.1.0
 │   ├── models.py                  # v1.3.0
 │   ├── message_store.py           # v1.3.0
@@ -729,7 +795,8 @@ discord-bot/
 │   ├── embedding_store.py         # v1.10.0
 │   ├── embedding_noise_filter.py  # v1.0.0
 │   ├── embedding_context.py       # v1.5.0
-│   ├── response_handler.py        # v1.5.0  ← msg_id threading
+│   ├── response_qc.py             # v1.1.2
+│   ├── response_handler.py        # v1.7.2
 │   ├── summarizer.py              # v4.6.0  ← entity status per stage
 │   ├── summary_store.py           # v1.1.0
 │   ├── summary_display.py         # v1.3.3

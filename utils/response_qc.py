@@ -1,5 +1,5 @@
 # utils/response_qc.py
-# Version 1.0.1
+# Version 1.1.2
 """
 General response quality control pass (SOW v7.4.1).
 
@@ -9,20 +9,19 @@ by the full injected context (always-on summary, session bridge, retrieved
 segments). Unsupported claims trigger re-reasoning; persistent failure returns
 None to signal QC_FAIL.
 
+CHANGES v1.1.2: Rewrite QC prompt — presence-only check, no temporal/accuracy reasoning.
+CHANGES v1.1.1: Instruct QC to verify against context only — not training data.
+CHANGES v1.1.0: Remove _build_context_block() token_cap truncation; add
+  "'s Channel Messages" to _CONTEXT_MARKERS; loosen _is_grounded_absence().
+CHANGES v1.0.2: Python pre-check for absence responses — bypass QC when the
+  response is entirely absence/not-found language with no positive claims;
+  GPT-4o-mini does not reliably respect "do not flag negative claims" in the
+  system prompt so a Python gate is more reliable.
 CHANGES v1.0.1: Tune _QC_SYSTEM to reduce pass-2 false positives
-- MODIFIED: _QC_SYSTEM — explicit do-not-flag list; adds negative claims,
-  absence-of-information statements, and framing sentences to ignored set;
-  restricts flagging to specific positive factual assertions only
 
-CREATED v1.0.0:
-- _has_injected_context(system_content) — detect injected factual context
-- _build_context_block(messages, token_cap) — format full context for QC
-- _build_qc_prompt(context_block, question, response) — QC prompt string
-- _call_qc(prompt) — sync GPT-4o-mini call (asyncio.to_thread wrapper)
-- _parse_qc_result(raw) — (passed, unsupported_sentences)
-- build_correction_context(sentences) — [QC CORRECTION] prohibition block
-- run_response_qc(response_text, messages, channel_id, ...) — orchestrator
+CREATED v1.0.0: Full QC pipeline (see git history)
 """
+import re
 import os
 import asyncio
 from utils.logging_utils import get_logger
@@ -32,26 +31,45 @@ logger = get_logger('response_qc')
 _CONTEXT_MARKERS = (
     "--- CONVERSATION CONTEXT ---",
     "--- PAST MESSAGES FROM THIS CHANNEL",
+    "'s Channel Messages",
 )
 
+_ABSENCE_RE = re.compile(
+    r"\b(hasn'?t|haven'?t|didn'?t?|no\s+(record|mention|discussion|specific|"
+    r"insights?|information|evidence|detail)|not\s+(found|discussed|mentioned|"
+    r"shared|recorded|available)|nothing\s+\S+\s+found|doesn'?t\s+appear|"
+    r"i\s+(don'?t|couldn'?t)\s+(see|find|locate)|no\s+evidence|"
+    r"not\s+in\s+(our|the)\s+conversation)\b", re.IGNORECASE)
+
+
+def _is_grounded_absence(response_text):
+    """True if response is primarily absence/not-found claims with no positive assertions.
+
+    Bypasses QC — GPT-4o-mini does not reliably follow 'do not flag negative
+    claims' instructions, so we gate at the Python level instead.
+    """
+    sentences = [s.strip() for s in re.split(r'[.!?]', response_text) if s.strip()]
+    if not sentences:
+        return False
+    absence_count = sum(1 for s in sentences if _ABSENCE_RE.search(s))
+    return absence_count >= (len(sentences) + 1) // 2
+
 _QC_SYSTEM = (
-    "You are a factual accuracy checker. Catch AI responses that assert "
-    "precise, specific facts about conversation content that are NOT in the context.\n\n"
+    "You are checking one thing only: does the response contain specific values "
+    "(numbers, exact quotes, named dates) that are completely absent from the context?\n\n"
+    "PASS if the value appears anywhere in the context — even once, even in an older "
+    "message. Do NOT evaluate whether it is the most recent value, whether the "
+    "attribution wording is perfect, or whether the response could be more precise.\n\n"
     "Do NOT flag:\n"
-    "- General knowledge from model training\n"
-    "- Hedged statements (\"may\", \"likely\", \"I believe\", \"seems\")\n"
-    "- Conversational filler, introductory phrases, or framing sentences\n"
-    "- Negative claims (that something was NOT discussed, NOT found, or NOT present)\n"
-    "- Acknowledgments of limited or missing information\n"
-    "- General characterizations or reasonable summaries of events that ARE in context\n\n"
-    "Only flag: (1) sentences with precise details (exact quotes, specific numbers, "
-    "named events with specifics, exact dates) that contradict or cannot be found "
-    "anywhere in the provided context; or (2) statements that attribute an action or "
-    "statement to a specific person/bot when the context clearly attributes it to "
-    "a different person/bot.\n\n"
-    "If all claims are supported or ignorable, respond exactly: PASS\n"
-    "If any claim is unsupported, list each unsupported sentence on its own "
-    "line prefixed with UNSUPPORTED:"
+    "- Hedges ('around', 'approximately', 'roughly') applied to a value that IS in context\n"
+    "- Paraphrases of statements that ARE in context\n"
+    "- Temporal framing ('current', 'at the time') when the underlying value IS in context\n"
+    "- General knowledge, filler, negative claims, or absence statements\n\n"
+    "Only flag a sentence if a specific value it asserts is NOWHERE in the context at all.\n\n"
+    "If nothing is absent, respond exactly: PASS\n"
+    "If any value is absent, for each one output:\n"
+    "  UNSUPPORTED: <sentence>\n"
+    "  REASON: <the specific value that cannot be found anywhere in the context>"
 )
 
 
@@ -60,26 +78,21 @@ def _has_injected_context(system_content):
     return any(m in system_content for m in _CONTEXT_MARKERS)
 
 
-def _build_context_block(messages, token_cap=6000):
-    """Build context string for the QC prompt.
+def _build_context_block(messages):
+    """Build full context string for the QC prompt.
 
-    System content is always included in full. Session turns (messages[1:-1])
-    are appended oldest-first; stops when total chars exceed token_cap * 4.
+    Includes complete system content and all session turns. No truncation —
+    QC must see the exact context the answering LLM received.
     """
     if not messages:
         return ""
     sys_content = messages[0].get("content", "")
-    char_cap = token_cap * 4
     parts = [sys_content]
-    used = len(sys_content)
     if len(messages) > 2:
-        turn_lines = []
-        for msg in messages[1:-1]:
-            line = f"[{msg.get('role', 'user')}] {msg.get('content', '')}"
-            if used + len(line) > char_cap:
-                break
-            turn_lines.append(line)
-            used += len(line)
+        turn_lines = [
+            f"[{msg.get('role', 'user')}] {msg.get('content', '')}"
+            for msg in messages[1:-1]
+        ]
         if turn_lines:
             parts.append("--- SESSION HISTORY ---\n" + "\n".join(turn_lines))
     return "\n\n".join(parts)
@@ -114,12 +127,18 @@ def _parse_qc_result(raw):
     if raw.upper() == "PASS":
         return True, []
     unsupported = []
+    pending_sentence = None
     for line in raw.splitlines():
         line = line.strip()
         if line.upper().startswith("UNSUPPORTED:"):
-            sentence = line[len("UNSUPPORTED:"):].strip()
-            if sentence:
-                unsupported.append(sentence)
+            pending_sentence = line[len("UNSUPPORTED:"):].strip()
+        elif line.upper().startswith("REASON:") and pending_sentence is not None:
+            reason = line[len("REASON:"):].strip()
+            logger.info(f"QC unsupported reason: {reason}")
+            unsupported.append(pending_sentence)
+            pending_sentence = None
+    if pending_sentence:
+        unsupported.append(pending_sentence)
     return (False, unsupported) if unsupported else (True, [])
 
 
@@ -154,6 +173,10 @@ async def run_response_qc(response_text, messages, channel_id,
         context_block = _build_context_block(messages)
         question = messages[-1].get("content", "") if messages else ""
 
+        if _is_grounded_absence(response_text):
+            logger.debug(f"QC skip: grounded absence response ch:{channel_id}")
+            return response_text
+
         # Pass 1
         try:
             raw1 = await asyncio.to_thread(
@@ -185,6 +208,10 @@ async def run_response_qc(response_text, messages, channel_id,
         except Exception as e:
             logger.warning(f"Re-reason call failed, failing open: {e}")
             return response_text
+
+        if _is_grounded_absence(new_resp):
+            logger.debug(f"QC skip: grounded absence after re-reason ch:{channel_id}")
+            return new_resp
 
         # Pass 2
         try:

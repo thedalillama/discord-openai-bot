@@ -1,8 +1,47 @@
 # HANDOFF.md
 # Discord Bot Development Status
-# Version 7.4.1
+# Version 7.5.0
 
 ## Current Version Features
+
+### Version 7.5.0 — Query Planner + Metadata-Aware Retrieval
+
+**Query Planner** (`utils/query_planner.py` NEW v1.1.4): fast-path check detects
+metadata signals (member names, temporal, existence, attribution, pronouns). Signals
+absent → bypass planner, full RRF. Signals present → GPT-4o-mini tool-call parses
+query into `{content_query, author, after, before, mode}`. Planner + embedding run
+in parallel via `ThreadPoolExecutor`. Current speaker excluded from pronoun resolution.
+`plan_and_retrieve()` is the Layer 3 entry point.
+
+**Query Router** (`utils/query_router.py` NEW v1.0.1): composes metadata filters into
+SQL pre-filter → `segment_filter` restricts all three RRF signals to filtered pool.
+Existence mode: BM25 zero-hit → grounded "not found". Author filter injects only target
+author's messages per segment. Planner receipt in `!explain`.
+
+**Response QC** (`utils/response_qc.py` v1.1.2): presence-only rewrite — only flags
+specific values completely absent from context. No temporal/accuracy reasoning. REASON
+logged per unsupported sentence. `_CONTEXT_MARKERS` includes `"'s Channel Messages"`.
+
+**QC_FAIL receipt** (`utils/response_handler.py` v1.7.2, `commands/explain_commands.py` v1.3.3):
+receipt saved on QC_FAIL with `qc_failed=True`; `!explain` shows ⚠️ warning + context used.
+
+**is_bot_author filter reverted** (`utils/cluster_retrieval.py` v1.6.0): v7.4.1 Fix 2
+was too broad (excluded Synthergy-GPT4 + other participant bots). Reverted to ℹ️/⚙️/!
+prefix check only.
+
+**Key files changed v7.5.0:**
+- `utils/query_planner.py` NEW v1.1.4
+- `utils/query_router.py` NEW v1.0.1
+- `utils/context_manager.py` v3.0.4 → v3.1.4
+- `utils/context_retrieval.py` v1.9.0 → v1.15.1
+- `utils/fts_search.py` v1.1.0 → v1.2.0
+- `utils/cluster_retrieval.py` v1.5.1 → v1.6.0
+- `utils/response_qc.py` v1.0.1 → v1.1.2
+- `utils/response_handler.py` v1.7.0 → v1.7.2
+- `commands/explain_commands.py` v1.3.0 → v1.3.3
+- `config.py` v1.21.0 → v1.22.0
+
+---
 
 ### Version 7.4.1 — General response QC pass + hallucination loop fix
 
@@ -16,7 +55,7 @@ injected context. Fires only when `--- CONVERSATION CONTEXT ---` or
 `[N]` source messages, creating a feedback loop where wrong answers became evidence.
 - `raw_events.py` v1.9.1: skips embedding when `message.author.id == bot.user.id`
 - `cluster_retrieval.py` v1.5.1: `_is_segment_noise()` returns True for all
-  `is_bot_author=1` messages — bot responses excluded from source injection
+  `is_bot_author=1` messages — bot responses excluded from source injection (reverted in v7.5.0)
 
 **Key files changed v7.4.1:**
 - `utils/response_qc.py` NEW v1.0.1 — QC orchestrator, GPT-4o-mini checker

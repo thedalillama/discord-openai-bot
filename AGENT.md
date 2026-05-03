@@ -1,5 +1,5 @@
 # AGENT.md
-# Version 7.4.1
+# Version 7.5.0
 # Agent Development Rules for Discord Bot Project
 
 ## Development Procedure
@@ -88,18 +88,21 @@ Steps marked ⛔ require the user's explicit approval before proceeding.
 
 ## Current Architecture Context
 
-### Semantic Retrieval (v6.4.1 — proposition+dense+BM25+RRF)
-- Retrieval path: `context_manager.py` → `_retrieve_segment_context()` in `context_retrieval.py`
-- Query embedded via `embed_query_with_smart_context()` → (vec, path_name)
-- Propositions: `find_relevant_propositions()` — cosine vs all prop embeddings; collapse to max-score-per-segment → seg IDs
-- Dense: `find_relevant_segments(top_k*2, floor=RETRIEVAL_FLOOR)` — cosine vs all segment embeddings
+### Semantic Retrieval (v7.5.0 — query planner + proposition+dense+BM25+RRF)
+- Layer 3 entry: `context_manager.py` → `plan_and_retrieve()` in `query_planner.py`
+- Fast-path: `needs_query_planner()` absent → direct `_retrieve_segment_context()` (no latency penalty)
+- Metadata path: planner (GPT-4o-mini tool-call) + embedding in parallel → `route_query()` → filtered RRF
+- SQL pre-filter (`query_router.py`): author JOIN on segment_messages, time bounds on segment dates
+- `_retrieve_segment_context()` in `context_retrieval.py` accepts `segment_filter` + `author_filter`
+- Propositions: `find_relevant_propositions()` — cosine vs filtered prop embeddings; collapse to max-score-per-segment → seg IDs
+- Dense: `find_relevant_segments(top_k*2, floor=RETRIEVAL_FLOOR)` — cosine vs filtered segment embeddings
 - Score-gap: `_apply_score_gap()` — cuts at largest inter-score gap ≥ `RETRIEVAL_SCORE_GAP`
-- BM25: `fts_search(query_text)` via SQLite FTS5 — synthesis + raw message content
+- BM25: `fts_search(query_text)` via SQLite FTS5 — filtered by segment set
 - RRF: `rrf_fuse(prop, dense, bm25, k=RRF_K)` → top-K fused (segment_id, rrf_score) pairs
-- Per segment: `get_segment_with_messages()` → synthesis + source messages injected with [N] citations
+- Per segment: `get_segment_with_messages(author_filter=...)` → only target author's messages injected
 - Rollback: if no segments in DB, `_cluster_rollback()` scores query vs cluster centroids (RETRIEVAL_MIN_SCORE)
 - Message fallback: `find_similar_messages()` when segment retrieval empty
-- Receipt stored via `receipt_store.py`; `!explain` displays retrieved_segments + score_gap_applied
+- Receipt stored via `receipt_store.py`; `!explain` displays retrieved_segments + query_planner info
 
 ### Context Receipts & !explain (v5.7.0+)
 - Every bot response stores a context receipt via `receipt_store.py`

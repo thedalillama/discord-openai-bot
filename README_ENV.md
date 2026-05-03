@@ -1,5 +1,5 @@
 # README_ENV.md
-# Version 7.3.1
+# Version 7.5.0
 # Environment Variables Configuration Guide
 
 ## Required Variables
@@ -71,6 +71,8 @@ The `data/` directory is created automatically on first run.
 | `EMBEDDING_CONTEXT_MIN_SCORE` | Min cosine similarity for a previous message to be included in the `[Context: ...]` prefix for stored embeddings | `0.3` |
 | `RETRIEVAL_MSG_FALLBACK` | Max messages returned by direct fallback search | `15` |
 | `PROPOSITION_BATCH_SIZE` | Segment syntheses per GPT-4o-mini decomposition call | `10` |
+| `QUERY_PLANNER_MODEL` | Model used by query planner to parse metadata signals (v7.5.0) | `gpt-4o-mini` |
+| `RESPONSE_QC_ENABLED` | Enable/disable response QC pass (v7.4.1) | `true` |
 
 Production `.env` sets `RETRIEVAL_MIN_SCORE=0.5` and `CONTEXT_BUDGET_PERCENT=80`.
 
@@ -216,44 +218,22 @@ automatically appended to whichever system prompt is active.
 
 ## Debug Tools
 
-When `LOG_LEVEL=DEBUG`, the full combined system prompt (base prompt +
-citation instruction + context block) is written to `/tmp/last_system_prompt.txt`
-after every bot response. Read it with:
+`LOG_LEVEL=DEBUG` writes the full system prompt to `/tmp/last_system_prompt.txt` after
+every response — exact text sent to the AI provider.
 
-```bash
-cat /tmp/last_system_prompt.txt
-```
-
-This is the exact text sent to the AI provider API.
-
-## Priority Order
-
-Shell environment variables > `.env` file > `config.py` defaults.
+**Priority:** Shell env vars > `.env` file > `config.py` defaults.
 
 ## Example .env
 
 ```bash
-# Required
 DISCORD_TOKEN=your_discord_bot_token
-
-# Conversation provider
+OPENAI_API_KEY=your-openai-key
 AI_PROVIDER=deepseek
 OPENAI_COMPATIBLE_API_KEY=sk-your-deepseek-key
 OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 OPENAI_COMPATIBLE_MODEL=deepseek-reasoner
-
-# Summarization
 GEMINI_API_KEY=your-gemini-key
 SUMMARIZER_PROVIDER=gemini
 SUMMARIZER_MODEL=gemini-3.1-flash-lite-preview
-SUMMARIZER_BATCH_SIZE=500
-
-# Embeddings + classifier (required)
-OPENAI_API_KEY=your-openai-key
-
-# Optional tuning
 CONTEXT_BUDGET_PERCENT=80
-MAX_RECENT_MESSAGES=5
-DATABASE_PATH=./data/messages.db
-LOG_LEVEL=INFO
 ```

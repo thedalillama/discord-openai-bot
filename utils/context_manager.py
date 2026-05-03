@@ -1,22 +1,20 @@
 # utils/context_manager.py
-# Version 3.0.5
+# Version 3.1.4
 """
 Token-budget-aware context management and usage tracking.
 
+CHANGES v3.1.4: Author-filter header instructs date-framing for specific values.
+CHANGES v3.1.3: Inject actual user question into author-filter header for topic grounding.
+CHANGES v3.1.2: Author-filter header — instruct model to answer only what was asked.
+CHANGES v3.1.1: Suppress Layer 1 summary for author-filtered queries (SOW v7.5.0)
+CHANGES v3.1.0: Layer 3 entry point → plan_and_retrieve() from query_planner (SOW v7.5.0)
 CHANGES v3.0.5: Add attribution hint to citation instructions (check author name per msg)
 CHANGES v3.0.4: Replace gorilla citation example with neutral one
 CHANGES v3.0.3: Reverse dedup — Layer 2 canonical; selected only adds SQLite-missing msgs
 CHANGES v3.0.2: Add /tmp/last_full_context.json DEBUG dump (full messages array)
 CHANGES v3.0.1: Fix always_on receipt missing total_tokens key (overview + control)
-CHANGES v3.0.0: Three-layer context assembly (SOW v7.0.0 M1)
-- ADDED: read_control_file() — re-exported from context_helpers
-- MODIFIED: build_context_for_provider() — Layer 1 (system+control+always-on),
-  Layer 2 (session bridge+unsummarized, guaranteed), Layer 3 (RRF, fills remainder)
-- MODIFIED: receipt_data includes continuity section for !explain
-
-CHANGES v2.5.x: receipt fixes, DEBUG dump, citation pass-through (SOW v5.9.0–v6.1.0)
-CHANGES v2.4.0: Return (messages, receipt_data) tuple (SOW v5.7.0)
-CHANGES v2.3.0: Extract retrieval to context_retrieval.py (SOW v5.6.0)
+CHANGES v3.0.0: Three-layer context assembly; read_control_file(); Layer 1/2/3 assembly (SOW v7.0.0 M1)
+CHANGES v2.x: receipt fixes, citation pass-through, retrieval extraction (SOW v5.6.0–v6.1.0)
 CREATED v1.0.0: Initial implementation (SOW v2.23.0)
 """
 from collections import defaultdict
@@ -85,7 +83,7 @@ def build_context_for_provider(channel_id, provider):
 
     Return: (messages, receipt_data, citation_map)
     """
-    from utils.context_retrieval import _retrieve_segment_context
+    from utils.query_planner import plan_and_retrieve
     from utils.pipeline_state import (
         get_session_bridge_messages, get_unsummarized_messages)
 
@@ -143,24 +141,25 @@ def build_context_for_provider(channel_id, provider):
 
     # ── Layer 3: Historical retrieval (fills remainder) ──
     seen_ids = {m["id"] for m in continuity_block}
-    retrieved, ret_tokens, cluster_receipt, citation_map = _retrieve_segment_context(
+    retrieved, ret_tokens, cluster_receipt, citation_map = plan_and_retrieve(
         channel_id, conversation_msgs, remaining, exclude_ids=seen_ids)
 
     # ── Build final system message ──
-    system_content = base_content
+    af = ", ".join(((cluster_receipt or {}).get("query_planner") or {}).get("author_filter") or [])
+    af_query = (cluster_receipt or {}).get("query", "").strip() if af else ""
+    system_content = base_content if not af else (
+        system_msg["content"] + (f"\n\n{control}" if control else ""))
     if retrieved:
-        cite_instr = (
-            "CITATION INSTRUCTIONS: Messages are numbered [1], [2], etc. "
-            "When your answer uses specific information from these messages, "
-            'cite with [N] inline. Example: "The meeting was moved to Friday [1]."\n'
-            "When asked about a specific participant, only cite their messages "
-            "(check the author name on each source message).\n\n"
-        ) if citation_map else ""
-        system_content += (
-            f"\n\n--- PAST MESSAGES FROM THIS CHANNEL (retrieved by topic relevance) ---\n"
-            f"The following are real messages previously sent in this channel, "
-            f"retrieved because they are relevant to the current query. "
-            f"They ARE part of this conversation's history.\n\n{cite_instr}{retrieved}")
+        cite_instr = ("CITATION INSTRUCTIONS: cite [N] inline for specific info. "
+                      "For participant questions, only cite their messages.\n\n"
+                      ) if citation_map else ""
+        hdr = (f"\n\n--- {af}'s Channel Messages ---\n"
+               f"User asked: \"{af_query}\". Only answer if relevant. "
+               f"Frame specific values with their date: 'on [date] {af} said ...'. "
+               f"If not found, say so clearly.\n\n") if af else (
+               f"\n\n--- PAST MESSAGES FROM THIS CHANNEL ---\n"
+               f"Real messages retrieved by topic relevance.\n\n")
+        system_content += hdr + cite_instr + retrieved
     elif summary:
         from utils.summary_display import format_summary_for_context
         system_content += (
@@ -227,10 +226,10 @@ def build_context_for_provider(channel_id, provider):
             "retrieved_segments": cluster_receipt.get("retrieved_segments"),
             "score_gap_applied": cluster_receipt.get("score_gap_applied", False),
             "retrieved_clusters": cluster_receipt.get("retrieved_clusters", []),
-            "clusters_below_threshold": cluster_receipt.get(
-                "clusters_below_threshold", []),
+            "clusters_below_threshold": cluster_receipt.get("clusters_below_threshold", []),
             "fallback_used": cluster_receipt.get("fallback_used", False),
             "fallback_messages": cluster_receipt.get("fallback_messages", 0),
+            "query_planner": cluster_receipt.get("query_planner"),
             "recent_messages": len(selected),
             "total_context_tokens": total_tokens,
             "budget_tokens": budget,

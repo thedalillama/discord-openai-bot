@@ -1,12 +1,15 @@
 # utils/cluster_retrieval.py
-# Version 1.5.3
+# Version 1.6.0
 """
 Query-time cluster/segment/proposition retrieval for semantic context injection.
 
-CHANGES v1.5.3: find_relevant_propositions() speaker_filter — text-match on content
+CHANGES v1.6.0: segment_filter param on find_relevant_segments and
+  find_relevant_propositions — restricts to candidate set from query router
+  SQL pre-filter; removes speaker_filter from find_relevant_propositions
+  (replaced by query planner)
+CHANGES v1.5.3: find_relevant_propositions() speaker_filter (replaced v1.6.0)
 CHANGES v1.5.2: Revert is_bot_author filter — _is_segment_noise() drops param,
-  uses stripped ℹ️/⚙️ check; SQL reverts (no m.is_bot_author). Speaker filter in
-  context_retrieval.py handles attribution when query names a participant.
+  uses stripped ℹ️/⚙️ check; SQL reverts (no m.is_bot_author).
 CHANGES v1.5.1: Filter bot-authored messages from segment injection (reverted)
 CHANGES v1.5.0: Filter ℹ️/⚙️/! noise from segment source messages
 CHANGES v1.4.0: Inline get_cluster_content (SOW v7.1.0 M2)
@@ -41,28 +44,27 @@ def _apply_score_gap(results, gap_threshold=0.08):
     return results[:cut_idx] if max_gap >= gap_threshold else results
 
 
-def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15):
+def find_relevant_segments(query_embedding, channel_id, top_k=5, floor=0.15,
+                           segment_filter=None):
     """Score query against all segment embeddings. Return top-K above floor.
 
-    Queries segment embeddings directly instead of cluster centroids, giving
-    focused similarity scores against individual topic groups.
-
-    Args:
-        query_embedding: query vector (list or np.array)
-        channel_id: Discord channel ID
-        top_k: max segments to return
-        floor: absolute minimum score; segments below this are never returned
-
-    Returns:
-        list of (segment_id, topic_label, synthesis, score) tuples,
-        score descending. Only segments above floor included.
+    segment_filter: optional set of segment IDs; restricts SQL load to those
+    IDs only (SQL pre-filter for query router metadata path).
+    Returns (segment_id, topic_label, synthesis, score) tuples, score descending.
     """
     conn = sqlite3.connect(DATABASE_PATH)
     try:
-        rows = conn.execute(
-            "SELECT id, topic_label, synthesis, embedding FROM segments "
-            "WHERE channel_id=? AND embedding IS NOT NULL",
-            (channel_id,)).fetchall()
+        if segment_filter:
+            ph = ",".join("?" * len(segment_filter))
+            rows = conn.execute(
+                f"SELECT id, topic_label, synthesis, embedding FROM segments "
+                f"WHERE channel_id=? AND embedding IS NOT NULL AND id IN ({ph})",
+                (channel_id, *segment_filter)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, topic_label, synthesis, embedding FROM segments "
+                "WHERE channel_id=? AND embedding IS NOT NULL",
+                (channel_id,)).fetchall()
     finally:
         conn.close()
 
@@ -137,12 +139,12 @@ def get_segment_with_messages(segment_id, exclude_ids=None):
 
 
 def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20,
-                               speaker_filter=None):
+                               segment_filter=None):
     """Score query vs proposition embeddings; collapse to segment IDs.
 
-    If speaker_filter is set, restricts to propositions whose content mentions
-    the speaker (text match). Propositions name participants explicitly so this
-    is more precise than message author filtering.
+    Each segment gets at most one entry — the highest-scoring proposition
+    per segment prevents size bias. When segment_filter is set, only
+    propositions belonging to those segments are considered.
 
     Returns: list of (segment_id, best_score) tuples, score descending.
     """
@@ -152,17 +154,14 @@ def find_relevant_propositions(query_embedding, channel_id, top_k=10, floor=0.20
         return []
     query = np.array(query_embedding, dtype=np.float32)
     seg_best = {}
-    speaker_segs = set()
-    for _, seg_id, content, vec in rows:
+    for _, seg_id, _, vec in rows:
+        if segment_filter and seg_id not in segment_filter:
+            continue
         vec_arr = np.array(vec, dtype=np.float32)
         norm = float(np.linalg.norm(query) * np.linalg.norm(vec_arr))
         score = float(np.dot(query, vec_arr)) / norm if norm > 0 else 0.0
         if score >= floor and score > seg_best.get(seg_id, -1):
             seg_best[seg_id] = score
-        if speaker_filter and speaker_filter.lower() in content.lower():
-            speaker_segs.add(seg_id)
-    if speaker_filter:
-        seg_best = {sid: s for sid, s in seg_best.items() if sid in speaker_segs}
     results = sorted(seg_best.items(), key=lambda x: x[1], reverse=True)
     return results[:top_k]
 

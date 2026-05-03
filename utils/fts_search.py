@@ -1,5 +1,5 @@
 # utils/fts_search.py
-# Version 1.1.0
+# Version 1.2.0
 """
 FTS5 full-text search helpers for hybrid retrieval (SOW v6.2.0/v6.3.0).
 
@@ -18,6 +18,7 @@ FTS5 is populated during !summary create only (not incremental). A BM25 failure
 degrades gracefully to dense-only — rrf_fuse returns the dense ranking unchanged
 when bm25_ranked is empty.
 
+CHANGES v1.2.0: fts_search() accepts segment_filter — restricts results to set
 CHANGES v1.1.0: rrf_fuse accepts variable number of ranked lists (SOW v6.3.0)
 - MODIFIED: rrf_fuse(dense, bm25, ...) → rrf_fuse(*ranked_lists, ...) so the
   proposition signal can be passed as a third list. Backward-compatible:
@@ -81,7 +82,7 @@ def clear_fts(channel_id):
         conn.close()
 
 
-def fts_search(query_text, channel_id, top_n=20):
+def fts_search(query_text, channel_id, top_n=20, segment_filter=None):
     """BM25 search via FTS5 MATCH. Returns ranked list of segment IDs.
 
     FTS5 rank is negative (more negative = more relevant), so ORDER BY rank
@@ -95,24 +96,28 @@ def fts_search(query_text, channel_id, top_n=20):
         query_text: raw user query string
         channel_id: Discord channel ID
         top_n: max results to return
+        segment_filter: optional set of segment IDs to restrict results
 
     Returns:
         list of segment_id integers, ranked by BM25 (best first)
     """
     import re
-    # Strip FTS5 special chars; collapse whitespace into individual terms
     sanitized = re.sub(r'[?*":()\-^]', ' ', query_text)
     sanitized = ' '.join(sanitized.split())
     if not sanitized:
         return []
     conn = sqlite3.connect(DATABASE_PATH)
     try:
+        fetch_n = top_n * 3 if segment_filter else top_n
         rows = conn.execute(
             "SELECT segment_id FROM segments_fts "
             "WHERE channel_id=? AND segments_fts MATCH ? "
             "ORDER BY rank LIMIT ?",
-            (str(channel_id), sanitized, top_n)).fetchall()
-        return [r[0] for r in rows]
+            (str(channel_id), sanitized, fetch_n)).fetchall()
+        result = [r[0] for r in rows]
+        if segment_filter:
+            result = [sid for sid in result if sid in segment_filter][:top_n]
+        return result
     except Exception as e:
         logger.warning(f"FTS5 search failed ch:{channel_id}: {e}")
         return []

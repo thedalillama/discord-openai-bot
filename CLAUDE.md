@@ -1,5 +1,5 @@
 # CLAUDE.md
-# Version 7.4.1
+# Version 7.5.0
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -52,6 +52,8 @@ MAX_RECENT_MESSAGES=5
 CONTROL_FILE_PATH=./data/control.txt  # injected into every system prompt
 SESSION_GAP_MINUTES=30                # session boundary for session bridge
 LAYER2_BUDGET_PCT=0.7                 # fraction of remaining budget for Layer 2
+QUERY_PLANNER_MODEL=gpt-4o-mini       # model for query planner metadata parsing
+RESPONSE_QC_ENABLED=true              # enable/disable response QC pass
 ```
 
 Priority: shell env vars > `.env` file > `config.py` defaults.
@@ -83,19 +85,22 @@ Layer 1 — always wins over retrieval. Recent messages never trimmed for histor
 - Unsummarized: messages after the max message ID in any `clustered/unclustered`
   segment. Boundary moves only on `!summary create` — worker indexing does not drain it.
 
-**Layer 3 (fills remainder):** Historical RRF retrieval (propositions + dense +
-BM25) — same retrieval path as v6.4.x, now with `exclude_ids` to avoid
-duplicating Layer 2 messages.
+**Layer 3 (fills remainder):** Historical RRF retrieval via `plan_and_retrieve()`
+in `query_planner.py`. Fast-path: topic-only queries → direct RRF. Metadata path
+(speaker names, time, existence, attribution, pronouns): GPT-4o-mini planner + embedding
+in parallel → `route_query()` SQL pre-filter → RRF within filtered set.
 
-Retrieval path (`context_manager.py` → `context_retrieval.py`):
-1. `embed_query_with_smart_context()` on contextual query
-2. `find_relevant_propositions()` — cosine vs ALL proposition embeddings; collapse max-score-per-segment → seg IDs
-3. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings, expanded pool
-4. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
-5. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5
-6. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
-7. `get_segment_with_messages()` — synthesis + source messages per segment; noise-filtered (skips ℹ️/⚙️, !commands)
-8. Rollback: if no segments, `_cluster_rollback()` (in `cluster_fallback.py`) uses cluster centroids
+Retrieval path (`context_manager.py` → `query_planner.py` → `context_retrieval.py`):
+1. `plan_and_retrieve()` — detects metadata signals; runs planner + embed in parallel
+2. `_retrieve_segment_context()` — called by fast-path or router with optional segment_filter/author_filter
+3. `embed_query_with_smart_context()` on contextual query
+4. `find_relevant_propositions()` — cosine vs ALL proposition embeddings (or filtered set); collapse max-score-per-segment → seg IDs
+5. `find_relevant_segments(top_k*2)` — cosine vs ALL segment embeddings (or filtered set)
+6. `_apply_score_gap()` — cuts dense candidates at largest inter-score gap ≥ 0.08
+7. `fts_search(query_text)` — BM25 keyword search via SQLite FTS5 (or filtered set)
+8. `rrf_fuse(prop, dense, bm25, k=RRF_K)` — Reciprocal Rank Fusion → final top-K IDs
+9. `get_segment_with_messages()` — synthesis + source messages per segment; noise-filtered; optional author_filter
+10. Rollback: if no segments, `_cluster_rollback()` (in `cluster_fallback.py`) uses cluster centroids
 
 **Embedding strategy (v5.6.0):**
 All embeddings include conversational context via `build_contextual_text()` in
@@ -131,7 +136,8 @@ Key files: `utils/pipeline_state.py` (pipeline CRUD, session bridge, unsummarize
 `utils/context_helpers.py` (Layer 2 helpers), `utils/cluster_fallback.py` (v5.x rollback),
 `utils/cluster_retrieval.py` (find_relevant_segments, get_segment_with_messages),
 `utils/fts_search.py` (populate_fts, fts_search, rrf_fuse), `utils/context_retrieval.py` (hybrid retrieval + fallback),
-`utils/embedding_context.py` (build_contextual_text), `utils/context_manager.py` (three-layer assembly, v3.0.4),
+`utils/query_planner.py` (fast-path + planner + plan_and_retrieve()), `utils/query_router.py` (SQL pre-filter + route_query()),
+`utils/embedding_context.py` (build_contextual_text), `utils/context_manager.py` (three-layer assembly, v3.1.4),
 `utils/segment_store.py` (segment CRUD + status), `utils/cluster_store.py` (cluster CRUD + status),
 `utils/history/discord_loader.py` (DB seed + delta fetch), `utils/history/realtime_settings_parser.py` (restore_settings_from_db)
 
@@ -150,26 +156,9 @@ post-processing stack (classify → overview → dedup → answered-Q → save).
 Key files: `utils/cluster_assign.py` (centroid assignment), `utils/cluster_update.py` (quick pipeline), `utils/cluster_store.py` (dirty cluster CRUD), `schema/006.sql`
 
 ### Summarization Pipeline (v6.0.0 — segment-based)
-`!summary create` runs the segment pipeline via `summarizer.py` v4.7.0:
-```
-summarize_channel(channel_id)                  ← summarizer.py
-  → run_segmentation_phase()                   ← segmenter.py
-      Gemini batch-processes messages (500/batch, 20 overlap)
-      → topic boundaries + synthesis (resolves implicit refs)
-      → store_segments() + embed syntheses     ← segment_store.py
-  → run_segment_clustering()                   ← segment_store.py
-      UMAP + HDBSCAN on segment embeddings
-      store to clusters + cluster_segments (NOT cluster_messages)
-  → run_cluster_pipeline(pre_run_stats=stats)  ← cluster_overview.py
-      → summarize_all_clusters(use_segments=True) ← cluster_summarizer.py
-          M-labeled segment syntheses → Gemini per cluster
-      → _collect_structured_items()
-      → classify_overview_items()              ← cluster_classifier.py
-      → generate_overview()
-      → deduplicate_summary()                  ← cluster_qa.py
-      → remove_answered_questions()            ← cluster_qa.py
-      → save_channel_summary()
-```
+`!summary create` runs the segment pipeline:
+segment (Gemini) → embed syntheses (OpenAI) → cluster segments (UMAP+HDBSCAN) →
+summarize clusters (Gemini, use_segments=True) → classify → overview → dedup → QA → save.
 Fallback: if segmentation yields 0 segments OR segment clustering fails,
 falls back to direct message clustering (v5.x path) automatically.
 
@@ -184,18 +173,14 @@ Key files: `summarizer.py` (router), `segmenter.py` (Gemini segmentation+synthes
 All bot output prefixed with ℹ️ (noise) or ⚙️ (settings persistence).
 Filters in `message_processing.py`: `is_noise_message()`, `is_settings_message()`.
 
-Embedding noise filter (v5.13.0, updated v7.4.1): `utils/embedding_noise_filter.py`
-`should_skip_embedding(content, is_bot_author)` — single gate applied at
-embed time (`raw_events.py`) and backfill (`embedding_store.py`). Skips
-commands, bot output, diagnostic prefixes, `[Original Message Deleted]`
-placeholders, and messages under 4 words (questions exempt).
-v7.4.1: `raw_events.py` additionally skips embedding when `message.author.id ==
-bot.user.id` — prevents our own AI responses from being embedded and later
-injected as source evidence, which caused hallucination feedback loops.
+Embedding noise filter (v5.13.0): `utils/embedding_noise_filter.py`
+`should_skip_embedding(content, is_bot_author)` — single gate at embed time
+(`raw_events.py`) and backfill (`embedding_store.py`). Skips commands, bot output,
+diagnostic prefixes, deleted placeholders, and messages under 4 words (questions exempt).
+`raw_events.py` additionally skips embedding when `message.author.id == bot.user.id`.
 
-Response QC (v7.4.1): `utils/response_qc.py` — GPT-4o-mini verifies each response
-against the full injected context when context markers are present. Fires after
-generation; re-reasons on fail; returns None (QC_FAIL) if both passes fail.
+Response QC (v7.5.0): `utils/response_qc.py` v1.1.2 — presence-only GPT-4o-mini check
+after generation; re-reasons on fail; returns None (QC_FAIL) if both passes fail.
 Key files: `utils/response_qc.py` (QC logic), `utils/response_handler.py` (integration)
 
 ### Providers

@@ -1,8 +1,9 @@
 # config.py
-# Version 1.21.0
+# Version 1.22.0
 """
 Bot configuration - all settings loaded from environment variables with defaults.
 
+CHANGES v1.22.0: QUERY_PLANNER_MODEL — GPT-4o-mini model for query planner (SOW v7.5.0)
 CHANGES v1.21.0: PIPELINE_POLL_INTERVAL, MIN_SEGMENT_BATCH, MAX_SEGMENT_BATCH, EMERGENCY_SEGMENT_THRESHOLD (SOW v7.3.0 M3)
 CHANGES v1.20.0: v7.0.0 M1 context injection configuration (SOW v7.0.0)
 - ADDED: CONTROL_FILE_PATH — path to operator control file injected into system prompt
@@ -227,7 +228,7 @@ SESSION_GAP_MINUTES = int(os.environ.get('SESSION_GAP_MINUTES', '30'))
 # Layer 2 continuity block. Guarantees at least (1 - LAYER2_BUDGET_PCT) of
 # remaining budget for Layer 3 historical retrieval.
 LAYER2_BUDGET_PCT = float(os.environ.get('LAYER2_BUDGET_PCT', '0.7'))
-
+QUERY_PLANNER_MODEL = os.environ.get('QUERY_PLANNER_MODEL', 'gpt-4o-mini')  # SOW v7.5.0
 # Background pipeline worker configuration (SOW v7.3.0 M3)
 PIPELINE_POLL_INTERVAL = int(os.environ.get('PIPELINE_POLL_INTERVAL', 30))
 MIN_SEGMENT_BATCH = int(os.environ.get('MIN_SEGMENT_BATCH', 10))

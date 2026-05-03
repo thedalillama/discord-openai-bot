@@ -1,8 +1,9 @@
 # utils/response_handler.py
-# Version 1.7.0
+# Version 1.7.2
 """
 AI response handling utilities for Discord bot.
 
+CHANGES v1.7.2: Save receipt on QC_FAIL (tagged qc_failed=True) for !explain visibility.
 CHANGES v1.7.0: General QC pass replaces citation verifier (SOW v7.4.1)
 - MODIFIED: handle_ai_response_task() — calls run_response_qc() on all responses
   with injected context; returns QC_FAIL message if both passes fail
@@ -33,6 +34,7 @@ CHANGES v1.1.0: Filter noise from runtime history storage (SOW v2.19.0)
 """
 import asyncio
 import io
+import os
 import discord
 from utils.ai_utils import generate_ai_response
 from utils.message_utils import split_message, create_history_content_for_bot_response
@@ -52,29 +54,27 @@ REASONING_SEPARATOR = "\n[DEEPSEEK_ANSWER]:\n"
 
 _I = "ℹ️ "
 _QC_FAIL_MSG = _I + "I was unable to produce a verified response to that question. [QC_FAIL]"
+_QC_ENABLED = os.environ.get("RESPONSE_QC_ENABLED", "true").lower() == "true"
+
+
+async def _save_qc_fail_receipt(fail_msg, trigger_id, channel_id, receipt_data):
+    if not receipt_data:
+        return
+    receipt_data["qc_failed"] = True
+    try:
+        from utils.receipt_store import save_receipt
+        await asyncio.to_thread(save_receipt, fail_msg.id, trigger_id, channel_id, receipt_data)
+    except Exception:
+        pass
 
 
 async def handle_ai_response_task(message, channel_id, messages,
                                    provider_override=None, receipt_data=None,
                                    citation_map=None):
-    """
-    Background task to handle AI response (text and optional images).
-
-    When response starts with REASONING_PREFIX, splits on REASONING_SEPARATOR
-    into two Discord messages: reasoning first (not stored in history),
-    answer second (stored normally). Stores context receipt after send.
-
-    Args:
-        message: Discord message object that triggered the response
-        channel_id: Discord channel ID where response should be sent
-        messages: List of messages for AI context
-        provider_override: Optional provider name to override channel default
-        receipt_data: Optional context receipt dict to persist after send
-        citation_map: Optional {int: {author, content, date}} for citation validation
-    """
+    """Handle AI response: text/images, reasoning split, QC, citations, receipt storage."""
     from utils.citation_utils import apply_citations
     from utils.response_qc import _has_injected_context, run_response_qc
-    _has_ctx = _has_injected_context(messages[0].get("content", "") if messages else "")
+    _has_ctx = _QC_ENABLED and _has_injected_context(messages[0].get("content", "") if messages else "")
     try:
         bot_response = await generate_ai_response(
             messages,
@@ -101,7 +101,8 @@ async def handle_ai_response_task(message, channel_id, messages,
                 if _has_ctx:
                     _qc = await run_response_qc(answer, messages, channel_id, provider_override)
                     if _qc is None:
-                        await message.channel.send(_QC_FAIL_MSG)
+                        _qf = await message.channel.send(_QC_FAIL_MSG)
+                        await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)
                         return
                     answer = _qc
                 answer, cite_footer = apply_citations(answer, citation_map or {})
@@ -118,7 +119,8 @@ async def handle_ai_response_task(message, channel_id, messages,
             if _has_ctx:
                 _qc = await run_response_qc(bot_response, messages, channel_id, provider_override)
                 if _qc is None:
-                    await message.channel.send(_QC_FAIL_MSG)
+                    _qf = await message.channel.send(_QC_FAIL_MSG)
+                    await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)
                     return
                 bot_response = _qc
             bot_response, cite_footer = apply_citations(bot_response, citation_map or {})
@@ -137,7 +139,8 @@ async def handle_ai_response_task(message, channel_id, messages,
             if _has_ctx:
                 _qc = await run_response_qc(text_content, messages, channel_id, provider_override)
                 if _qc is None:
-                    await message.channel.send(_QC_FAIL_MSG)
+                    _qf = await message.channel.send(_QC_FAIL_MSG)
+                    await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)
                     return
                 text_content = _qc
             text_content, cite_footer = apply_citations(text_content, citation_map or {})
