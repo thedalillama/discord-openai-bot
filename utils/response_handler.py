@@ -1,36 +1,17 @@
 # utils/response_handler.py
-# Version 1.7.2
+# Version 1.7.3
 """
 AI response handling utilities for Discord bot.
 
-CHANGES v1.7.2: Save receipt on QC_FAIL (tagged qc_failed=True) for !explain visibility.
-CHANGES v1.7.0: General QC pass replaces citation verifier (SOW v7.4.1)
-- MODIFIED: handle_ai_response_task() — calls run_response_qc() on all responses
-  with injected context; returns QC_FAIL message if both passes fail
-CHANGES v1.5.0: Thread _msg_id through bot responses for Layer 2 dedup
-- MODIFIED: add_response_to_history() — accept msg_id=None kwarg; include
-  _msg_id in stored dict when provided
-- MODIFIED: call sites pass response_msg.id after send
-
-CHANGES v1.4.0: Dead code cleanup (SOW v5.10.1)
-- REMOVED: send_text_response() (no callers — text sending done inline in task)
-- REMOVED: send_image_response() (no callers — image sending done inline in task)
-
-CHANGES v1.3.0: Citation footer support (SOW v5.9.0)
-- MODIFIED: handle_ai_response_task() accepts citation_map=None; calls apply_citations()
-  on response text before send; sends footer as ℹ️ follow-up if it doesn't fit inline
-- MODIFIED: handle_ai_response() forwards citation_map to task
-
-CHANGES v1.2.0: Receipt storage after response send (SOW v5.7.0)
-- MODIFIED: handle_ai_response_task() accepts receipt_data=None; stores receipt
-  via save_receipt() after sending — never blocks or prevents response delivery
-- MODIFIED: handle_ai_response() forwards receipt_data to task
-
-CHANGES v1.1.4: Post-assistant-append trim (SOW v2.23.0)
-CHANGES v1.1.3: Fix reasoning/answer split boundary (SOW v2.20.0 bugfix)
-CHANGES v1.1.2: Handle [DEEPSEEK_REASONING]: prefix (SOW v2.20.0)
-CHANGES v1.1.1: User-friendly API error messages (SOW v2.19.0)
-CHANGES v1.1.0: Filter noise from runtime history storage (SOW v2.19.0)
+CHANGES v1.7.3: Pass receipt_data to run_response_qc() so QC_FAIL details
+  (pass 1/2 responses + per-claim reasons) are captured in the receipt.
+CHANGES v1.7.2: Save receipt on QC_FAIL (qc_failed=True) for !explain visibility.
+CHANGES v1.7.0: General QC pass — run_response_qc() on all responses with context.
+CHANGES v1.5.0: Thread _msg_id through bot responses for Layer 2 dedup.
+CHANGES v1.4.0: Dead code cleanup — removed send_text_response/send_image_response.
+CHANGES v1.3.0: Citation footer support (SOW v5.9.0).
+CHANGES v1.2.0: Receipt storage after response send (SOW v5.7.0).
+CHANGES v1.1.x: Reasoning split, API error messages, noise filter, trim (SOW v2.19–2.23)
 """
 import asyncio
 import io
@@ -99,7 +80,7 @@ async def handle_ai_response_task(message, channel_id, messages,
             # Send answer and store in history
             if answer.strip():
                 if _has_ctx:
-                    _qc = await run_response_qc(answer, messages, channel_id, provider_override)
+                    _qc = await run_response_qc(answer, messages, channel_id, provider_override, receipt_data)
                     if _qc is None:
                         _qf = await message.channel.send(_QC_FAIL_MSG)
                         await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)
@@ -117,7 +98,7 @@ async def handle_ai_response_task(message, channel_id, messages,
 
         elif isinstance(bot_response, str):
             if _has_ctx:
-                _qc = await run_response_qc(bot_response, messages, channel_id, provider_override)
+                _qc = await run_response_qc(bot_response, messages, channel_id, provider_override, receipt_data)
                 if _qc is None:
                     _qf = await message.channel.send(_QC_FAIL_MSG)
                     await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)
@@ -137,7 +118,7 @@ async def handle_ai_response_task(message, channel_id, messages,
             text_content = bot_response.get("text", "")
             images = bot_response.get("images", [])
             if _has_ctx:
-                _qc = await run_response_qc(text_content, messages, channel_id, provider_override)
+                _qc = await run_response_qc(text_content, messages, channel_id, provider_override, receipt_data)
                 if _qc is None:
                     _qf = await message.channel.send(_QC_FAIL_MSG)
                     await _save_qc_fail_receipt(_qf, message.id, channel_id, receipt_data)

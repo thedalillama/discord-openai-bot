@@ -1,24 +1,15 @@
 # utils/response_qc.py
-# Version 1.1.2
+# Version 1.2.0
 """
 General response quality control pass (SOW v7.4.1).
 
-Replaces citation-specific verification (v7.4.0) with a broader LLM check:
-after generating a response, GPT-4o-mini verifies it is logically supported
-by the full injected context (always-on summary, session bridge, retrieved
-segments). Unsupported claims trigger re-reasoning; persistent failure returns
-None to signal QC_FAIL.
-
+CHANGES v1.2.0: _parse_qc_result() returns 3-tuple (passed, unsupported, reasons);
+  run_response_qc() accepts receipt_data kwarg; populates receipt_data["qc_fail_details"]
+  on double-fail so !explain can show pass 1/2 responses and per-claim reasons.
 CHANGES v1.1.2: Rewrite QC prompt — presence-only check, no temporal/accuracy reasoning.
 CHANGES v1.1.1: Instruct QC to verify against context only — not training data.
-CHANGES v1.1.0: Remove _build_context_block() token_cap truncation; add
-  "'s Channel Messages" to _CONTEXT_MARKERS; loosen _is_grounded_absence().
-CHANGES v1.0.2: Python pre-check for absence responses — bypass QC when the
-  response is entirely absence/not-found language with no positive claims;
-  GPT-4o-mini does not reliably respect "do not flag negative claims" in the
-  system prompt so a Python gate is more reliable.
-CHANGES v1.0.1: Tune _QC_SYSTEM to reduce pass-2 false positives
-
+CHANGES v1.1.0: Remove token_cap truncation; add "'s Channel Messages" marker.
+CHANGES v1.0.2: Python absence pre-check. v1.0.1: tune _QC_SYSTEM.
 CREATED v1.0.0: Full QC pipeline (see git history)
 """
 import re
@@ -120,13 +111,13 @@ def _call_qc(prompt):
 
 
 def _parse_qc_result(raw):
-    """Parse QC response. Returns (passed, unsupported_sentences).
-    Ambiguous/empty response → fail-open (True, []).
+    """Parse QC response. Returns (passed, unsupported_sentences, reasons).
+    Ambiguous/empty response → fail-open (True, [], []).
     """
     raw = raw.strip()
     if raw.upper() == "PASS":
-        return True, []
-    unsupported = []
+        return True, [], []
+    unsupported, reasons = [], []
     pending_sentence = None
     for line in raw.splitlines():
         line = line.strip()
@@ -136,10 +127,12 @@ def _parse_qc_result(raw):
             reason = line[len("REASON:"):].strip()
             logger.info(f"QC unsupported reason: {reason}")
             unsupported.append(pending_sentence)
+            reasons.append(reason)
             pending_sentence = None
     if pending_sentence:
         unsupported.append(pending_sentence)
-    return (False, unsupported) if unsupported else (True, [])
+        reasons.append("")
+    return (False, unsupported, reasons) if unsupported else (True, [], [])
 
 
 def build_correction_context(unsupported_sentences):
@@ -156,12 +149,13 @@ def build_correction_context(unsupported_sentences):
 
 
 async def run_response_qc(response_text, messages, channel_id,
-                          provider_override=None):
+                          provider_override=None, receipt_data=None):
     """Orchestrate QC check → re-reason → second QC.
 
     Returns:
         str  — verified/corrected response (PASS or fail-open paths)
         None — both QC checks failed; caller must send QC_FAIL message
+    On double-fail, populates receipt_data["qc_fail_details"] if provided.
     Max API calls: 2 × GPT-4o-mini + 1 × provider.
     """
     from utils.ai_utils import generate_ai_response
@@ -182,7 +176,7 @@ async def run_response_qc(response_text, messages, channel_id,
             raw1 = await asyncio.to_thread(
                 _call_qc, _build_qc_prompt(context_block, question, response_text))
             logger.debug(f"QC pass 1: {raw1[:120]}")
-            passed1, unsupported = _parse_qc_result(raw1)
+            passed1, unsupported, reasons1 = _parse_qc_result(raw1)
         except Exception as e:
             logger.warning(f"QC pass 1 error, failing open: {e}")
             return response_text
@@ -218,7 +212,7 @@ async def run_response_qc(response_text, messages, channel_id,
             raw2 = await asyncio.to_thread(
                 _call_qc, _build_qc_prompt(context_block, question, new_resp))
             logger.debug(f"QC pass 2: {raw2[:120]}")
-            passed2, _ = _parse_qc_result(raw2)
+            passed2, unsupported2, reasons2 = _parse_qc_result(raw2)
         except Exception as e:
             logger.warning(f"QC pass 2 error, failing open: {e}")
             return new_resp
@@ -228,6 +222,15 @@ async def run_response_qc(response_text, messages, channel_id,
             return new_resp
 
         logger.info("QC FAIL after re-reason → QC_FAIL")
+        if receipt_data is not None:
+            receipt_data["qc_fail_details"] = {
+                "pass1_response": response_text,
+                "pass1_unsupported": unsupported,
+                "pass1_reasons": reasons1,
+                "pass2_response": new_resp,
+                "pass2_unsupported": unsupported2,
+                "pass2_reasons": reasons2,
+            }
         return None
 
     except Exception as e:

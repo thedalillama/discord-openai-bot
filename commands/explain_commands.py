@@ -1,18 +1,11 @@
 # commands/explain_commands.py
-# Version 1.3.3
+# Version 1.3.4
 """
 !explain command — show context receipt for the most recent bot response.
 
-CHANGES v1.3.3: Display QC_FAIL warning in receipt when qc_failed=True.
-CHANGES v1.3.2: Replace speaker_filter display with query_planner section (SOW v7.5.0)
-CHANGES v1.3.0: Continuity section display (SOW v7.0.0 M1)
-- MODIFIED: format_receipt() — shows Layer 2 continuity block stats
-  (session bridge msgs, unsummarized msgs, tokens used, trimmed flag)
-
-CHANGES v1.2.0: Segment-based receipt display; segment/cluster path dispatch (SOW v6.1.0)
-CHANGES v1.1.0: !explain detail mode; format_injected_messages(); variadic args (SOW v5.7.1)
-CREATED v1.0.0: Context receipt display (SOW v5.7.0)
-
+CHANGES v1.3.4: QC_FAIL detail display — pass 1/2 responses + per-claim reasons.
+CHANGES v1.3.3: QC_FAIL warning. v1.3.2: query_planner section. v1.3.0: continuity.
+CHANGES v1.2.0: segment/cluster path. v1.1.0: detail mode. v1.0.0: initial.
 All output prefixed with ℹ️. Uses send_paginated() for long receipts.
 """
 import asyncio
@@ -30,6 +23,17 @@ def format_receipt(receipt):
     lines = []
     if receipt.get("qc_failed"):
         lines.append("⚠️ **QC_FAIL** — response was blocked; this is the context that was used.")
+        d = receipt.get("qc_fail_details")
+        if d:
+            for tag, resp, unsprt, rsns in [
+                    ("Pass 1", d.get("pass1_response", ""), d.get("pass1_unsupported", []), d.get("pass1_reasons", [])),
+                    ("Pass 2", d.get("pass2_response", ""), d.get("pass2_unsupported", []), d.get("pass2_reasons", []))]:
+                if resp:
+                    lines.append(f"\n**QC {tag} Response**: {resp[:250]}")
+                    for s, r in zip(unsprt, rsns):
+                        lines.append(f"  ⚠️ {s[:150]}")
+                        if r:
+                            lines.append(f"     → {r[:150]}")
     query = receipt.get("query", "")
     lines.append(
         f'**Context Receipt** (response to: "{query[:80]}")' if query
@@ -109,17 +113,12 @@ def format_receipt(receipt):
                 lines.append(f"  {c.get('label', '?')} — score {c.get('score', 0):.3f}")
 
     if receipt.get("fallback_used"):
-        lines.append(
-            f"\n**Fallback**: {receipt.get('fallback_messages', 0)} "
-            f"msgs retrieved by direct similarity")
+        lines.append(f"\n**Fallback**: {receipt.get('fallback_messages',0)} msgs retrieved by direct similarity")
 
     lines.append(f"\n**Recent Messages**: {receipt.get('recent_messages', 0)}")
-    total = receipt.get("total_context_tokens", 0)
-    budget = receipt.get("budget_tokens", 0)
-    pct = receipt.get("budget_used_pct", 0)
+    total, budget, pct = receipt.get("total_context_tokens",0), receipt.get("budget_tokens",0), receipt.get("budget_used_pct",0)
     lines.append(f"**Budget**: {total:,} / {budget:,} tokens ({pct:.1f}%)")
-    lines.append(
-        f"**Provider**: {receipt.get('provider', '?')} / {receipt.get('model', '?')}")
+    lines.append(f"**Provider**: {receipt.get('provider','?')} / {receipt.get('model','?')}")
     return lines
 
 
