@@ -1,9 +1,11 @@
 # utils/context_helpers.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Helper functions for context assembly (SOW v7.0.0 M1).
 Extracted from context_manager.py to respect the 250-line limit.
 
+CHANGES v1.2.0: _FOCUS_INSTRUCTION appended to information-query system prompts
+  to prevent non-sequitur context injection (NON_SEQUITUR_INSTRUCTION_HANDOFF).
 CHANGES v1.1.0: build_system_prompt() — assembles system prompt from context
   components; handles conversational/author-filter/information branching so
   context_manager.py has a single call site (SOW v7.6.0).
@@ -17,6 +19,18 @@ from utils.logging_utils import get_logger
 logger = get_logger('context_helpers')
 
 _control_cache = {}
+
+_FOCUS_INSTRUCTION = (
+    "IMPORTANT: Respond only to the user's current message. "
+    "Do not introduce topics from the context unless the user "
+    "explicitly asks about them. If the user's message is a "
+    "joke, greeting, or casual remark, respond in kind without "
+    "forcing facts into your reply. If you cannot connect the "
+    "user's message to the context, respond naturally without "
+    "claiming the context is relevant. Do not address questions "
+    "from earlier in the conversation unless the user repeats "
+    "them now."
+)
 
 
 def _load_summary(channel_id):
@@ -133,4 +147,5 @@ def build_system_prompt(base_personality, control, always_on,
                     f"history.\n\n{format_summary_for_context(summary)}")
         logger.warning(f"Retrieval fully degraded ch:{channel_id}")
 
+    content += f"\n\n{_FOCUS_INSTRUCTION}"
     return content
