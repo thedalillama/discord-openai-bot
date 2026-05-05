@@ -1,5 +1,5 @@
 # utils/pipeline_state.py
-# Version 1.3.0
+# Version 1.4.0
 """
 Pipeline state CRUD for v7.0.0 incremental pipeline (SOW v7.0.0 M1).
 
@@ -7,21 +7,12 @@ Tracks per-channel segmentation progress via the pipeline_state table.
 Provides session bridge and unsummarized message queries for Layer 2
 context injection.
 
+CHANGES v1.4.0: _is_known_bad_response() — filter QC_FAIL and API error
+  messages from Layer 2 injection alongside existing noise filter.
 CHANGES v1.3.0: Fix Layer 2 drainage by background worker
-- MODIFIED: get_unsummarized_messages() — boundary is now the max message ID
-  from clustered/unclustered segments (last !summary create run), not
-  last_segmented_message_id. Worker indexing no longer drains the pool.
-- MODIFIED: get_session_bridge_messages() — only exclude clustered/unclustered
-  segments (already in always-on summary). Indexed segments stay in bridge.
-CHANGES v1.2.0: Exclude indexed/clustered segments from session bridge (too aggressive — reverted)
 CHANGES v1.1.0: Filter noise messages from Layer 2 injection
 
-CREATED v1.0.0:
-- get_pipeline_state() — auto-initializing CRUD for pipeline_state table
-- save_pipeline_state() — upsert last_segmented_message_id + last_pipeline_run
-- get_unsegmented_count() — COUNT(*) WHERE id > pointer (no counter drift)
-- get_unsummarized_messages() — messages after segmentation pointer
-- get_session_bridge_messages() — raw msgs from most recent session's segments
+CREATED v1.0.0: pipeline_state CRUD, unsummarized/bridge queries
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -130,14 +121,24 @@ def get_unsegmented_count(channel_id):
 
 
 def _is_layer2_noise(content, is_bot):
-    """Return True if a message should be excluded from Layer 2 injection.
-    Matches the same logic as _seed_history_from_db() in discord_loader.py.
-    """
+    """Return True if a message should be excluded from Layer 2 injection."""
     if not content:
         return True
     if content.startswith('!'):
         return True
     if content.startswith('ℹ️') or content.startswith('⚙️'):
+        return True
+    return False
+
+
+def _is_known_bad_response(content):
+    """Return True for QC_FAIL or API error responses that should not be injected."""
+    if not content:
+        return False
+    s = content.strip()
+    if s.startswith('ℹ️') and 'unable to produce a verified' in s:
+        return True
+    if "I'm sorry an API error occurred" in s:
         return True
     return False
 
@@ -172,6 +173,7 @@ def get_unsummarized_messages(channel_id):
              "created_at": r[3], "is_bot": bool(r[4])}
             for r in rows
             if not _is_layer2_noise(r[2], bool(r[4]))
+            and not _is_known_bad_response(r[2])
         ]
     finally:
         conn.close()
@@ -213,7 +215,8 @@ def get_session_bridge_messages(channel_id):
                 "WHERE sm.segment_id=? ORDER BY sm.position ASC",
                 (seg_id,)).fetchall()
             for r in rows:
-                if not _is_layer2_noise(r[2], bool(r[4])):
+                if (not _is_layer2_noise(r[2], bool(r[4]))
+                        and not _is_known_bad_response(r[2])):
                     messages.append({
                         "id": r[0], "author": r[1], "content": r[2],
                         "created_at": r[3], "is_bot": bool(r[4]),

@@ -1,12 +1,29 @@
+# utils/history/storage.py
+# Version 1.1.0
 """
 Storage management for Discord bot history data.
-Handles all the data dictionaries and basic access operations.
+
+CHANGES v1.1.0: Filter known-bad responses (QC_FAIL, API errors) from
+  in-memory history at storage time to prevent self-poisoning loops.
+CREATED v1.0.0: channel_history, locks, add/trim/clear/filter helpers.
 """
 from collections import defaultdict
 import asyncio
 from utils.logging_utils import get_logger
 
 logger = get_logger('history.storage')
+
+
+def _is_known_bad_response(content):
+    """Return True for QC_FAIL or API error responses that should not be stored."""
+    if not content:
+        return False
+    s = content.strip()
+    if s.startswith('ℹ️') and 'unable to produce a verified' in s:
+        return True
+    if "I'm sorry an API error occurred" in s:
+        return True
+    return False
 
 # Dictionary to store conversation history for each channel
 channel_history = defaultdict(list)
@@ -83,12 +100,14 @@ def get_channel_history(channel_id):
 
 def add_message_to_history(channel_id, message):
     """
-    Add a message to channel history
-    
-    Args:
-        channel_id: The Discord channel ID
-        message: Message dict with role, content, etc.
+    Add a message to channel history, skipping known-bad bot responses.
     """
+    if (message.get("role") == "assistant"
+            and _is_known_bad_response(message.get("content", ""))):
+        logger.debug(
+            f"Skipping known-bad response from history: "
+            f"{(message.get('content') or '')[:80]}")
+        return
     channel_history[channel_id].append(message)
 
 def trim_channel_history(channel_id, max_length):
