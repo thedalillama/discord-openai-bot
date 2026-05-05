@@ -123,6 +123,8 @@ def build_system_prompt(base_personality, control, always_on,
         content += (f"\n\n--- CONVERSATION CONTEXT ---\n"
                     f"Today's date: {today}\n\n{always_on}")
 
+    content += f"\n\n{_FOCUS_INSTRUCTION}"
+
     if is_conv:
         return content
 
@@ -147,5 +149,4 @@ def build_system_prompt(base_personality, control, always_on,
                     f"history.\n\n{format_summary_for_context(summary)}")
         logger.warning(f"Retrieval fully degraded ch:{channel_id}")
 
-    content += f"\n\n{_FOCUS_INSTRUCTION}"
     return content
