@@ -1,23 +1,14 @@
 # ai_providers/anthropic_provider.py
-# Version 1.1.0
+# Version 1.2.0
 """
 Anthropic (Claude) provider implementation.
 
+CHANGES v1.2.0: Strip trailing assistant messages before API call.
+  Anthropic returns empty content[] when the last message is an assistant turn.
+  Caused by context ordering where Layer 2 + selected can end on an assistant.
+
 CHANGES v1.1.0: Token usage logging (SOW v2.23.0)
-- ADDED: Extract response.usage (input_tokens, output_tokens) after API call
-- ADDED: Call record_usage() for per-channel token accumulation and INFO logging
-- NOTE: Usage extraction is best-effort — missing usage data logged at DEBUG
-
 CHANGES v1.0.0: Added async executor wrapper (SOW v2.21.0)
-- ADDED: run_in_executor() wrapper for synchronous Anthropic API call
-- FIXED: Heartbeat blocking risk
-
-FEATURES:
-- Anthropic Claude models via messages API
-- Async-safe execution with thread pool executor
-- Large context support
-- Vision/image support
-- Per-call token usage logging
 """
 import asyncio
 import concurrent.futures
@@ -80,6 +71,13 @@ class AnthropicProvider(AIProvider):
                         "role": msg["role"],
                         "content": content
                     })
+
+            # Anthropic returns empty content[] if the last message is assistant.
+            while claude_messages and claude_messages[-1]["role"] == "assistant":
+                self.logger.warning("Dropping trailing assistant message before Anthropic call")
+                claude_messages.pop()
+            if not claude_messages:
+                raise ValueError("No user messages remaining after stripping trailing assistant turns")
 
             self.logger.debug(f"Sending system prompt to Anthropic API: '{system_prompt}'")
             self.logger.debug(f"Number of messages: {len(claude_messages)}")
