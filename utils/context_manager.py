@@ -1,21 +1,13 @@
 # utils/context_manager.py
-# Version 3.1.4
+# Version 3.2.0
 """
 Token-budget-aware context management and usage tracking.
 
-CHANGES v3.1.4: Author-filter header instructs date-framing for specific values.
-CHANGES v3.1.3: Inject actual user question into author-filter header for topic grounding.
-CHANGES v3.1.2: Author-filter header — instruct model to answer only what was asked.
-CHANGES v3.1.1: Suppress Layer 1 summary for author-filtered queries (SOW v7.5.0)
-CHANGES v3.1.0: Layer 3 entry point → plan_and_retrieve() from query_planner (SOW v7.5.0)
-CHANGES v3.0.5: Add attribution hint to citation instructions (check author name per msg)
-CHANGES v3.0.4: Replace gorilla citation example with neutral one
-CHANGES v3.0.3: Reverse dedup — Layer 2 canonical; selected only adds SQLite-missing msgs
-CHANGES v3.0.2: Add /tmp/last_full_context.json DEBUG dump (full messages array)
-CHANGES v3.0.1: Fix always_on receipt missing total_tokens key (overview + control)
-CHANGES v3.0.0: Three-layer context assembly; read_control_file(); Layer 1/2/3 assembly (SOW v7.0.0 M1)
-CHANGES v2.x: receipt fixes, citation pass-through, retrieval extraction (SOW v5.6.0–v6.1.0)
-CREATED v1.0.0: Initial implementation (SOW v2.23.0)
+CHANGES v3.2.0: Conversational classifier bypasses Layer 1 summary + Layer 3
+  retrieval; build_system_prompt() extracted to context_helpers; Receipt dataclass.
+CHANGES v3.1.4-3.1.0: Author-filter header; plan_and_retrieve() entry.
+CHANGES v3.0.0: Three-layer context assembly (SOW v7.0.0 M1)
+CREATED v1.0.0: Initial implementation
 """
 from collections import defaultdict
 from datetime import date
@@ -23,7 +15,7 @@ from config import CONTEXT_BUDGET_PERCENT, MAX_RECENT_MESSAGES, LAYER2_BUDGET_PC
 from utils.history.message_processing import prepare_messages_for_api
 from utils.context_helpers import (
     _load_summary, read_control_file, _merge_dedup_sort,
-    _trim_to_budget, _format_as_turn)
+    _trim_to_budget, _format_as_turn, build_system_prompt)
 from utils.logging_utils import get_logger
 
 logger = get_logger('context_manager')
@@ -74,16 +66,18 @@ def get_channel_usage(channel_id):
 
 
 def build_context_for_provider(channel_id, provider):
-    """Build a token-budget-aware message list for an AI provider call.
+    """Build token-budget-aware message list for an AI provider call.
 
-    Three-layer context assembly:
-      Layer 1 (guaranteed): system prompt + control file + always-on summary
-      Layer 2 (guaranteed): session bridge + unsummarized messages
-      Layer 3 (fills remainder): historical RRF retrieval
+    Layer 1 (guaranteed): system prompt + control file + always-on summary.
+    Layer 2 (guaranteed): session bridge + unsummarized messages.
+    Layer 3 (fills remainder): historical RRF retrieval.
+    Conversational queries bypass Layer 1 summary and Layer 3 entirely.
 
-    Return: (messages, receipt_data, citation_map)
+    Returns: (messages, receipt_data, citation_map)
     """
-    from utils.query_planner import plan_and_retrieve
+    from utils.query_planner import plan_and_retrieve, get_channel_members
+    from utils.query_type import classify_query, QueryType
+    from utils.receipt import Receipt, PlannerInfo, AlwaysOnInfo, ContinuityInfo
     from utils.pipeline_state import (
         get_session_bridge_messages, get_unsummarized_messages)
 
@@ -102,12 +96,18 @@ def build_context_for_provider(channel_id, provider):
     system_msg = all_messages[0]
     conversation_msgs = all_messages[1:]
     summary = _load_summary(channel_id)
-    receipt_data = None
-    citation_map = {}
+
+    # Classify query type — conversational bypasses summary + retrieval
+    query_text = next(
+        (m["content"].strip() for m in reversed(conversation_msgs)
+         if m.get("role") == "user" and m.get("content", "").strip()), "")
+    members = get_channel_members(channel_id) if query_text else []
+    query_type = classify_query(query_text, members) if query_text else QueryType.INFORMATION
+    is_conv = (query_type == QueryType.CONVERSATIONAL)
 
     # ── Layer 1: System + control file + always-on summary ──
     always_on, always_on_tokens = "", 0
-    if summary:
+    if summary and not is_conv:
         from utils.summary_display import format_always_on_context
         always_on = format_always_on_context(summary)
         always_on_tokens = estimate_tokens(always_on)
@@ -116,14 +116,13 @@ def build_context_for_provider(channel_id, provider):
     control_tokens = estimate_tokens(control)
     today = date.today().isoformat()
 
+    # Conservative budget estimate includes always-on even for author-filter queries
     base_content = system_msg["content"]
     if control:
         base_content += f"\n\n{control}"
     if always_on:
-        base_content += (
-            f"\n\n--- CONVERSATION CONTEXT ---\n"
-            f"Today's date: {today}\n\n{always_on}")
-
+        base_content += (f"\n\n--- CONVERSATION CONTEXT ---\n"
+                         f"Today's date: {today}\n\n{always_on}")
     base_tokens = estimate_tokens(base_content) + MSG_OVERHEAD
     remaining = budget - base_tokens
     if remaining <= 0:
@@ -139,34 +138,20 @@ def build_context_for_provider(channel_id, provider):
     trimmed = len(continuity_block) < len(continuity)
     remaining -= layer2_tokens
 
-    # ── Layer 3: Historical retrieval (fills remainder) ──
+    # ── Layer 3: Historical retrieval (skipped for conversational queries) ──
     seen_ids = {m["id"] for m in continuity_block}
-    retrieved, ret_tokens, cluster_receipt, citation_map = plan_and_retrieve(
-        channel_id, conversation_msgs, remaining, exclude_ids=seen_ids)
+    cluster_receipt, citation_map, retrieved = {}, {}, ""
+    if not is_conv:
+        retrieved, _, cluster_receipt, citation_map = plan_and_retrieve(
+            channel_id, conversation_msgs, remaining, exclude_ids=seen_ids)
 
-    # ── Build final system message ──
-    af = ", ".join(((cluster_receipt or {}).get("query_planner") or {}).get("author_filter") or [])
-    af_query = (cluster_receipt or {}).get("query", "").strip() if af else ""
-    system_content = base_content if not af else (
-        system_msg["content"] + (f"\n\n{control}" if control else ""))
-    if retrieved:
-        cite_instr = ("CITATION INSTRUCTIONS: cite [N] inline for specific info. "
-                      "For participant questions, only cite their messages.\n\n"
-                      ) if citation_map else ""
-        hdr = (f"\n\n--- {af}'s Channel Messages ---\n"
-               f"User asked: \"{af_query}\". Only answer if relevant. "
-               f"Frame specific values with their date: 'on [date] {af} said ...'. "
-               f"If not found, say so clearly.\n\n") if af else (
-               f"\n\n--- PAST MESSAGES FROM THIS CHANNEL ---\n"
-               f"Real messages retrieved by topic relevance.\n\n")
-        system_content += hdr + cite_instr + retrieved
-    elif summary:
-        from utils.summary_display import format_summary_for_context
-        system_content += (
-            f"\n\n--- CONVERSATION CONTEXT ---\nToday's date: {today}\n\n"
-            f"The following is a summary of this channel's conversation "
-            f"history.\n\n{format_summary_for_context(summary)}")
-        logger.warning(f"Retrieval fully degraded ch:{channel_id}")
+    # ── Build system message ──
+    af_list = ((cluster_receipt.get("query_planner") or {}).get("author_filter") or [])
+    af_query = cluster_receipt.get("query", "").strip() if af_list else ""
+    system_content = build_system_prompt(
+        system_msg["content"], control, always_on,
+        retrieved, af_list, af_query,
+        citation_map, summary, today, channel_id, query_type)
 
     logger.debug(f"Context block (first 2000):\n{system_content[:2000]}")
     if logger.isEnabledFor(10):
@@ -194,55 +179,72 @@ def build_context_for_provider(channel_id, provider):
         used += t
     selected.reverse()
 
-    dropped = len(conversation_msgs) - len(selected)
-    if dropped > 0:
-        logger.info(f"Token budget trim: dropped {dropped} msgs ch:{channel_id}")
+    if len(conversation_msgs) > len(selected):
+        logger.info(f"Token budget trim: dropped {len(conversation_msgs)-len(selected)} msgs ch:{channel_id}")
 
     total_tokens = system_tokens + layer2_tokens + used
-    if summary and cluster_receipt:
-        receipt_data = {
-            "query": cluster_receipt.get("query", ""),
-            "query_embedding_path": cluster_receipt.get("embedding_path", "unknown"),
-            "always_on": {
-                "total_tokens": always_on_tokens + control_tokens,
-                "overview_tokens": always_on_tokens,
-                "control_file_tokens": control_tokens,
-                "key_facts_count": len([f for f in summary.get("key_facts", [])
-                                        if f.get("status") == "active"]),
-                "decisions_count": len([d for d in summary.get("decisions", [])
-                                        if d.get("status") == "active"]),
-                "action_items_count": len([a for a in summary.get("action_items", [])
-                                           if a.get("status") in ("open", "in_progress")]),
-                "open_questions_count": len([q for q in summary.get("open_questions", [])
-                                             if q.get("status") == "open"]),
-            },
-            "continuity": {
-                "session_bridge_messages": len(bridge),
-                "unsummarized_messages": len(unsummarized),
-                "total_continuity_messages": len(continuity_block),
-                "continuity_tokens": layer2_tokens,
-                "trimmed": trimmed,
-            },
-            "retrieved_segments": cluster_receipt.get("retrieved_segments"),
-            "score_gap_applied": cluster_receipt.get("score_gap_applied", False),
-            "retrieved_clusters": cluster_receipt.get("retrieved_clusters", []),
-            "clusters_below_threshold": cluster_receipt.get("clusters_below_threshold", []),
-            "fallback_used": cluster_receipt.get("fallback_used", False),
-            "fallback_messages": cluster_receipt.get("fallback_messages", 0),
-            "query_planner": cluster_receipt.get("query_planner"),
-            "recent_messages": len(selected),
-            "total_context_tokens": total_tokens,
-            "budget_tokens": budget,
-            "budget_used_pct": (
-                round(total_tokens / budget * 100, 1) if budget else 0),
-            "provider": provider.name,
-            "model": getattr(provider, 'model', '?'),
-        }
 
-    final_messages = [{"role": "system", "content": system_content}] + layer2_turns + selected
+    # ── Build receipt ──
+    receipt_data = None
+    if summary or is_conv:
+        qp = cluster_receipt.get("query_planner")
+        tf = (qp.get("time_filter") or {}) if qp else {}
+
+        def _count(lst, key, vals):
+            return len([x for x in (summary or {}).get(lst, []) if x.get(key) in vals])
+
+        receipt = Receipt(
+            query=cluster_receipt.get("query", query_text),
+            query_type=query_type.value,
+            query_embedding_path=cluster_receipt.get("embedding_path", "unknown"),
+            planner=PlannerInfo(
+                used=bool(qp),
+                mode=(qp.get("mode") if qp else None),
+                author_filter=((qp.get("author_filter") or []) if qp else []),
+                time_filter_after=tf.get("after"),
+                time_filter_before=tf.get("before"),
+                candidates=(qp.get("candidates") if qp else None),
+                planner_latency_ms=(qp.get("planner_latency_ms", 0) if qp else 0),
+                note=(qp.get("note") if qp else None),
+                content_query=(qp.get("content_query") if qp else None),
+            ),
+            always_on=AlwaysOnInfo(
+                total_tokens=always_on_tokens + control_tokens,
+                overview_tokens=always_on_tokens,
+                control_file_tokens=control_tokens,
+                key_facts_count=_count("key_facts", "status", {"active"}),
+                decisions_count=_count("decisions", "status", {"active"}),
+                action_items_count=_count("action_items", "status", {"open", "in_progress"}),
+                open_questions_count=_count("open_questions", "status", {"open"}),
+            ),
+            continuity=ContinuityInfo(
+                session_bridge_messages=len(bridge),
+                unsummarized_messages=len(unsummarized),
+                total_continuity_messages=len(continuity_block),
+                continuity_tokens=layer2_tokens,
+                trimmed=trimmed,
+            ),
+            retrieved_segments=cluster_receipt.get("retrieved_segments"),
+            score_gap_applied=cluster_receipt.get("score_gap_applied", False),
+            retrieved_clusters=cluster_receipt.get("retrieved_clusters", []),
+            clusters_below_threshold=cluster_receipt.get("clusters_below_threshold", []),
+            fallback_used=cluster_receipt.get("fallback_used", False),
+            fallback_messages=cluster_receipt.get("fallback_messages", 0),
+            recent_messages=len(selected),
+            total_context_tokens=total_tokens,
+            budget_tokens=budget,
+            budget_used_pct=round(total_tokens / budget * 100, 1) if budget else 0,
+            provider=provider.name,
+            model=getattr(provider, 'model', '?'),
+        )
+        receipt_data = receipt.to_dict()
+
+    final_messages = ([{"role": "system", "content": system_content}]
+                      + layer2_turns + selected)
     try:
         import json
-        json.dump(final_messages, open('/tmp/last_full_context.json', 'w'), indent=2, default=str)
+        json.dump(final_messages, open('/tmp/last_full_context.json', 'w'),
+                  indent=2, default=str)
     except Exception:
         pass
     return final_messages, receipt_data, citation_map

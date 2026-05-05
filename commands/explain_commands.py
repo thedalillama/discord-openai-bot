@@ -1,11 +1,11 @@
 # commands/explain_commands.py
-# Version 1.3.4
+# Version 1.3.5
 """
 !explain command — show context receipt for the most recent bot response.
 
+CHANGES v1.3.5: Show query_type (conversational/information) in receipt (SOW v7.6.0).
 CHANGES v1.3.4: QC_FAIL detail display — pass 1/2 responses + per-claim reasons.
-CHANGES v1.3.3: QC_FAIL warning. v1.3.2: query_planner section. v1.3.0: continuity.
-CHANGES v1.2.0: segment/cluster path. v1.1.0: detail mode. v1.0.0: initial.
+CHANGES v1.3.3-1.2.0: QC_FAIL warning; query_planner section; continuity; segment/cluster path.
 All output prefixed with ℹ️. Uses send_paginated() for long receipts.
 """
 import asyncio
@@ -39,8 +39,10 @@ def format_receipt(receipt):
         f'**Context Receipt** (response to: "{query[:80]}")' if query
         else "**Context Receipt**")
 
-    path = receipt.get("query_embedding_path", "unknown")
-    lines.append(f"\n**Query Embedding**: {path}")
+    qt = receipt.get("query_type")
+    if qt:
+        lines.append(f"**Query Type**: {qt}")
+    lines.append(f"\n**Query Embedding**: {receipt.get('query_embedding_path', 'unknown')}")
 
     cont = receipt.get("continuity")
     if cont:

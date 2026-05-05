@@ -1,15 +1,14 @@
 # utils/context_helpers.py
-# Version 1.0.0
+# Version 1.1.0
 """
 Helper functions for context assembly (SOW v7.0.0 M1).
 Extracted from context_manager.py to respect the 250-line limit.
 
-CREATED v1.0.0:
-- _load_summary() — load channel summary dict
-- read_control_file() — mtime-cached control file injection
-- _merge_dedup_sort() — merge + dedup two message lists by id
-- _trim_to_budget() — trim oldest messages to fit token budget
-- _format_as_turn() — format DB message dict as API turn
+CHANGES v1.1.0: build_system_prompt() — assembles system prompt from context
+  components; handles conversational/author-filter/information branching so
+  context_manager.py has a single call site (SOW v7.6.0).
+CREATED v1.0.0: _load_summary, read_control_file, _merge_dedup_sort,
+  _trim_to_budget, _format_as_turn.
 """
 import os
 from config import CONTROL_FILE_PATH
@@ -85,3 +84,53 @@ def _format_as_turn(msg):
     date_str = (msg.get("created_at") or "")[:10]
     content = f"[{date_str}] {msg['author']}: {msg['content']}"
     return {"role": role, "content": content, "_msg_id": msg["id"]}
+
+
+def build_system_prompt(base_personality, control, always_on,
+                        retrieved, author_filter, af_query,
+                        citation_map, summary, today,
+                        channel_id, query_type=None):
+    """Assemble the system prompt from context components.
+
+    Handles all branching in one place:
+    - Conversational: no always-on summary, no retrieved block.
+    - Author-filtered: drops always-on, adds author-specific header.
+    - Information: full always-on + retrieved block or fallback summary.
+    """
+    from utils.query_type import QueryType
+    is_conv = (query_type == QueryType.CONVERSATIONAL)
+
+    content = base_personality
+    if control:
+        content += f"\n\n{control}"
+
+    # Always-on: information queries without author filter only
+    if always_on and not is_conv and not author_filter:
+        content += (f"\n\n--- CONVERSATION CONTEXT ---\n"
+                    f"Today's date: {today}\n\n{always_on}")
+
+    if is_conv:
+        return content
+
+    if retrieved:
+        cite_instr = ("CITATION INSTRUCTIONS: cite [N] inline for specific info. "
+                      "For participant questions, only cite their messages.\n\n"
+                      ) if citation_map else ""
+        if author_filter:
+            af = ", ".join(author_filter)
+            hdr = (f"\n\n--- {af}'s Channel Messages ---\n"
+                   f"User asked: \"{af_query}\". Only answer if relevant. "
+                   f"Frame specific values with their date: 'on [date] {af} said ...'."
+                   f" If not found, say so clearly.\n\n")
+        else:
+            hdr = (f"\n\n--- PAST MESSAGES FROM THIS CHANNEL ---\n"
+                   f"Real messages retrieved by topic relevance.\n\n")
+        content += hdr + cite_instr + retrieved
+    elif summary:
+        from utils.summary_display import format_summary_for_context
+        content += (f"\n\n--- CONVERSATION CONTEXT ---\nToday's date: {today}\n\n"
+                    f"The following is a summary of this channel's conversation "
+                    f"history.\n\n{format_summary_for_context(summary)}")
+        logger.warning(f"Retrieval fully degraded ch:{channel_id}")
+
+    return content
