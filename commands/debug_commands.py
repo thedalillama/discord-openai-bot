@@ -214,15 +214,15 @@ def register_debug_commands(bot):
         candidates = await asyncio.to_thread(find_poison_candidates, ctx.channel.id)
         if action == 'show':
             if not candidates:
-                await ctx.send(f"{_I}No poison candidates in #{ctx.channel.name}.")
-                return
+                await ctx.send(f"{_I}No poison candidates in #{ctx.channel.name}."); return
             lines = [f"{_I}**{len(candidates)} poison candidates** in #{ctx.channel.name}:"]
             for mid, content, reason in candidates[:20]:
                 lines.append(f"  `{mid}` [{reason}]: {content[:80].replace(chr(10),' ')}...")
             if len(candidates) > 20:
                 lines.append(f"  ...and {len(candidates)-20} more")
             lines.append("\nRun `!debug poison clean` to soft-delete (admin).")
-            await ctx.send("\n".join(lines))
+            from utils.summary_display import send_paginated
+            await send_paginated(ctx, lines)
         elif action == 'clean':
             count = await asyncio.to_thread(
                 soft_delete_messages, ctx.channel.id, [c[0] for c in candidates])
