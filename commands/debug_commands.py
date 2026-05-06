@@ -1,14 +1,11 @@
 # commands/debug_commands.py
-# Version 2.1.0
+# Version 2.2.0
 """
-Debug and maintenance commands: noise scan, cleanup, summary status.
+Debug and maintenance commands.
 
-CHANGES v2.1.0: Show segment/cluster status counts in !debug pipeline (SOW v7.1.0 M2)
-CHANGES v2.0.0: Add !debug pipeline command (SOW v7.0.0 M1)
-CHANGES v1.9.0: Remove dead !debug clusters/summarize_clusters from help
-CHANGES v1.7.0–v1.8.0: Extract cluster commands; add dedup help entry
-CHANGES v1.1.0–v1.6.0: Pagination fix, cluster/embed/backfill commands, classifier drops
-CREATED v1.0.0: Consolidates cleanup + summary diagnostics
+CHANGES v2.2.0: !debug poison show/clean — soft-delete known-bad bot responses.
+CHANGES v2.1.0: Segment/cluster status in !debug pipeline.
+CREATED v1.0.0: noise, cleanup, status, pipeline, dedup commands.
 """
 import asyncio
 import json
@@ -36,7 +33,9 @@ def register_debug_commands(bot):
             f"`!debug propositions` — proposition count + samples\n"
             f"`!debug pipeline` — pipeline state + unsummarized count\n"
             f"`!debug dedup` — scan for duplicate test messages\n"
-            f"`!debug dedup confirm` — remove duplicates")
+            f"`!debug dedup confirm` — remove duplicates\n"
+            f"`!debug poison` — show known-bad bot responses\n"
+            f"`!debug poison clean` — soft-delete them (admin)")
 
     @debug_cmd.command(name='noise')
     async def debug_noise(ctx):
@@ -205,42 +204,47 @@ def register_debug_commands(bot):
         except Exception as e:
             await ctx.send(f"{_I}Error: {e}")
 
+    @debug_cmd.command(name='poison')
+    async def debug_poison(ctx, action='show'):
+        """Show or soft-delete known-bad bot responses. Usage: !debug poison show|clean"""
+        from utils.poison_filter import find_poison_candidates, soft_delete_messages
+        if action == 'clean' and not ctx.author.guild_permissions.administrator:
+            await ctx.send(f"{_I}Admin only.")
+            return
+        candidates = await asyncio.to_thread(find_poison_candidates, ctx.channel.id)
+        if action == 'show':
+            if not candidates:
+                await ctx.send(f"{_I}No poison candidates in #{ctx.channel.name}.")
+                return
+            lines = [f"{_I}**{len(candidates)} poison candidates** in #{ctx.channel.name}:"]
+            for mid, content, reason in candidates[:20]:
+                lines.append(f"  `{mid}` [{reason}]: {content[:80].replace(chr(10),' ')}...")
+            if len(candidates) > 20:
+                lines.append(f"  ...and {len(candidates)-20} more")
+            lines.append("\nRun `!debug poison clean` to soft-delete (admin).")
+            await ctx.send("\n".join(lines))
+        elif action == 'clean':
+            count = await asyncio.to_thread(
+                soft_delete_messages, ctx.channel.id, [c[0] for c in candidates])
+            await ctx.send(f"{_I}Soft-deleted {count} poisoned messages in "
+                           f"#{ctx.channel.name}. Restart to clear in-memory history.")
+
     return debug_cmd
 
 
 async def _find_noise(channel, bot_user_id):
     """Scan channel for deletable bot noise messages."""
-    messages = []
+    to_delete, kept, commands_found, bot_responses, in_seq = [], 0, 0, 0, False
     async for msg in channel.history(limit=10000, oldest_first=True):
-        messages.append(msg)
-    to_delete = []
-    kept = commands_found = bot_responses = 0
-    in_command_sequence = False
-    for msg in messages:
-        is_bot = msg.author.id == bot_user_id
-        if not is_bot and msg.content.startswith('!'):
-            commands_found += 1
-            in_command_sequence = True
-            continue
-        if is_bot and in_command_sequence:
-            to_delete.append(msg)
-            bot_responses += 1
-            continue
-        if is_bot and (msg.content.startswith("ℹ️") or
-                       msg.content.startswith("⚙️")):
-            to_delete.append(msg)
-            bot_responses += 1
-            in_command_sequence = False
-            continue
-        if not is_bot:
-            in_command_sequence = False
-            kept += 1
-            continue
-        if is_bot and not in_command_sequence:
-            kept += 1
-            continue
-    stats = {
-        "commands": commands_found, "bot_responses": bot_responses,
-        "total": len(to_delete), "kept": kept,
-    }
-    return to_delete, stats
+        bot = msg.author.id == bot_user_id
+        if not bot and msg.content.startswith('!'):
+            commands_found += 1; in_seq = True; continue
+        if bot and in_seq:
+            to_delete.append(msg); bot_responses += 1; continue
+        if bot and msg.content.startswith(("ℹ️", "⚙️")):
+            to_delete.append(msg); bot_responses += 1; in_seq = False; continue
+        if not bot:
+            in_seq = False
+        kept += 1
+    return to_delete, {"commands": commands_found, "bot_responses": bot_responses,
+                       "total": len(to_delete), "kept": kept}
